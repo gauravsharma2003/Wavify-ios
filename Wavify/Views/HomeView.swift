@@ -29,24 +29,7 @@ struct HomeView: View {
                         LazyVStack(spacing: 24) {
                             // Chip Cloud (Fixed at top of scroll or pinned?)
                             // For now, inside scroll but could be pinned
-                            if let chips = viewModel.homePage?.chips, !chips.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(chips) { chip in
-                                            ChipView(
-                                                title: chip.title,
-                                                isSelected: chip.isSelected || viewModel.selectedChipId == chip.id
-                                            ) {
-                                                Task {
-                                                    await viewModel.selectChip(chip)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal)
-                                }
-                                .padding(.top, 8)
-                            }
+
                             
                             // You Might Like Section (4 rows, horizontal scroll)
                             if !viewModel.recommendedSongs.isEmpty {
@@ -129,6 +112,12 @@ struct HomeView: View {
                         playlistId: id,
                         initialName: name,
                         initialThumbnail: thumbnail,
+                        audioPlayer: audioPlayer
+                    )
+                case .category(let title, let endpoint):
+                    CategoryDetailView(
+                        title: title,
+                        endpoint: endpoint,
                         audioPlayer: audioPlayer
                     )
                 }

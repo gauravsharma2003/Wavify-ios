@@ -117,6 +117,12 @@ struct LibraryView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                case .category(let title, let endpoint):
+                    CategoryDetailView(
+                        title: title,
+                        endpoint: endpoint,
+                        audioPlayer: audioPlayer
+                    )
                 }
             }
         }

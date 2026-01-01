@@ -126,6 +126,12 @@ struct SearchView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                case .category(let title, let endpoint):
+                    CategoryDetailView(
+                        title: title,
+                        endpoint: endpoint,
+                        audioPlayer: audioPlayer
+                    )
                 }
             }
             .onChange(of: viewModel.searchText) { _, newValue in
@@ -136,21 +142,74 @@ struct SearchView: View {
     
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            
-            Text("Search for music")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            Text("Find your favorite songs, artists, and albums")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if !viewModel.chips.isEmpty {
+                    Text("Browse")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal)
+                        .padding(.top)
+                    
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)
+                        ],
+                        spacing: 12
+                    ) {
+                        ForEach(viewModel.chips) { chip in
+                            Button {
+                                NavigationManager.shared.navigateToCategory(title: chip.title, endpoint: chip.endpoint)
+                            } label: {
+                                ZStack(alignment: .bottomLeading) {
+                                    // Random-ish gradient background based on title hash
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(hue: Double(abs(chip.title.hashValue) % 100) / 100.0, saturation: 0.7, brightness: 0.8),
+                                                    Color(hue: Double(abs(chip.title.hashValue) % 100) / 100.0, saturation: 0.8, brightness: 0.4)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .frame(height: 100)
+                                    
+                                    Text(chip.title)
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
+                } else {
+                    // Fallback if no chips
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        
+                        Text("Search for music")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        
+                        Text("Find your favorite songs, artists, and albums")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 400)
+                    .padding()
+                }
+            }
         }
-        .padding()
     }
     
     private var resultsView: some View {
@@ -601,11 +660,28 @@ class SearchViewModel {
     var isSearching = false
     var selectedFilter: SearchFilter = .all
     var hasSearched = false
+    var chips: [Chip] = []
     private var justPerformedSearchFromSuggestion = false
     
     private let networkManager = NetworkManager.shared
     private var suggestionTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
+    
+    init() {
+        Task {
+            await fetchChips()
+        }
+    }
+    
+    func fetchChips() async {
+        do {
+            // Reusing getHome to fetch chips. Determine if a dedicated endpoint exists.
+            let home = try await networkManager.getHome()
+            self.chips = home.chips.filter { $0.title.lowercased() != "podcasts" }
+        } catch {
+            print("Failed to fetch chips: \(error)")
+        }
+    }
     
     func searchTextChanged(_ query: String) {
         debounceTask?.cancel()
