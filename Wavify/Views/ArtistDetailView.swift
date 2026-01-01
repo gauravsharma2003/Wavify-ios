@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ArtistDetailView: View {
     let artistId: String
@@ -15,6 +16,7 @@ struct ArtistDetailView: View {
     var audioPlayer: AudioPlayer
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var artistDetail: ArtistDetail?
     @State private var isLoading = true
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
@@ -82,7 +84,7 @@ struct ArtistDetailView: View {
         GeometryReader { geometry in
             let minY = geometry.frame(in: .global).minY
             // Only stretch when pulling down (minY > 0)
-            let height = 350 + (minY > 0 ? minY : 0)
+            let height = max(350, 350 + (minY > 0 ? minY : 0))
             let offset = minY > 0 ? -minY : 0
             
             ZStack(alignment: .bottom) {
@@ -204,45 +206,53 @@ struct ArtistDetailView: View {
     
     // Top Songs: 5 rows horizontal grid
     private func topSongsGrid(_ items: [ArtistItem]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHGrid(
-                rows: Array(repeating: GridItem(.fixed(60), spacing: 8), count: 5),
-                spacing: 16
-            ) {
-                ForEach(Array(items.prefix(15).enumerated()), id: \.element.id) { index, item in
-                    Button {
-                        playSong(item)
-                    } label: {
-                        HStack(spacing: 12) {
-                            AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                                image.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Rectangle().fill(Color.gray.opacity(0.3))
-                            }
-                            .frame(width: 50, height: 50)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title)
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                
-                                Text(item.subtitle ?? "")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: 200, alignment: .leading)
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal)
+        if items.isEmpty {
+            return AnyView(EmptyView())
         }
-        .frame(height: 340) // 5 * 60 + spacings
+        
+        let rowCount = min(5, max(1, items.count))
+        let rows = Array(repeating: GridItem(.fixed(60), spacing: 8), count: rowCount)
+        let totalHeight = CGFloat(rowCount * 60 + (rowCount - 1) * 8)
+        let displayItems = Array(items.prefix(15).enumerated())
+        
+        return AnyView(
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHGrid(rows: rows, spacing: 16) {
+                    ForEach(displayItems, id: \.element.id) { index, item in
+                        Button {
+                            playSong(item)
+                        } label: {
+                            HStack(spacing: 12) {
+                                AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                } placeholder: {
+                                    Rectangle().fill(Color.gray.opacity(0.3))
+                                }
+                                .frame(width: 50, height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    
+                                    Text(item.subtitle ?? "")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 200, alignment: .leading)
+                            }
+                            .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .frame(height: totalHeight)
+        )
     }
     
     // Albums/Singles: Dynamic grid - 1 row for ≤2 items, 2 rows otherwise
@@ -384,6 +394,15 @@ struct ArtistDetailView: View {
     private func playTopSongs() {
         guard let songs = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
         let songList = songs.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+        
+        // Track artist play for favourites
+        FavouritesManager.shared.trackArtistPlay(
+            artistId: artistId,
+            name: artistDetail?.name ?? initialName,
+            thumbnailUrl: artistDetail?.thumbnailUrl ?? initialThumbnail,
+            in: modelContext
+        )
+        
         Task {
             await audioPlayer.playAlbum(songs: songList, startIndex: 0, shuffle: false)
         }
@@ -392,6 +411,15 @@ struct ArtistDetailView: View {
     private func shuffleTopSongs() {
         guard let songs = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
         let songList = songs.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+        
+        // Track artist play for favourites
+        FavouritesManager.shared.trackArtistPlay(
+            artistId: artistId,
+            name: artistDetail?.name ?? initialName,
+            thumbnailUrl: artistDetail?.thumbnailUrl ?? initialThumbnail,
+            in: modelContext
+        )
+        
         Task {
             await audioPlayer.playAlbum(songs: songList, startIndex: 0, shuffle: true)
         }

@@ -264,12 +264,34 @@ struct AlbumDetailView: View {
     // MARK: - Actions
     
     private func playAll() {
+        // Track album play for favourites (only for remote albums, not local playlists)
+        if let albumId = albumId, !isLocalPlaylist {
+            FavouritesManager.shared.trackAlbumPlay(
+                albumId: albumId,
+                title: displayName,
+                artist: displayArtist,
+                thumbnailUrl: displayThumbnail,
+                in: modelContext
+            )
+        }
+        
         Task {
             await audioPlayer.playAlbum(songs: songs, startIndex: 0, shuffle: false)
         }
     }
     
     private func shufflePlay() {
+        // Track album play for favourites (only for remote albums, not local playlists)
+        if let albumId = albumId, !isLocalPlaylist {
+            FavouritesManager.shared.trackAlbumPlay(
+                albumId: albumId,
+                title: displayName,
+                artist: displayArtist,
+                thumbnailUrl: displayThumbnail,
+                in: modelContext
+            )
+        }
+        
         Task {
             await audioPlayer.playAlbum(songs: songs, startIndex: 0, shuffle: true)
         }

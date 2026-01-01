@@ -14,7 +14,10 @@ struct WavifyApp: App {
         let schema = Schema([
             LocalSong.self,
             LocalPlaylist.self,
-            RecentHistory.self
+            RecentHistory.self,
+            SongPlayCount.self,
+            AlbumPlayCount.self,
+            ArtistPlayCount.self
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,

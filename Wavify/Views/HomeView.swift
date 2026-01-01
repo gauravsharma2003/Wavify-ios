@@ -6,12 +6,14 @@
 //
 
 import SwiftUI
+import SwiftData
 import Observation
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     var audioPlayer: AudioPlayer
     @State var navigationManager: NavigationManager = .shared
+    @Environment(\.modelContext) private var modelContext
     
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
@@ -46,6 +48,36 @@ struct HomeView: View {
                                 .padding(.top, 8)
                             }
                             
+                            // You Might Like Section (4 rows, horizontal scroll)
+                            if !viewModel.recommendedSongs.isEmpty {
+                                RecommendationsGridView(
+                                    songs: viewModel.recommendedSongs,
+                                    onSongTap: { result in
+                                        handleResultTap(result)
+                                    }
+                                )
+                            }
+                            
+                            // Keep Listening Section (2 rows, horizontal scroll)
+                            if viewModel.keepListeningSongs.count >= 4 {
+                                KeepListeningGridView(
+                                    songs: viewModel.keepListeningSongs,
+                                    onSongTap: { result in
+                                        handleResultTap(result)
+                                    }
+                                )
+                            }
+                            
+                            // Your Favourites Section (2 rows, large cards)
+                            if viewModel.favouriteItems.count >= 4 {
+                                YourFavouritesGridView(
+                                    items: viewModel.favouriteItems,
+                                    onItemTap: { result in
+                                        handleResultTap(result)
+                                    }
+                                )
+                            }
+                            
                             // Sections
                             if let sections = viewModel.homePage?.sections {
                                 ForEach(sections) { section in
@@ -59,7 +91,7 @@ struct HomeView: View {
                         .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
                     }
                     .refreshable {
-                        await viewModel.refresh()
+                        await viewModel.refresh(modelContext: modelContext)
                     }
                 }
             }
@@ -103,7 +135,39 @@ struct HomeView: View {
             }
         }
         .task {
-            await viewModel.loadInitialContent()
+            await viewModel.loadInitialContent(modelContext: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .songDidStartPlaying)) { notification in
+            if let song = notification.userInfo?["song"] as? Song {
+                // Track song play count
+                PlayCountManager.shared.incrementPlayCount(for: song, in: modelContext)
+                
+                // Track artist play (if artistId available)
+                if let artistId = song.artistId, !artistId.isEmpty {
+                    FavouritesManager.shared.trackArtistPlay(
+                        artistId: artistId,
+                        name: song.artist,
+                        thumbnailUrl: song.thumbnailUrl,
+                        in: modelContext
+                    )
+                }
+                
+                // Track album play (if albumId available)
+                if let albumId = song.albumId, !albumId.isEmpty {
+                    FavouritesManager.shared.trackAlbumPlay(
+                        albumId: albumId,
+                        title: "Album",  // Album title not always available from song
+                        artist: song.artist,
+                        thumbnailUrl: song.thumbnailUrl,
+                        in: modelContext
+                    )
+                }
+                
+                // Prefetch new recommendations in background for next launch
+                Task {
+                    await RecommendationsManager.shared.prefetchRecommendationsInBackground(in: modelContext)
+                }
+            }
         }
     }
     
@@ -161,6 +225,380 @@ extension Color {
 }
 
 // MARK: - Subviews
+
+// MARK: - Keep Listening Grid (2 rows, horizontal scroll)
+struct KeepListeningGridView: View {
+    let songs: [SearchResult]
+    let onSongTap: (SearchResult) -> Void
+    
+    // Grid configuration: 2 rows
+    private let rowCount = 2
+    private let cardSize: CGFloat = 110  // Slightly bigger than list rows
+    private let columnSpacing: CGFloat = 12
+    private let rowSpacing: CGFloat = 12
+    
+    // Split songs into columns for vertical layout
+    private var columns: [[SearchResult]] {
+        var result: [[SearchResult]] = []
+        let columnCount = (songs.count + rowCount - 1) / rowCount
+        
+        for colIndex in 0..<columnCount {
+            var column: [SearchResult] = []
+            for rowIndex in 0..<rowCount {
+                let songIndex = colIndex * rowCount + rowIndex
+                if songIndex < songs.count {
+                    column.append(songs[songIndex])
+                }
+            }
+            result.append(column)
+        }
+        return result
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            Text("Keep Listening")
+                .font(.title2)
+                .bold()
+                .foregroundStyle(.white)
+                .padding(.horizontal)
+            
+            // Horizontal scrolling grid
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: columnSpacing) {
+                    ForEach(columns.indices, id: \.self) { columnIndex in
+                        VStack(spacing: rowSpacing) {
+                            ForEach(columns[columnIndex], id: \.id) { song in
+                                KeepListeningCard(item: song) {
+                                    onSongTap(song)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// MARK: - Keep Listening Card (Medium size)
+struct KeepListeningCard: View {
+    let item: SearchResult
+    let onTap: () -> Void
+    
+    private var thumbnailUrl: String {
+        var p = item.thumbnailUrl
+        if p.contains("w120-h120") {
+            p = p.replacingOccurrences(of: "w120-h120", with: "w360-h360")
+        } else if p.contains("w60-h60") {
+            p = p.replacingOccurrences(of: "w60-h60", with: "w360-h360")
+        } else if p.contains("s120") {
+            p = p.replacingOccurrences(of: "s120", with: "s360")
+        }
+        return p
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                // Thumbnail - square, medium size
+                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.gray.opacity(0.3)
+                    }
+                }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                // Song info
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    
+                    Text(item.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: 220)
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Your Favourites Grid (2 rows, large cards like Quick Picks)
+struct YourFavouritesGridView: View {
+    let items: [SearchResult]
+    let onItemTap: (SearchResult) -> Void
+    
+    // Grid configuration: 2 rows with larger cards
+    private let rowCount = 2
+    private let cardWidth: CGFloat = 180
+    private let columnSpacing: CGFloat = 14
+    private let rowSpacing: CGFloat = 14
+    
+    // Split items into columns for vertical layout
+    private var columns: [[SearchResult]] {
+        var result: [[SearchResult]] = []
+        let columnCount = (items.count + rowCount - 1) / rowCount
+        
+        for colIndex in 0..<columnCount {
+            var column: [SearchResult] = []
+            for rowIndex in 0..<rowCount {
+                let itemIndex = colIndex * rowCount + rowIndex
+                if itemIndex < items.count {
+                    column.append(items[itemIndex])
+                }
+            }
+            result.append(column)
+        }
+        return result
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            Text("Your Favourites")
+                .font(.title2)
+                .bold()
+                .foregroundStyle(.white)
+                .padding(.horizontal)
+            
+            // Horizontal scrolling grid
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: columnSpacing) {
+                    ForEach(columns.indices, id: \.self) { columnIndex in
+                        VStack(spacing: rowSpacing) {
+                            ForEach(columns[columnIndex], id: \.id) { item in
+                                FavouriteCard(item: item) {
+                                    onItemTap(item)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// MARK: - Favourite Card (Large, like Quick Picks)
+struct FavouriteCard: View {
+    let item: SearchResult
+    let onTap: () -> Void
+    
+    private var thumbnailUrl: String {
+        var p = item.thumbnailUrl
+        if p.contains("w120-h120") {
+            p = p.replacingOccurrences(of: "w120-h120", with: "w540-h540")
+        } else if p.contains("w60-h60") {
+            p = p.replacingOccurrences(of: "w60-h60", with: "w540-h540")
+        } else if p.contains("s120") {
+            p = p.replacingOccurrences(of: "s120", with: "s540")
+        }
+        return p
+    }
+    
+    private var isArtist: Bool {
+        item.type == .artist
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Thumbnail - larger size, circular for artists
+                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.gray.opacity(0.3)
+                    }
+                }
+                .frame(width: 150, height: 150)
+                .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
+                .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
+                
+                // Text
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    
+                    if item.type == .album {
+                        Text("Album")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    } else if !item.artist.isEmpty && !isArtist {
+                        Text(item.artist)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    } else {
+                        Text(isArtist ? "Artist" : "Song")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(width: 150)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// SwiftUI helper for conditional shapes
+struct AnyShape: Shape {
+    private let _path: (CGRect) -> Path
+    
+    init<S: Shape>(_ shape: S) {
+        _path = { shape.path(in: $0) }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        _path(rect)
+    }
+}
+
+// MARK: - Recommendations Grid (4 rows, horizontal scroll)
+struct RecommendationsGridView: View {
+    let songs: [SearchResult]
+    let onSongTap: (SearchResult) -> Void
+    
+    // Grid configuration: 4 rows
+    private let rowCount = 4
+    private let columnWidth: CGFloat = 280
+    private let columnSpacing: CGFloat = 16
+    private let rowSpacing: CGFloat = 8
+    
+    // Split songs into columns for vertical layout
+    private var columns: [[SearchResult]] {
+        var result: [[SearchResult]] = []
+        let columnCount = (songs.count + rowCount - 1) / rowCount
+        
+        for colIndex in 0..<columnCount {
+            var column: [SearchResult] = []
+            for rowIndex in 0..<rowCount {
+                let songIndex = colIndex * rowCount + rowIndex
+                if songIndex < songs.count {
+                    column.append(songs[songIndex])
+                }
+            }
+            result.append(column)
+        }
+        return result
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Based on your listening")
+                    .font(.subheadline)
+                    .foregroundStyle(.gray)
+                    .textCase(.uppercase)
+                Text("You might like")
+                    .font(.title2)
+                    .bold()
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal)
+            
+            // Horizontal scrolling list
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: columnSpacing) {
+                    ForEach(columns.indices, id: \.self) { columnIndex in
+                        VStack(spacing: rowSpacing) {
+                            ForEach(columns[columnIndex], id: \.id) { song in
+                                RecommendationListRow(item: song) {
+                                    onSongTap(song)
+                                }
+                            }
+                        }
+                        .frame(width: columnWidth)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// MARK: - Recommendation List Row (Compact)
+struct RecommendationListRow: View {
+    let item: SearchResult
+    let onTap: () -> Void
+    
+    private var thumbnailUrl: String {
+        var p = item.thumbnailUrl
+        if p.contains("w120-h120") {
+            p = p.replacingOccurrences(of: "w120-h120", with: "w226-h226")
+        } else if p.contains("w60-h60") {
+            p = p.replacingOccurrences(of: "w60-h60", with: "w226-h226")
+        } else if p.contains("s120") {
+            p = p.replacingOccurrences(of: "s120", with: "s226")
+        }
+        return p
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                // Thumbnail
+                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.gray.opacity(0.3)
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                
+                // Song info
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    
+                    Text(item.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                // Duration (if available from year field, otherwise show placeholder)
+                if !item.year.isEmpty {
+                    Text(item.year)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.gray)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
 
 struct ChipView: View {
     let title: String
@@ -287,22 +725,68 @@ class HomeViewModel {
     var homePage: HomePage?
     var selectedChipId: String?
     var isLoading = false
+    var recommendedSongs: [SearchResult] = []
+    var keepListeningSongs: [SearchResult] = []
+    var favouriteItems: [SearchResult] = []
     
     private let networkManager = NetworkManager.shared
+    private let recommendationsManager = RecommendationsManager.shared
+    private let keepListeningManager = KeepListeningManager.shared
+    private let favouritesManager = FavouritesManager.shared
     
-    func loadInitialContent() async {
+    func loadInitialContent(modelContext: ModelContext) async {
+        // Load cached data instantly (from previous session)
+        loadCachedRecommendations()
+        loadCachedKeepListening()
+        loadCachedFavourites()
+        
+        // Load home content
         if homePage == nil {
             await loadHome()
         }
+        
+        // Refresh Keep Listening and Favourites on app launch
+        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+            keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
+            favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
+        }
+        
+        // After everything is loaded, prefetch new recommendations in background for next launch
+        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+            Task {
+                await recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
+            }
+        }
     }
     
-    func refresh() async {
+    func refresh(modelContext: ModelContext) async {
         if let selectedChipId = selectedChipId,
            let chip = homePage?.chips.first(where: { $0.id == selectedChipId }) {
             await selectChip(chip)
         } else {
             await loadHome()
         }
+        // On pull-to-refresh, refresh all sections immediately
+        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+            keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
+            favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
+            recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
+        }
+    }
+    
+    func loadCachedRecommendations() {
+        // Load from cache instantly
+        recommendedSongs = recommendationsManager.recommendations
+    }
+    
+    func loadCachedKeepListening() {
+        // Load from cache instantly
+        keepListeningSongs = keepListeningManager.songs
+    }
+    
+    func loadCachedFavourites() {
+        // Load from cache instantly
+        favouriteItems = favouritesManager.favourites
     }
     
     func loadHome() async {

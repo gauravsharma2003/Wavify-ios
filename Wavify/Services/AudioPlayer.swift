@@ -192,6 +192,13 @@ class AudioPlayer {
         isLoading = true
         currentSong = song
         
+        // Notify for play count tracking - this captures ALL song plays
+        NotificationCenter.default.post(
+            name: .songDidStartPlaying,
+            object: nil,
+            userInfo: ["song": song]
+        )
+        
         do {
             let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
             
