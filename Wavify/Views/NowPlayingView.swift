@@ -14,6 +14,7 @@ struct NowPlayingView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showQueue = false
     @State private var dragOffset: CGFloat = 0
+    @State private var isDragging: Bool = false
     @State private var isLiked = false
     @State private var showArtist = false // Deprecated/Unused but kept for safety if referenced? No, removing unwired state.
     
@@ -25,11 +26,12 @@ struct NowPlayingView: View {
     var navigationManager: NavigationManager = .shared // Default for preview compatibility
     
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Dynamic Background
-                dynamicBackground
-                
+        ZStack {
+            // Dynamic Background that fills the entire screen
+            dynamicBackground
+                .ignoresSafeArea(.all)
+            
+            GeometryReader { geometry in
                 GlassEffectContainer {
                     VStack(spacing: 0) {
                         // Drag Handle
@@ -58,25 +60,51 @@ struct NowPlayingView: View {
                         }
                     }
                 }
+                .offset(y: dragOffset)
+                .animation(
+                    isDragging ? .none : .spring(response: 0.4, dampingFraction: 0.85, blendDuration: 0.1),
+                    value: dragOffset
+                )
             }
         }
         .gesture(
-            DragGesture()
+            DragGesture(coordinateSpace: .global)
                 .onChanged { value in
-                    if value.translation.height > 0 {
-                        dragOffset = value.translation.height
+                    isDragging = true
+                    let dragAmount = value.translation.height
+                    
+                    if dragAmount > 0 {
+                        // Apply resistance curve for smooth feel
+                        let resistance = min(1.0, dragAmount / (UIScreen.main.bounds.height * 0.7))
+                        let resistanceCurve = 1 - pow(1 - resistance, 2)
+                        dragOffset = dragAmount * (0.4 + 0.6 * resistanceCurve)
                     }
                 }
                 .onEnded { value in
-                    if value.translation.height > 100 {
-                        dismiss()
-                    }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        dragOffset = 0
+                    isDragging = false
+                    let velocity = value.predictedEndTranslation.height
+                    let dragAmount = value.translation.height
+                    
+                    // Enhanced dismiss logic with velocity consideration
+                    let shouldDismiss = dragAmount > 120 || (dragAmount > 80 && velocity > 800)
+                    
+                    if shouldDismiss {
+                        // Animate out with momentum
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            dragOffset = UIScreen.main.bounds.height
+                        }
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            dismiss()
+                        }
+                    } else {
+                        // Smooth spring back
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            dragOffset = 0
+                        }
                     }
                 }
         )
-        .offset(y: dragOffset)
         .sheet(isPresented: $showQueue) {
             QueueView(audioPlayer: audioPlayer)
                 .presentationDetents([.medium, .large])
@@ -208,39 +236,46 @@ struct NowPlayingView: View {
     // MARK: - Drag Handle
     
     private var dragHandle: some View {
-        HStack {
-            // Back Button - Glass
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+        VStack(spacing: 12) {
+            // Drag indicator
+            RoundedRectangle(cornerRadius: 3)
+                .fill(.white.opacity(0.3))
+                .frame(width: 40, height: 6)
+                .padding(.top, 8)
+            
+            HStack {
+                // Back Button - Glass
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                }
+                .glassEffect(.regular.interactive(), in: .circle)
+                
+                Spacer()
+                
+                Text("Now Playing")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                // Queue Button - Glass
+                Button {
+                    showQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                }
+                .glassEffect(.regular.interactive(), in: .circle)
             }
-            .glassEffect(.regular.interactive(), in: .circle)
-            
-            Spacer()
-            
-            Text("Now Playing")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-            
-            Spacer()
-            
-            // Queue Button - Glass
-            Button {
-                showQueue = true
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-            }
-            .glassEffect(.regular.interactive(), in: .circle)
+            .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
     }
     
     // MARK: - Album Art
@@ -300,7 +335,7 @@ struct NowPlayingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 24))
             }
         }
-        .padding(.top, 30)
+        .padding(.top, 32)
     }
     
     private var albumPlaceholder: some View {

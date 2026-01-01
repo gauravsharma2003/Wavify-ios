@@ -54,6 +54,7 @@ struct MainTabView: View {
         }
         .fullScreenCover(isPresented: $navigationManager.showNowPlaying) {
             NowPlayingView(audioPlayer: audioPlayer, navigationManager: navigationManager)
+                .background(.clear)
         }
         .preferredColorScheme(.dark)
         .onAppear {
