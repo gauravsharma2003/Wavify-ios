@@ -119,6 +119,13 @@ struct SearchView: View {
                     )
                 case .song(_):
                     EmptyView()
+                case .playlist(let id, let name, let thumbnail):
+                    PlaylistDetailView(
+                        playlistId: id,
+                        initialName: name,
+                        initialThumbnail: thumbnail,
+                        audioPlayer: audioPlayer
+                    )
                 }
             }
             .onChange(of: viewModel.searchText) { _, newValue in
@@ -294,6 +301,15 @@ struct SearchView: View {
                     topResultRowContent(result)
                 }
                 .buttonStyle(.plain)
+            case .video:
+                Button {
+                    Task {
+                        await audioPlayer.loadAndPlay(song: Song(from: result))
+                    }
+                } label: {
+                    topResultRowContent(result)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -325,8 +341,8 @@ struct SearchView: View {
                     .lineLimit(1)
                 
                 HStack(spacing: 4) {
-                    if result.type == .song {
-                        // For songs, show artist name directly
+                    if result.type == .song || result.type == .video {
+                        // For songs/videos, show artist name directly
                         if !result.artist.isEmpty {
                             Text(result.artist)
                                 .font(.system(size: 12))
@@ -359,7 +375,7 @@ struct SearchView: View {
             
             Spacer()
             
-            if result.type == .song {
+            if result.type == .song || result.type == .video {
                 Image(systemName: "play.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
@@ -378,6 +394,7 @@ struct SearchView: View {
         case .artist: return "person.fill"
         case .album: return "music.note.list"
         case .playlist: return "music.note.list"
+        case .video: return "play.rectangle.fill"
         }
     }
     
@@ -387,6 +404,7 @@ struct SearchView: View {
         case .artist: return "Artist"
         case .album: return "Album"
         case .playlist: return "Playlist"
+        case .video: return "Video"
         }
     }
     
@@ -545,6 +563,10 @@ struct SearchView: View {
             navigationManager.searchPath.append(NavigationDestination.artist(result.id, result.name, result.thumbnailUrl))
         case .album, .playlist:
             navigationManager.searchPath.append(NavigationDestination.album(result.id, result.name, result.artist, result.thumbnailUrl))
+        case .video:
+             Task {
+                 await audioPlayer.loadAndPlay(song: Song(from: result))
+             }
         }
     }
 }

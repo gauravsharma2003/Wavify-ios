@@ -14,6 +14,7 @@ enum SearchResultType: String, Codable {
     case artist
     case album
     case playlist
+    case video
 }
 
 struct SearchResult: Identifiable, Hashable {
@@ -25,6 +26,7 @@ struct SearchResult: Identifiable, Hashable {
     let artist: String
     let type: SearchResultType
     var artistId: String? = nil
+    var albumId: String? = nil
     
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -45,6 +47,34 @@ enum SearchSuggestion: Identifiable, Hashable {
         case .result(let result): return result.id
         }
     }
+}
+
+// MARK: - Home Page Models
+
+struct HomePage {
+    var chips: [Chip]
+    var sections: [HomeSection]
+    var continuation: String?
+}
+
+struct Chip: Identifiable, Hashable {
+    let title: String
+    let endpoint: BrowseEndpoint
+    var isSelected: Bool = false
+    
+    var id: String { title }
+}
+
+struct BrowseEndpoint: Hashable {
+    let browseId: String
+    let params: String?
+}
+
+struct HomeSection: Identifiable {
+    let id = UUID()
+    let title: String
+    let strapline: String?
+    let items: [SearchResult]
 }
 
 // MARK: - Playback Info
@@ -135,8 +165,7 @@ struct Song: Identifiable, Hashable {
         self.duration = ""
         self.isLiked = false
         self.artistId = searchResult.artistId
-        // SearchResult usually doesn't have albumId for songs easily unless we parse more, 
-        // but often songs in search are from albums. For now we leave nil.
+        self.albumId = searchResult.albumId
     }
     
     init(from queueSong: QueueSong) {
@@ -155,8 +184,6 @@ struct Song: Identifiable, Hashable {
         self.thumbnailUrl = thumbnailUrl
         self.duration = albumSong.duration
         self.isLiked = false
-        // Since we are creating from an AlbumSong, we likely know the albumId from context 
-        // but this initializer doesn't accept it. We should probably update call sites later if needed.
     }
     
     init(from localSong: LocalSong) {

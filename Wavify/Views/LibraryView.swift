@@ -110,6 +110,13 @@ struct LibraryView: View {
                     )
                 case .song(_):
                     EmptyView()
+                case .playlist(let id, let name, let thumbnail):
+                    PlaylistDetailView(
+                        playlistId: id,
+                        initialName: name,
+                        initialThumbnail: thumbnail,
+                        audioPlayer: audioPlayer
+                    )
                 }
             }
         }
@@ -137,14 +144,25 @@ struct LibraryView: View {
                 ) {
                     ForEach(playlists) { playlist in
                         NavigationLink {
-                            AlbumDetailView(
-                                albumId: playlist.albumId,
-                                initialName: playlist.name,
-                                initialArtist: "",
-                                initialThumbnail: playlist.thumbnailUrl ?? "",
-                                localPlaylist: playlist,
-                                audioPlayer: audioPlayer
-                            )
+                            if let albumId = playlist.albumId, !albumId.isEmpty, playlist.songs.isEmpty {
+                                // This is a saved public playlist without local songs, use PlaylistDetailView to reload
+                                PlaylistDetailView(
+                                    playlistId: albumId,
+                                    initialName: playlist.name,
+                                    initialThumbnail: playlist.thumbnailUrl ?? "",
+                                    audioPlayer: audioPlayer
+                                )
+                            } else {
+                                // This is a playlist with local songs (either locally created or saved from public), use AlbumDetailView
+                                AlbumDetailView(
+                                    albumId: nil,
+                                    initialName: playlist.name,
+                                    initialArtist: "",
+                                    initialThumbnail: playlist.thumbnailUrl ?? "",
+                                    localPlaylist: playlist,
+                                    audioPlayer: audioPlayer
+                                )
+                            }
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 // Playlist Art

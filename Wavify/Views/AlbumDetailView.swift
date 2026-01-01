@@ -99,6 +99,9 @@ struct AlbumDetailView: View {
         .task {
             if let albumId = albumId {
                 await loadAlbumDetails(albumId: albumId)
+            } else {
+                // For local playlists, no remote loading needed
+                isLoading = false
             }
             checkIfSaved()
             await extractColors()

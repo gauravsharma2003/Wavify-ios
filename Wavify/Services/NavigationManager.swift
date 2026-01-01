@@ -11,6 +11,7 @@ import Observation
 enum NavigationDestination: Hashable {
     case artist(String, String, String) // id, name, thumbnail
     case album(String, String, String, String) // id, name, artist, thumbnail
+    case playlist(String, String, String) // id, name, thumbnail
     case song(Song)
 }
 
@@ -50,6 +51,25 @@ class NavigationManager {
         showNowPlaying = false
         
         let destination = NavigationDestination.album(id, name, artist, thumbnail)
+        
+        // Push to active tab's stack
+        switch selectedTab {
+        case 0:
+            homePath.append(destination)
+        case 1:
+            searchPath.append(destination)
+        case 2:
+            libraryPath.append(destination)
+        default:
+            homePath.append(destination)
+        }
+    }
+    
+    func navigateToPlaylist(id: String, name: String, thumbnail: String) {
+        // Dismiss player if open
+        showNowPlaying = false
+        
+        let destination = NavigationDestination.playlist(id, name, thumbnail)
         
         // Push to active tab's stack
         switch selectedTab {

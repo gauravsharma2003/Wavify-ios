@@ -15,97 +15,64 @@ struct HomeView: View {
     
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
-            ScrollView {
-                LazyVStack(spacing: 24) {
-                    // Quick Picks Section
-                    if !viewModel.quickPicks.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionHeader("Quick Picks")
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 12) {
-                                    ForEach(viewModel.quickPicks) { result in
-                                        AlbumCard(
-                                            title: result.name,
-                                            subtitle: result.artist,
-                                            imageUrl: result.thumbnailUrl
-                                        ) {
-                                            handleResultTap(result)
+            ZStack {
+                // Background
+                gradientBackground
+                
+                if viewModel.isLoading && viewModel.homePage == nil {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 24) {
+                            // Chip Cloud (Fixed at top of scroll or pinned?)
+                            // For now, inside scroll but could be pinned
+                            if let chips = viewModel.homePage?.chips, !chips.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(chips) { chip in
+                                            ChipView(
+                                                title: chip.title,
+                                                isSelected: chip.isSelected || viewModel.selectedChipId == chip.id
+                                            ) {
+                                                Task {
+                                                    await viewModel.selectChip(chip)
+                                                }
+                                            }
                                         }
-                                        .frame(width: 150)
                                     }
+                                    .padding(.horizontal)
                                 }
-                                .padding(.horizontal)
+                                .padding(.top, 8)
                             }
-                        }
-                    }
-                    
-                    // Featured Section
-                    if !viewModel.featured.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionHeader("Featured")
                             
-                            ForEach(viewModel.featured) { result in
-                                FeaturedCard(
-                                    title: result.name,
-                                    subtitle: result.artist,
-                                    imageUrl: result.thumbnailUrl
-                                ) {
-                                    handleResultTap(result)
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                    }
-                    
-                    // Trending Songs
-                    if !viewModel.trending.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionHeader("Trending")
-                            
-                            VStack(spacing: 0) {
-                                ForEach(viewModel.trending) { result in
-                                    SongRow(
-                                        song: Song(from: result),
-                                        onTap: { handleResultTap(result) }
-                                    )
-                                    
-                                    if result.id != viewModel.trending.last?.id {
-                                        Divider()
-                                            .padding(.leading, 76)
-                                            .opacity(0.3)
+                            // Sections
+                            if let sections = viewModel.homePage?.sections {
+                                ForEach(sections) { section in
+                                    HomeSectionView(section: section) { result in
+                                        handleResultTap(result)
                                     }
                                 }
                             }
-                            .padding(.horizontal)
                         }
+                        .padding(.vertical)
+                        .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
+                    }
+                    .refreshable {
+                        await viewModel.refresh()
                     }
                 }
-                .padding(.vertical)
-                .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
-            }
-            .background(gradientBackground)
-            .overlay(alignment: .top) {
-                // Gradient blur at top
-                LinearGradient(
-                    stops: [
-                        .init(color: Color(white: 0.06).opacity(0.95), location: 0),
-                        .init(color: Color(white: 0.06).opacity(0.7), location: 0.5),
-                        .init(color: .clear, location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 140)
-                .allowsHitTesting(false)
-                .ignoresSafeArea()
             }
             .navigationTitle("Home")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .refreshable {
-                await viewModel.refresh()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Image(systemName: "music.note.house.fill")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
             }
+            .toolbarBackground(.hidden, for: .navigationBar)
             .navigationDestination(for: NavigationDestination.self) { destination in
                 switch destination {
                 case .artist(let id, let name, let thumbnail):
@@ -124,7 +91,14 @@ struct HomeView: View {
                         audioPlayer: audioPlayer
                     )
                 case .song(_):
-                    EmptyView() // Songs usually processed by player, not navigation
+                    EmptyView()
+                case .playlist(let id, let name, let thumbnail):
+                    PlaylistDetailView(
+                        playlistId: id,
+                        initialName: name,
+                        initialThumbnail: thumbnail,
+                        audioPlayer: audioPlayer
+                    )
                 }
             }
         }
@@ -133,16 +107,13 @@ struct HomeView: View {
         }
     }
     
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 22, weight: .bold))
-            .foregroundStyle(.primary)
-            .padding(.horizontal)
-    }
-    
     private var gradientBackground: some View {
-        Color(white: 0.06)
-            .ignoresSafeArea()
+        LinearGradient(
+            colors: [Color(hex: "1a1a1a"), .black],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
     }
     
     private func handleResultTap(_ result: SearchResult) {
@@ -150,7 +121,161 @@ struct HomeView: View {
             Task {
                 await audioPlayer.loadAndPlay(song: Song(from: result))
             }
+        } else if result.type == .album {
+            navigationManager.homePath.append(NavigationDestination.album(result.id, result.name, result.artist, result.thumbnailUrl))
+        } else if result.type == .artist {
+            navigationManager.homePath.append(NavigationDestination.artist(result.id, result.name, result.thumbnailUrl))
+        } else if result.type == .playlist {
+            navigationManager.homePath.append(NavigationDestination.playlist(result.id, result.name, result.thumbnailUrl))
         }
+    }
+}
+
+// MARK: - Extensions
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue:  Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
+
+// MARK: - Subviews
+
+struct ChipView: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(isSelected ? Color.white : Color(white: 0.15))
+                .foregroundColor(isSelected ? .black : .white)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+        }
+    }
+}
+
+struct HomeSectionView: View {
+    let section: HomeSection
+    let onResultTap: (SearchResult) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            VStack(alignment: .leading, spacing: 2) {
+                if let strapline = section.strapline {
+                    Text(strapline)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .textCase(.uppercase)
+                }
+                Text(section.title)
+                    .font(.title2)
+                    .bold()
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal)
+            
+            // Content
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(section.items) { item in
+                        ItemCard(item: item) {
+                            onResultTap(item)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+struct ItemCard: View {
+    let item: SearchResult
+    let onTap: () -> Void
+    
+    // Helper to get high quality image
+    private var highQualityThumbnailUrl: String {
+        // Replace resolution specs like "w120-h120" with larger ones if present
+        // Or assume URL can be modified.
+        // YouTube Music URLs often have regex like `s120-c-...` or `w120-h120-...`
+        // We'll replace typical size markers with larger ones
+        var p = item.thumbnailUrl
+        if p.contains("w120-h120") {
+             p = p.replacingOccurrences(of: "w120-h120", with: "w540-h540")
+        } else if p.contains("w60-h60") {
+             p = p.replacingOccurrences(of: "w60-h60", with: "w540-h540")
+        } else if p.contains("s120") {
+             p = p.replacingOccurrences(of: "s120", with: "s540")
+        }
+        return p
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Image
+                AsyncImage(url: URL(string: highQualityThumbnailUrl)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else if phase.error != nil {
+                        Color.gray.opacity(0.3)
+                    } else {
+                        Color.gray.opacity(0.3)
+                    }
+                }
+                .frame(width: 160, height: 160) // Slightly larger for better look
+                .clipShape(RoundedRectangle(cornerRadius: 12)) // Softer corners
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4) // Drop shadow for depth
+                
+                // Text
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    
+                    Text(item.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 160)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -159,50 +284,92 @@ struct HomeView: View {
 @MainActor
 @Observable
 class HomeViewModel {
-    var quickPicks: [SearchResult] = []
-    var featured: [SearchResult] = []
-    var trending: [SearchResult] = []
+    var homePage: HomePage?
+    var selectedChipId: String?
     var isLoading = false
     
     private let networkManager = NetworkManager.shared
     
     func loadInitialContent() async {
-        guard quickPicks.isEmpty else { return }
-        await loadContent()
+        if homePage == nil {
+            await loadHome()
+        }
     }
     
     func refresh() async {
-        await loadContent()
+        if let selectedChipId = selectedChipId,
+           let chip = homePage?.chips.first(where: { $0.id == selectedChipId }) {
+            await selectChip(chip)
+        } else {
+            await loadHome()
+        }
     }
     
-    private func loadContent() async {
+    func loadHome() async {
         isLoading = true
-        
-        // Load trending content with different queries
-        async let trendingResults = networkManager.search(query: "trending songs 2025 india")
-        async let popResults = networkManager.search(query: "pop hits india")
-        async let newResults = networkManager.search(query: "new music")
-        
         do {
-            let (trending, pop, newMusic) = try await (trendingResults, popResults, newResults)
+            // Load Standard Home
+            var home = try await networkManager.getHome()
             
-            // Filter to only songs - extract results from tuple
-            let trendingSongs = trending.results.filter { $0.type == .song }
-            let popSongs = pop.results.filter { $0.type == .song }
-            let newSongs = newMusic.results.filter { $0.type == .song }
+            // Load Global Charts (Top Songs)
+            async let globalCharts = try? networkManager.getCharts(country: "ZZ")
+            async let punjabiCharts = try? networkManager.getCharts(country: "IN") // Using India for Punjabi context
             
-            self.trending = Array(trendingSongs.prefix(10))
-            self.quickPicks = Array(popSongs.prefix(8))
-            self.featured = Array(newSongs.prefix(3))
+            let gCharts = await globalCharts
+            let pCharts = await punjabiCharts
+            
+            // Insert Charts into Sections
+            // We want "Global" and "Punjabi" sections at the top or after quick picks
+            
+            var newSections: [HomeSection] = []
+            
+            // Add Global Top Songs if available
+            if let gSections = gCharts?.sections {
+                // Find "Top Songs" section
+                if let topSongs = gSections.first(where: { $0.title.contains("Top songs") }) {
+                    newSections.append(HomeSection(title: "Global Top Songs", strapline: "Trending Worldwide", items: topSongs.items))
+                }
+            }
+            
+            // Add Punjabi/India Top Songs if available
+            if let pSections = pCharts?.sections {
+                // Find "Top Songs" section
+                if let topSongs = pSections.first(where: { $0.title.contains("Top songs") }) {
+                    newSections.append(HomeSection(title: "Trending in India", strapline: "Top Songs", items: topSongs.items))
+                }
+            }
+            
+            // Combine with Home Sections
+            // We'll put these new sections after the first section (usually Quick Picks)
+            if !home.sections.isEmpty {
+                home.sections.insert(contentsOf: newSections, at: 1)
+            } else {
+                home.sections.append(contentsOf: newSections)
+            }
+            
+            self.homePage = home
+            self.selectedChipId = nil
+            
         } catch {
-            print("Failed to load content: \(error)")
+            print("Failed to load home: \(error)")
         }
-        
         isLoading = false
     }
-}
-
-#Preview {
-    HomeView(audioPlayer: AudioPlayer.shared)
-        .preferredColorScheme(.dark)
+    
+    func selectChip(_ chip: Chip) async {
+        if selectedChipId == chip.id {
+            await loadHome()
+            return
+        }
+        
+        isLoading = true
+        selectedChipId = chip.id
+        
+        do {
+            self.homePage = try await networkManager.loadPage(endpoint: chip.endpoint)
+        } catch {
+            print("Failed to load chip: \(error)")
+        }
+        isLoading = false
+    }
 }
