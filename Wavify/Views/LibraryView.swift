@@ -172,24 +172,9 @@ struct LibraryView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 // Playlist Art
-                                Group {
-                                    if let imageUrl = playlist.thumbnailUrl, !imageUrl.isEmpty {
-                                        AsyncImage(url: URL(string: imageUrl)) { phase in
-                                            switch phase {
-                                            case .success(let image):
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            default:
-                                                playlistPlaceholder
-                                            }
-                                        }
-                                    } else {
-                                        playlistPlaceholder
-                                    }
-                                }
-                                .aspectRatio(1, contentMode: .fit)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                PlaylistCoverImage(thumbnails: playlist.coverThumbnails)
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(playlist.name)
@@ -210,22 +195,6 @@ struct LibraryView: View {
                 .padding(.horizontal)
             }
         }
-    }
-    
-    private var playlistPlaceholder: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [Color(white: 0.2), Color(white: 0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
     }
     
     // MARK: - Liked Section

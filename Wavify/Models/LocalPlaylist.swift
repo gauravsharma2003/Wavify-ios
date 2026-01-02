@@ -38,4 +38,9 @@ final class LocalPlaylist {
     var sortedSongs: [LocalSong] {
         songs.sorted { ($0.orderIndex ?? 0) < ($1.orderIndex ?? 0) }
     }
+    
+    /// Returns up to 4 thumbnail URLs for grid cover display
+    var coverThumbnails: [String] {
+        Array(sortedSongs.prefix(4).compactMap { $0.thumbnailUrl })
+    }
 }

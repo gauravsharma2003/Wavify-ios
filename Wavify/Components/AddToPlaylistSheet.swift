@@ -186,24 +186,8 @@ struct PlaylistSelectionRow: View {
         Button(action: onTap) {
             HStack(spacing: 12) {
                 // Playlist Artwork
-                Group {
-                    if let imageUrl = playlist.thumbnailUrl, !imageUrl.isEmpty {
-                        AsyncImage(url: URL(string: imageUrl)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            default:
-                                playlistPlaceholder
-                            }
-                        }
-                    } else {
-                        playlistPlaceholder
-                    }
-                }
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                PlaylistCoverImage(thumbnails: playlist.coverThumbnails, size: 52, cornerRadius: 6)
+                    .frame(width: 52, height: 52)
                 
                 // Playlist Info
                 VStack(alignment: .leading, spacing: 3) {
@@ -230,22 +214,6 @@ struct PlaylistSelectionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-    
-    private var playlistPlaceholder: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [Color(white: 0.2), Color(white: 0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
     }
 }
 
