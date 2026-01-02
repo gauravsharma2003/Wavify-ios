@@ -32,6 +32,11 @@ struct NowPlayingView: View {
     // Add to playlist state
     @State private var showAddToPlaylist = false
     
+    // Sleep timer state
+    @State private var showSleepSheet = false
+    @State private var showActiveSleepSheet = false
+    var sleepTimerManager: SleepTimerManager = .shared
+    
     var navigationManager: NavigationManager = .shared // Default for preview compatibility
     
     var body: some View {
@@ -71,13 +76,17 @@ struct NowPlayingView: View {
                                     
                                     // Additional Controls
                                     HStack(spacing: 30) {
-                                        // Like Button
+                                        // Sleep Timer Button
                                         Button {
-                                            toggleLike()
+                                            if sleepTimerManager.isActive {
+                                                showActiveSleepSheet = true
+                                            } else {
+                                                showSleepSheet = true
+                                            }
                                         } label: {
-                                            Image(systemName: isLiked ? "heart.fill" : "heart")
+                                            Image(systemName: sleepTimerManager.isActive ? "moon.fill" : "moon")
                                                 .font(.system(size: 22, weight: .medium))
-                                                .foregroundStyle(isLiked ? .red : .white)
+                                                .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
                                                 .frame(width: 44, height: 44)
                                         }
                                         
@@ -187,6 +196,14 @@ struct NowPlayingView: View {
             if let song = audioPlayer.currentSong {
                 AddToPlaylistSheet(song: song)
             }
+        }
+        .sheet(isPresented: $showSleepSheet) {
+            SleepTimerSheet { minutes in
+                sleepTimerManager.start(minutes: minutes)
+            }
+        }
+        .sheet(isPresented: $showActiveSleepSheet) {
+            SleepTimerActiveSheet(sleepTimerManager: sleepTimerManager)
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
     }
@@ -638,13 +655,13 @@ struct NowPlayingView: View {
     
     private var controlsView: some View {
         HStack(spacing: 32) {
-            // Shuffle
+            // Like Button (moved from additional controls)
             Button {
-                // Toggle shuffle
+                toggleLike()
             } label: {
-                Image(systemName: "shuffle")
+                Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isLiked ? .red : .secondary)
             }
             
             // Previous
