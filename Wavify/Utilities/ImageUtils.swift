@@ -18,9 +18,22 @@ enum ImageUtils {
     static func upscaleThumbnail(_ url: String, targetSize: Int = 544) -> String {
         guard !url.isEmpty else { return url }
         
+        // Handle i.ytimg.com URLs (YouTube video thumbnails)
+        // For videos, we can't reliably upscale to maxresdefault, so just clean the URL
+        // Example: https://i.ytimg.com/vi/VIDEO_ID/sddefault.jpg?sqp=...&rs=... → https://i.ytimg.com/vi/VIDEO_ID/sddefault.jpg
+        if url.contains("i.ytimg.com") {
+            // Strip query parameters to get a cleaner image
+            if let urlComponents = URLComponents(string: url) {
+                var cleanComponents = urlComponents
+                cleanComponents.query = nil
+                return cleanComponents.url?.absoluteString ?? url
+            }
+            return url
+        }
+        
         // Handle lh3.googleusercontent.com URLs (YouTube Music thumbnails)
         // Example: https://lh3.googleusercontent.com/...=w120-h120-l90-rj
-        if url.contains("googleusercontent.com") || url.contains("ytimg.com") {
+        if url.contains("googleusercontent.com") {
             var upscaled = url
             
             // Replace width parameter: =w120 → =w544
@@ -32,14 +45,6 @@ enum ImageUtils {
             if let range = upscaled.range(of: "-h\\d+", options: .regularExpression) {
                 upscaled.replaceSubrange(range, with: "-h\(targetSize)")
             }
-            
-            // Also handle YouTube video thumbnail format
-            // Example: https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg
-            upscaled = upscaled
-                .replacingOccurrences(of: "default.jpg", with: "maxresdefault.jpg")
-                .replacingOccurrences(of: "mqdefault.jpg", with: "maxresdefault.jpg")
-                .replacingOccurrences(of: "hqdefault.jpg", with: "maxresdefault.jpg")
-                .replacingOccurrences(of: "sddefault.jpg", with: "maxresdefault.jpg")
             
             return upscaled
         }
@@ -71,8 +76,18 @@ enum ImageUtils {
     static func resizeThumbnail(_ url: String, width: Int, height: Int) -> String {
         guard !url.isEmpty else { return url }
         
+        // Handle i.ytimg.com URLs (YouTube video thumbnails) - just strip query params
+        if url.contains("i.ytimg.com") {
+            if let urlComponents = URLComponents(string: url) {
+                var cleanComponents = urlComponents
+                cleanComponents.query = nil
+                return cleanComponents.url?.absoluteString ?? url
+            }
+            return url
+        }
+        
         // Handle lh3.googleusercontent.com URLs (YouTube Music thumbnails)
-        if url.contains("googleusercontent.com") || url.contains("ytimg.com") {
+        if url.contains("googleusercontent.com") {
             var resized = url
             
             // Replace width parameter
