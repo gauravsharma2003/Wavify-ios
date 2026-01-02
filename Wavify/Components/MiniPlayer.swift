@@ -33,7 +33,7 @@ struct MiniPlayer: View {
                             }
                         }
                         .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: 50))
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title)

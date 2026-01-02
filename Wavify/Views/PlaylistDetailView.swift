@@ -22,6 +22,10 @@ struct PlaylistDetailView: View {
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
     @State private var isSaved = false
     
+    // Add to playlist state
+    @State private var selectedSongForPlaylist: Song?
+    @State private var likedSongIds: Set<String> = []
+    
     private let networkManager = NetworkManager.shared
     
     private var songs: [Song] {
@@ -92,6 +96,10 @@ struct PlaylistDetailView: View {
             await loadPlaylist()
             await extractColors()
             checkSavedStatus()
+            loadLikedStatus()
+        }
+        .sheet(item: $selectedSongForPlaylist) { song in
+            AddToPlaylistSheet(song: song)
         }
     }
     
@@ -131,7 +139,13 @@ struct PlaylistDetailView: View {
                         .aspectRatio(contentMode: .fill)
                 default:
                     Rectangle()
-                        .fill(Color(white: 0.15))
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(white: 0.2), Color(white: 0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .overlay {
                             Image(systemName: "music.note.list")
                                 .font(.system(size: 48))
@@ -224,14 +238,21 @@ struct PlaylistDetailView: View {
             ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                 AlbumSongRow(
                     index: index + 1,
-                    title: song.title,
-                    duration: song.duration,
-                    isPlaying: audioPlayer.currentSong?.id == song.id
-                ) {
-                    Task {
-                        await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
+                    song: song,
+                    isPlaying: audioPlayer.currentSong?.id == song.id,
+                    isLiked: likedSongIds.contains(song.videoId),
+                    onTap: {
+                        Task {
+                            await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
+                        }
+                    },
+                    onAddToPlaylist: {
+                        selectedSongForPlaylist = song
+                    },
+                    onToggleLike: {
+                        toggleLikeSong(song)
                     }
-                }
+                )
                 
                 if index < songs.count - 1 {
                     Divider()
@@ -333,6 +354,29 @@ struct PlaylistDetailView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 // Visual feedback
             }
+        }
+    }
+    
+    // MARK: - Like Management
+    
+    private func loadLikedStatus() {
+        for song in songs {
+            let videoId = song.videoId
+            let descriptor = FetchDescriptor<LocalSong>(
+                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
+            )
+            if (try? modelContext.fetchCount(descriptor)) ?? 0 > 0 {
+                likedSongIds.insert(videoId)
+            }
+        }
+    }
+    
+    private func toggleLikeSong(_ song: Song) {
+        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
+        if isNowLiked {
+            likedSongIds.insert(song.videoId)
+        } else {
+            likedSongIds.remove(song.videoId)
         }
     }
 }

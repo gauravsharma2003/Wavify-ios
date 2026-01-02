@@ -19,8 +19,8 @@ struct NowPlayingView: View {
     @State private var showArtist = false // Deprecated/Unused but kept for safety if referenced? No, removing unwired state.
     
     // Dynamic colors extracted from album art
-    @State private var primaryColor: Color = Color(red: 0.2, green: 0.1, blue: 0.3)
-    @State private var secondaryColor: Color = Color(red: 0.1, green: 0.1, blue: 0.2)
+    @State private var primaryColor: Color = Color(white: 0.15)
+    @State private var secondaryColor: Color = Color(white: 0.05)
     @State private var lastSongId: String = ""
     
     // Lyrics state
@@ -28,6 +28,9 @@ struct NowPlayingView: View {
     @State private var lyricsState: LyricsState = .idle
     @State private var lastLyricsFetchedSongId: String = ""
     @State private var lyricsExpanded = false
+    
+    // Add to playlist state
+    @State private var showAddToPlaylist = false
     
     var navigationManager: NavigationManager = .shared // Default for preview compatibility
     
@@ -48,11 +51,15 @@ struct NowPlayingView: View {
                             expandedLyricsContent(geometry: geometry)
                         } else {
                             // Normal Mode - Main Content
-                            ScrollView(showsIndicators: false) {
+                            VStack(spacing: 0) {
+                                Spacer()
+                                
+                                // Album Art or Lyrics
+                                albumArtView(geometry: geometry)
+                                
+                                Spacer()
+                                
                                 VStack(spacing: 32) {
-                                    // Album Art or Lyrics
-                                    albumArtView(geometry: geometry)
-                                    
                                     // Song Info
                                     songInfoView
                                     
@@ -63,11 +70,66 @@ struct NowPlayingView: View {
                                     controlsView
                                     
                                     // Additional Controls
-                                    additionalControlsView
+                                    HStack(spacing: 30) {
+                                        // Like Button
+                                        Button {
+                                            toggleLike()
+                                        } label: {
+                                            Image(systemName: isLiked ? "heart.fill" : "heart")
+                                                .font(.system(size: 22, weight: .medium))
+                                                .foregroundStyle(isLiked ? .red : .white)
+                                                .frame(width: 44, height: 44)
+                                        }
+                                        
+                                        // Share Button
+                                        Button {
+                                            // Share
+                                        } label: {
+                                            Image(systemName: "square.and.arrow.up")
+                                                .font(.system(size: 22, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .frame(width: 44, height: 44)
+                                        }
+                                        
+                                        // AirPlay Button
+                                        AirPlayRoutePickerView()
+                                            .frame(width: 44, height: 44)
+                                            .scaleEffect(1.4) // Make it look consistent with other icons
+                                        
+                                        // Lyrics Button
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.3)) {
+                                                showLyrics.toggle()
+                                            }
+                                            // Fetch lyrics if showing and not already fetched for this song
+                                            if showLyrics, let song = audioPlayer.currentSong,
+                                               song.id != lastLyricsFetchedSongId {
+                                                fetchLyrics()
+                                            }
+                                        } label: {
+                                            Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                                                .font(.system(size: 22, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .frame(width: 44, height: 44)
+                                        }
+                                        
+                                        // Add to Playlist Button
+                                        Button {
+                                            showAddToPlaylist = true
+                                        } label: {
+                                            Image(systemName: "text.badge.plus")
+                                            .font(.system(size: 22, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 44, height: 44)
+                                        }
+                                    }
                                 }
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, 40)
+                                
+                                Spacer()
+                                Spacer()
                             }
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 60) // Push up slightly from bottom edge
                         }
                     }
                 }
@@ -120,6 +182,11 @@ struct NowPlayingView: View {
             QueueView(audioPlayer: audioPlayer)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            if let song = audioPlayer.currentSong {
+                AddToPlaylistSheet(song: song)
+            }
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
     }
@@ -492,7 +559,7 @@ struct NowPlayingView: View {
         Rectangle()
             .fill(
                 LinearGradient(
-                    colors: [.purple.opacity(0.6), .blue.opacity(0.6)],
+                    colors: [Color(white: 0.2), Color(white: 0.1)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -621,14 +688,15 @@ struct NowPlayingView: View {
     // MARK: - Additional Controls
     
     private var additionalControlsView: some View {
-        HStack(spacing: 36) {
+        HStack(spacing: 30) {
             // Like Button
             Button {
                 toggleLike()
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isLiked ? .red : .secondary)
+                    .foregroundStyle(isLiked ? .red : .white)
+                    .frame(width: 44, height: 44)
             }
             
             // Share Button
@@ -636,18 +704,14 @@ struct NowPlayingView: View {
                 // Share
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
             }
             
             // AirPlay Button
-            Button {
-                // AirPlay
-            } label: {
-                Image(systemName: "airplayaudio")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+            AirPlayRoutePickerView()
+                .frame(width: 44, height: 44)
             
             // Lyrics Button
             Button {
@@ -661,11 +725,22 @@ struct NowPlayingView: View {
                 }
             } label: {
                 Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(showLyrics ? .white : .secondary)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(showLyrics ? .white : .white.opacity(0.7))
+                    .frame(width: 44, height: 44)
+            }
+            
+            // Add to Playlist Button
+            Button {
+                showAddToPlaylist = true
+            } label: {
+                Image(systemName: "text.badge.plus")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
             }
         }
-        .padding(.top, 8)
+        // Removed top padding to push icons up
     }
     
     // MARK: - Lyrics Fetching

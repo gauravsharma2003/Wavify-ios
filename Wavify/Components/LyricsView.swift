@@ -264,22 +264,28 @@ struct LyricsView: View {
     
     // MARK: - Plain Lyrics View
     
+    // MARK: - Plain Lyrics View
+    
     private func plainLyricsView(text: String) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            ScrollView(.vertical, showsIndicators: false) {
-                Text(text)
-                    .font(.system(size: isExpanded ? 20 : 18, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, isExpanded ? 16 : 0)
-                    .padding(.top, 8)
-                    .padding(.bottom, 44)
+        ScrollView(.vertical, showsIndicators: false) {
+            Text(text)
+                .font(.system(size: isExpanded ? 20 : 18, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, isExpanded ? 16 : 0)
+                .padding(.top, 8)
+                .padding(.bottom, 60)
+        }
+        .overlay(alignment: .bottom) {
+            HStack {
+                Spacer()
+                expandButton
             }
-            
-            expandButton
-                .padding(.trailing, isExpanded ? 12 : 0)
-                .padding(.bottom, isExpanded ? 12 : 0)
+            .padding(.horizontal, isExpanded ? 16 : 8)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.001))
+            .contentShape(Rectangle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

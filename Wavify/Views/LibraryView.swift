@@ -216,7 +216,7 @@ struct LibraryView: View {
         Rectangle()
             .fill(
                 LinearGradient(
-                    colors: [.purple.opacity(0.6), .blue.opacity(0.6)],
+                    colors: [Color(white: 0.2), Color(white: 0.1)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

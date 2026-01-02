@@ -31,6 +31,7 @@ struct ArtistSection: Identifiable {
     let type: ArtistSectionType
     let title: String
     let items: [ArtistItem]
+    let browseId: String? // For "See All" endpoint
 }
 
 struct ArtistItem: Identifiable, Hashable {

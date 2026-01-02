@@ -211,50 +211,98 @@ class LyricsService {
     
     /// Parse LRC format lyrics into timestamped lines
     /// LRC format: [mm:ss.xx]Lyrics line text
+    /// Parse LRC format lyrics into timestamped lines
+    /// Supports standard LRC [mm:ss.xx], extended [mm:ss.xx][mm:ss.xx], and other common formats
     func parseLRCFormat(_ lrcString: String) -> [SyncedLyricLine] {
         var lines: [SyncedLyricLine] = []
+        let lrcLines = lrcString.components(separatedBy: .newlines)
         
-        // Regex pattern for LRC timestamps: [mm:ss.xx] or [mm:ss.xxx]
-        let pattern = #"\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.+)"#
+        // Regex for grabbing the first timestamp in a line
+        // Supports: [mm:ss.xx], [hh:mm:ss.xx], mm:ss.xx, 00:mm:ss.xx
+        // Groups: 1=brackets?, 2=hh?, 3=mm, 4=ss, 5=xx
+        let timePattern = #"(?:\[)?(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:\.|:)(\d{2,3})(?:\])?"#
         
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        guard let regex = try? NSRegularExpression(pattern: timePattern, options: []) else {
             return []
         }
         
-        let lrcLines = lrcString.components(separatedBy: .newlines)
-        
         for line in lrcLines {
-            let range = NSRange(line.startIndex..., in: line)
+            let nsString = line as NSString
+            let range = NSRange(location: 0, length: nsString.length)
             
-            if let match = regex.firstMatch(in: line, options: [], range: range) {
-                // Extract time components
-                guard let minutesRange = Range(match.range(at: 1), in: line),
-                      let secondsRange = Range(match.range(at: 2), in: line),
-                      let millisecondsRange = Range(match.range(at: 3), in: line),
-                      let textRange = Range(match.range(at: 4), in: line) else {
-                    continue
-                }
-                
-                let minutes = Double(line[minutesRange]) ?? 0
-                let seconds = Double(line[secondsRange]) ?? 0
-                var milliseconds = Double(line[millisecondsRange]) ?? 0
-                
-                // Normalize milliseconds (could be 2 or 3 digits)
-                if line[millisecondsRange].count == 2 {
-                    milliseconds *= 10 // Convert centiseconds to milliseconds
-                }
-                
-                let timeInSeconds = minutes * 60 + seconds + milliseconds / 1000
-                let text = String(line[textRange]).trimmingCharacters(in: .whitespaces)
-                
-                // Skip empty lines
-                if !text.isEmpty {
-                    lines.append(SyncedLyricLine(time: timeInSeconds, text: text))
-                }
+            // Find all timestamps in the line (standard LRC can have multiple timestamps for the same text)
+            let matches = regex.matches(in: line, options: [], range: range)
+            
+            if matches.isEmpty { continue }
+            
+            // The text is everything match...
+            // Wait, for lines like "00:00:09.310 ~ 00:00:11.220 Text", the second timestamp is end time.
+            // We should take the FIRST timestamp as start time, and assume the rest is potentially text,
+            // but we need to strip out the " ~ 00:00:11.220 " part if it exists.
+            
+            // Strategy:
+            // 1. Parse the first match as the start time.
+            // 2. Identify where the "Lyrics Text" starts.
+            //    It usually starts after the last timestamp match plus some separators.
+            
+            guard let firstMatch = matches.first else { continue }
+            
+            // Parse time from first match
+            let timeInSeconds = parseTime(from: firstMatch, in: line)
+            
+            // Determine text content
+            // We'll strip ALL timestamp-like patterns and common separators from the line to get the text
+            var text = line
+            
+            // Remove all timestamps matches
+            for match in matches.reversed() {
+                // Ensure we are scrubbing valid matches
+                text = (text as NSString).replacingCharacters(in: match.range, with: "")
+            }
+            
+            // Remove common separators that might remain (like "~", "-", leading spaces)
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Allow removal of leading "~" or "-" which might separate start/end times
+            if text.hasPrefix("~") || text.hasPrefix("-") {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            
+            // Skip empty lines
+            if !text.isEmpty {
+                 lines.append(SyncedLyricLine(time: timeInSeconds, text: text))
             }
         }
         
-        // Sort by time to ensure correct order
         return lines.sorted { $0.time < $1.time }
+    }
+    
+    private func parseTime(from match: NSTextCheckingResult, in line: String) -> Double {
+        let nsString = line as NSString
+        
+        // Group indices based on the pattern:
+        // (?:\[)?(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:\.|:)(\d{2,3})(?:\])?
+        // 1: Hours (Optional)
+        // 2: Minutes
+        // 3: Seconds
+        // 4: Fractions
+        
+        var hours: Double = 0
+        if let range = Range(match.range(at: 1), in: line) {
+            hours = Double(line[range]) ?? 0
+        }
+        
+        let minutes = Double(nsString.substring(with: match.range(at: 2))) ?? 0
+        let seconds = Double(nsString.substring(with: match.range(at: 3))) ?? 0
+        
+        let fracString = nsString.substring(with: match.range(at: 4))
+        var milliseconds = Double(fracString) ?? 0
+        
+        // Normalize milliseconds: if 2 digits, treat as centiseconds (x10)
+        if fracString.count == 2 {
+            milliseconds *= 10
+        }
+        
+        return (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000)
     }
 }

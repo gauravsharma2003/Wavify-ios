@@ -15,6 +15,10 @@ struct HomeView: View {
     @State var navigationManager: NavigationManager = .shared
     @Environment(\.modelContext) private var modelContext
     
+    // Add to playlist state
+    @State private var selectedSongForPlaylist: Song?
+    @State private var likedSongIds: Set<String> = []
+    
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
             ZStack {
@@ -35,8 +39,15 @@ struct HomeView: View {
                             if !viewModel.recommendedSongs.isEmpty {
                                 RecommendationsGridView(
                                     songs: viewModel.recommendedSongs,
+                                    likedSongIds: likedSongIds,
                                     onSongTap: { result in
                                         handleResultTap(result)
+                                    },
+                                    onAddToPlaylist: { result in
+                                        selectedSongForPlaylist = Song(from: result)
+                                    },
+                                    onToggleLike: { result in
+                                        toggleLikeSong(Song(from: result))
                                     }
                                 )
                             }
@@ -55,8 +66,15 @@ struct HomeView: View {
                             if viewModel.favouriteItems.count >= 4 {
                                 YourFavouritesGridView(
                                     items: viewModel.favouriteItems,
+                                    likedSongIds: likedSongIds,
                                     onItemTap: { result in
                                         handleResultTap(result)
+                                    },
+                                    onAddToPlaylist: { result in
+                                        selectedSongForPlaylist = Song(from: result)
+                                    },
+                                    onToggleLike: { result in
+                                        toggleLikeSong(Song(from: result))
                                     }
                                 )
                             }
@@ -125,6 +143,11 @@ struct HomeView: View {
         }
         .task {
             await viewModel.loadInitialContent(modelContext: modelContext)
+            await viewModel.loadInitialContent(modelContext: modelContext)
+            loadLikedStatus()
+        }
+        .sheet(item: $selectedSongForPlaylist) { song in
+            AddToPlaylistSheet(song: song)
         }
         .onReceive(NotificationCenter.default.publisher(for: .songDidStartPlaying)) { notification in
             if let song = notification.userInfo?["song"] as? Song {
@@ -180,6 +203,29 @@ struct HomeView: View {
             navigationManager.homePath.append(NavigationDestination.artist(result.id, result.name, result.thumbnailUrl))
         } else if result.type == .playlist {
             navigationManager.homePath.append(NavigationDestination.playlist(result.id, result.name, result.thumbnailUrl))
+        }
+    }
+    
+    // MARK: - Like Management
+    
+    private func loadLikedStatus() {
+        // We can't easily check all recommended songs at once efficiently without a batch query
+        // But for now we can rely on cached liked status or check when rendering
+        // A better approach for HomeView is to load all liked song IDs into a set
+        let descriptor = FetchDescriptor<LocalSong>(
+            predicate: #Predicate { $0.isLiked == true }
+        )
+        if let likedSongs = try? modelContext.fetch(descriptor) {
+            likedSongIds = Set(likedSongs.map { $0.videoId })
+        }
+    }
+    
+    private func toggleLikeSong(_ song: Song) {
+        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
+        if isNowLiked {
+            likedSongIds.insert(song.videoId)
+        } else {
+            likedSongIds.remove(song.videoId)
         }
     }
 }
@@ -329,7 +375,10 @@ struct KeepListeningCard: View {
 // MARK: - Your Favourites Grid (2 rows, large cards like Quick Picks)
 struct YourFavouritesGridView: View {
     let items: [SearchResult]
+    let likedSongIds: Set<String>
     let onItemTap: (SearchResult) -> Void
+    let onAddToPlaylist: (SearchResult) -> Void
+    let onToggleLike: (SearchResult) -> Void
     
     // Grid configuration: 2 rows with larger cards
     private let rowCount = 2
@@ -370,9 +419,19 @@ struct YourFavouritesGridView: View {
                     ForEach(columns.indices, id: \.self) { columnIndex in
                         VStack(spacing: rowSpacing) {
                             ForEach(columns[columnIndex], id: \.id) { item in
-                                FavouriteCard(item: item) {
-                                    onItemTap(item)
-                                }
+                                FavouriteCard(
+                                    item: item,
+                                    isLiked: likedSongIds.contains(item.id),
+                                    onTap: {
+                                        onItemTap(item)
+                                    },
+                                    onAddToPlaylist: {
+                                        onAddToPlaylist(item)
+                                    },
+                                    onToggleLike: {
+                                        onToggleLike(item)
+                                    }
+                                )
                             }
                         }
                     }
@@ -386,7 +445,10 @@ struct YourFavouritesGridView: View {
 // MARK: - Favourite Card (Large, like Quick Picks)
 struct FavouriteCard: View {
     let item: SearchResult
+    let isLiked: Bool
     let onTap: () -> Void
+    var onAddToPlaylist: (() -> Void)? = nil
+    var onToggleLike: (() -> Void)? = nil
     
     private var thumbnailUrl: String {
         var p = item.thumbnailUrl
@@ -447,6 +509,21 @@ struct FavouriteCard: View {
                 }
             }
             .frame(width: 150)
+            .overlay(alignment: .topTrailing) {
+                if !isArtist && item.type == .song {
+                    SongOptionsMenu(
+                        isLiked: isLiked,
+                        onAddToPlaylist: { onAddToPlaylist?() },
+                        onToggleLike: { onToggleLike?() }
+                    )
+                    .padding(8)
+                    .background(
+                        Circle()
+                            .fill(Color.black.opacity(0.5))
+                    )
+                    .padding(4)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -468,7 +545,10 @@ struct AnyShape: Shape {
 // MARK: - Recommendations Grid (4 rows, horizontal scroll)
 struct RecommendationsGridView: View {
     let songs: [SearchResult]
+    let likedSongIds: Set<String>
     let onSongTap: (SearchResult) -> Void
+    let onAddToPlaylist: (SearchResult) -> Void
+    let onToggleLike: (SearchResult) -> Void
     
     // Grid configuration: 4 rows
     private let rowCount = 4
@@ -515,9 +595,19 @@ struct RecommendationsGridView: View {
                     ForEach(columns.indices, id: \.self) { columnIndex in
                         VStack(spacing: rowSpacing) {
                             ForEach(columns[columnIndex], id: \.id) { song in
-                                RecommendationListRow(item: song) {
-                                    onSongTap(song)
-                                }
+                                RecommendationListRow(
+                                    item: song,
+                                    isLiked: likedSongIds.contains(song.id),
+                                    onTap: {
+                                        onSongTap(song)
+                                    },
+                                    onAddToPlaylist: {
+                                        onAddToPlaylist(song)
+                                    },
+                                    onToggleLike: {
+                                        onToggleLike(song)
+                                    }
+                                )
                             }
                         }
                         .frame(width: columnWidth)
@@ -532,7 +622,10 @@ struct RecommendationsGridView: View {
 // MARK: - Recommendation List Row (Compact)
 struct RecommendationListRow: View {
     let item: SearchResult
+    let isLiked: Bool
     let onTap: () -> Void
+    let onAddToPlaylist: () -> Void
+    let onToggleLike: () -> Void
     
     private var thumbnailUrl: String {
         var p = item.thumbnailUrl
@@ -583,6 +676,12 @@ struct RecommendationListRow: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.gray)
                 }
+                
+                SongOptionsMenu(
+                    isLiked: isLiked,
+                    onAddToPlaylist: onAddToPlaylist,
+                    onToggleLike: onToggleLike
+                )
             }
             .padding(.vertical, 4)
         }

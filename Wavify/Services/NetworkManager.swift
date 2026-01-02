@@ -1429,7 +1429,20 @@ extension NetworkManager {
             }
         }
         
-        return ArtistSection(type: type, title: title, items: items)
+        // Helper to extract browseId from bottomEndpoint
+        var browseId: String?
+        if let bottomEndpoint = shelf["bottomEndpoint"] as? [String: Any],
+           let browseEndpoint = bottomEndpoint["browseEndpoint"] as? [String: Any] {
+            browseId = browseEndpoint["browseId"] as? String
+        } else if let bottomText = shelf["bottomText"] as? [String: Any],
+                  let runs = bottomText["runs"] as? [[String: Any]],
+                  let firstRun = runs.first,
+                  let endpoint = firstRun["navigationEndpoint"] as? [String: Any],
+                  let browseEndpoint = endpoint["browseEndpoint"] as? [String: Any] {
+            browseId = browseEndpoint["browseId"] as? String
+        }
+        
+        return ArtistSection(type: type, title: title, items: items, browseId: browseId)
     }
     
     private func parseCarouselShelf(_ shelf: [String: Any]) -> ArtistSection? {
@@ -1505,6 +1518,18 @@ extension NetworkManager {
         
         if items.isEmpty { return nil }
         
-        return ArtistSection(type: type, title: title, items: items)
+        // Check for title endpoint (sometimes clicking title goes to See All)
+        var sectionBrowseId: String?
+        if let header = shelf["header"] as? [String: Any],
+           let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
+           let titleData = basicHeader["title"] as? [String: Any],
+           let runs = titleData["runs"] as? [[String: Any]],
+           let firstRun = runs.first,
+           let endpoint = firstRun["navigationEndpoint"] as? [String: Any],
+           let browseEndpoint = endpoint["browseEndpoint"] as? [String: Any] {
+            sectionBrowseId = browseEndpoint["browseId"] as? String
+        }
+        
+        return ArtistSection(type: type, title: title, items: items, browseId: sectionBrowseId)
     }
 }

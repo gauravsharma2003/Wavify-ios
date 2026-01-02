@@ -22,6 +22,10 @@ struct ArtistDetailView: View {
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
     @State private var scrollOffset: CGFloat = 0
     
+    // Add to playlist state
+    @State private var selectedSongForPlaylist: Song?
+    @State private var likedSongIds: Set<String> = []
+    
     private let networkManager = NetworkManager.shared
     
     var body: some View {
@@ -75,6 +79,9 @@ struct ArtistDetailView: View {
         .task {
             await loadArtistDetails()
             await extractColors()
+        }
+        .sheet(item: $selectedSongForPlaylist) { song in
+            AddToPlaylistSheet(song: song)
         }
     }
     
@@ -183,10 +190,30 @@ struct ArtistDetailView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 16) {
-                Text(section.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .padding(.horizontal)
+                HStack {
+                    Text(section.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    if let browseId = section.browseId, section.type == .topSongs {
+                        Spacer()
+                        NavigationLink {
+                            ArtistTopSongsView(
+                                browseId: browseId,
+                                artistName: artistDetail?.name ?? initialName,
+                                audioPlayer: audioPlayer
+                            )
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(8)
+                                .background(Color(white: 0.15))
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+                .padding(.horizontal)
                 
                 switch section.type {
                 case .topSongs:
@@ -213,40 +240,58 @@ struct ArtistDetailView: View {
         let rowCount = min(5, max(1, items.count))
         let rows = Array(repeating: GridItem(.fixed(60), spacing: 8), count: rowCount)
         let totalHeight = CGFloat(rowCount * 60 + (rowCount - 1) * 8)
-        let displayItems = Array(items.prefix(15).enumerated())
+        let displayItems = Array(items.prefix(25).enumerated())
         
         return AnyView(
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: rows, spacing: 16) {
                     ForEach(displayItems, id: \.element.id) { index, item in
-                        Button {
-                            playSong(item)
-                        } label: {
-                            HStack(spacing: 12) {
-                                AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                                    image.resizable().aspectRatio(contentMode: .fill)
-                                } placeholder: {
-                                    Rectangle().fill(Color.gray.opacity(0.3))
-                                }
-                                .frame(width: 50, height: 50)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(.white)
-                                        .lineLimit(1)
+                        HStack(spacing: 0) {
+                            Button {
+                                playSong(item)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
+                                        image.resizable().aspectRatio(contentMode: .fill)
+                                    } placeholder: {
+                                        Rectangle().fill(Color.gray.opacity(0.3))
+                                    }
+                                    .frame(width: 50, height: 50)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
                                     
-                                    Text(item.subtitle ?? "")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.title)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                        
+                                        Text(item.subtitle ?? "")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .frame(width: 200, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 4)
+                            .buttonStyle(.plain)
+                            
+                            SongOptionsMenu(
+                                isLiked: likedSongIds.contains(item.videoId ?? ""),
+                                onAddToPlaylist: {
+                                    guard let videoId = item.videoId else { return }
+                                    let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                                    selectedSongForPlaylist = song
+                                },
+                                onToggleLike: {
+                                    guard let videoId = item.videoId else { return }
+                                    let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                                    toggleLikeSong(song)
+                                }
+                            )
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 4)
+                        .frame(width: UIScreen.main.bounds.width - 48)
                     }
                 }
                 .padding(.horizontal)
@@ -375,6 +420,7 @@ struct ArtistDetailView: View {
     }
     
     private func extractColors() async {
+        loadLikedStatus()
         let imageUrl = artistDetail?.thumbnailUrl ?? initialThumbnail
         guard let url = URL(string: ImageUtils.thumbnailForCard(imageUrl)),
               let (data, _) = try? await URLSession.shared.data(from: url),
@@ -392,8 +438,7 @@ struct ArtistDetailView: View {
     }
     
     private func playTopSongs() {
-        guard let songs = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
-        let songList = songs.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs }) else { return }
         
         // Track artist play for favourites
         FavouritesManager.shared.trackArtistPlay(
@@ -404,13 +449,43 @@ struct ArtistDetailView: View {
         )
         
         Task {
-            await audioPlayer.playAlbum(songs: songList, startIndex: 0, shuffle: false)
+            // Try to fetch full list if available
+            var songsToPlay: [Song] = []
+            
+            if let browseId = section.browseId {
+                // Fetch in background without setting isLoading to prevent refresh
+                do {
+                    let page = try await networkManager.getPlaylist(id: browseId)
+                    if let fullSection = page.sections.first {
+                        songsToPlay = fullSection.items.compactMap { item in
+                            guard let videoId = item.id.count > 0 ? item.id : nil else { return nil }
+                            return Song(
+                                id: videoId,
+                                title: item.name,
+                                artist: item.artist.isEmpty ? (artistDetail?.name ?? initialName) : item.artist,
+                                thumbnailUrl: item.thumbnailUrl,
+                                duration: ""
+                            )
+                        }
+                    }
+                } catch {
+                    print("Failed to fetch full top songs for playback: \(error)")
+                }
+            }
+            
+            // Fallback to currently loaded songs if fetch failed or no browseId
+            if songsToPlay.isEmpty {
+                songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+            }
+            
+            if !songsToPlay.isEmpty {
+                await audioPlayer.playAlbum(songs: songsToPlay, startIndex: 0, shuffle: false)
+            }
         }
     }
     
     private func shuffleTopSongs() {
-        guard let songs = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
-        let songList = songs.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs }) else { return }
         
         // Track artist play for favourites
         FavouritesManager.shared.trackArtistPlay(
@@ -421,7 +496,38 @@ struct ArtistDetailView: View {
         )
         
         Task {
-            await audioPlayer.playAlbum(songs: songList, startIndex: 0, shuffle: true)
+            // Try to fetch full list if available
+            var songsToPlay: [Song] = []
+            
+            if let browseId = section.browseId {
+                // Fetch in background without setting isLoading to prevent refresh
+                do {
+                    let page = try await networkManager.getPlaylist(id: browseId)
+                    if let fullSection = page.sections.first {
+                        songsToPlay = fullSection.items.compactMap { item in
+                            guard let videoId = item.id.count > 0 ? item.id : nil else { return nil }
+                            return Song(
+                                id: videoId,
+                                title: item.name,
+                                artist: item.artist.isEmpty ? (artistDetail?.name ?? initialName) : item.artist,
+                                thumbnailUrl: item.thumbnailUrl,
+                                duration: ""
+                            )
+                        }
+                    }
+                } catch {
+                    print("Failed to fetch full top songs for shuffle: \(error)")
+                }
+            }
+            
+            // Fallback to currently loaded songs
+            if songsToPlay.isEmpty {
+                songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+            }
+            
+            if !songsToPlay.isEmpty {
+                await audioPlayer.playAlbum(songs: songsToPlay, startIndex: 0, shuffle: true)
+            }
         }
     }
 
@@ -438,6 +544,31 @@ struct ArtistDetailView: View {
         )
         Task {
             await audioPlayer.loadAndPlay(song: song)
+        }
+    }
+    
+    // MARK: - Like Management
+    
+    private func loadLikedStatus() {
+        guard let items = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
+        
+        for item in items {
+            guard let videoId = item.videoId else { continue }
+            let descriptor = FetchDescriptor<LocalSong>(
+                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
+            )
+            if (try? modelContext.fetchCount(descriptor)) ?? 0 > 0 {
+                likedSongIds.insert(videoId)
+            }
+        }
+    }
+    
+    private func toggleLikeSong(_ song: Song) {
+        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
+        if isNowLiked {
+            likedSongIds.insert(song.videoId)
+        } else {
+            likedSongIds.remove(song.videoId)
         }
     }
 }

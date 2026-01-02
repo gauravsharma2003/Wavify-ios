@@ -30,6 +30,10 @@ struct AlbumDetailView: View {
     @State private var showDelete = false
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
     
+    // Add to playlist state
+    @State private var selectedSongForPlaylist: Song?
+    @State private var likedSongIds: Set<String> = []
+    
     private let networkManager = NetworkManager.shared
     
     // Computed properties for unified data access
@@ -104,7 +108,11 @@ struct AlbumDetailView: View {
                 isLoading = false
             }
             checkIfSaved()
+            loadLikedStatus()
             await extractColors()
+        }
+        .sheet(item: $selectedSongForPlaylist) { song in
+            AddToPlaylistSheet(song: song)
         }
     }
     
@@ -134,7 +142,7 @@ struct AlbumDetailView: View {
                 Rectangle()
                     .fill(
                         LinearGradient(
-                            colors: [.purple.opacity(0.6), .blue.opacity(0.6)],
+                            colors: [Color(white: 0.2), Color(white: 0.1)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -241,14 +249,21 @@ struct AlbumDetailView: View {
             ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                 AlbumSongRow(
                     index: index + 1,
-                    title: song.title,
-                    duration: song.duration,
-                    isPlaying: audioPlayer.currentSong?.id == song.id
-                ) {
-                    Task {
-                        await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
+                    song: song,
+                    isPlaying: audioPlayer.currentSong?.id == song.id,
+                    isLiked: likedSongIds.contains(song.videoId),
+                    onTap: {
+                        Task {
+                            await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
+                        }
+                    },
+                    onAddToPlaylist: {
+                        selectedSongForPlaylist = song
+                    },
+                    onToggleLike: {
+                        toggleLikeSong(song)
                     }
-                }
+                )
                 
                 if index < songs.count - 1 {
                     Divider()
@@ -364,16 +379,84 @@ struct AlbumDetailView: View {
             }
         }
     }
+    
+    // MARK: - Like Management
+    
+    private func loadLikedStatus() {
+        for song in songs {
+            let videoId = song.videoId
+            let descriptor = FetchDescriptor<LocalSong>(
+                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
+            )
+            if (try? modelContext.fetchCount(descriptor)) ?? 0 > 0 {
+                likedSongIds.insert(videoId)
+            }
+        }
+    }
+    
+    private func toggleLikeSong(_ song: Song) {
+        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
+        if isNowLiked {
+            likedSongIds.insert(song.videoId)
+        } else {
+            likedSongIds.remove(song.videoId)
+        }
+    }
 }
 
 // MARK: - Album Song Row
 
 struct AlbumSongRow: View {
     let index: Int
-    let title: String
-    let duration: String
+    let song: Song
     let isPlaying: Bool
     let onTap: () -> Void
+    var onAddToPlaylist: (() -> Void)? = nil
+    var onToggleLike: (() -> Void)? = nil
+    var isLiked: Bool = false
+    
+    // Legacy initializer for backward compatibility
+    init(
+        index: Int,
+        title: String,
+        duration: String,
+        isPlaying: Bool,
+        onTap: @escaping () -> Void
+    ) {
+        self.index = index
+        self.song = Song(
+            id: "",
+            title: title,
+            artist: "",
+            thumbnailUrl: "",
+            duration: duration,
+            isLiked: false
+        )
+        self.isPlaying = isPlaying
+        self.onTap = onTap
+        self.onAddToPlaylist = nil
+        self.onToggleLike = nil
+        self.isLiked = false
+    }
+    
+    // New initializer with Song and menu callbacks
+    init(
+        index: Int,
+        song: Song,
+        isPlaying: Bool,
+        isLiked: Bool = false,
+        onTap: @escaping () -> Void,
+        onAddToPlaylist: (() -> Void)? = nil,
+        onToggleLike: (() -> Void)? = nil
+    ) {
+        self.index = index
+        self.song = song
+        self.isPlaying = isPlaying
+        self.isLiked = isLiked
+        self.onTap = onTap
+        self.onAddToPlaylist = onAddToPlaylist
+        self.onToggleLike = onToggleLike
+    }
     
     var body: some View {
         Button(action: onTap) {
@@ -394,7 +477,7 @@ struct AlbumSongRow: View {
                 .frame(width: 28)
                 
                 // Song Title
-                Text(title)
+                Text(song.title)
                     .font(.system(size: 15))
                     .foregroundStyle(isPlaying ? .white : .primary)
                     .lineLimit(1)
@@ -402,13 +485,30 @@ struct AlbumSongRow: View {
                 Spacer()
                 
                 // Duration
-                Text(duration)
+                Text(song.duration)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 
-                // Options
-                Button {
-                    // Options menu
+                // Options Menu
+                Menu {
+                    if let onAddToPlaylist = onAddToPlaylist {
+                        Button {
+                            onAddToPlaylist()
+                        } label: {
+                            Label("Add to Playlist", systemImage: "text.badge.plus")
+                        }
+                    }
+                    
+                    if let onToggleLike = onToggleLike {
+                        Button {
+                            onToggleLike()
+                        } label: {
+                            Label(
+                                isLiked ? "Remove from Liked" : "Add to Liked",
+                                systemImage: isLiked ? "heart.slash" : "heart"
+                            )
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 16))

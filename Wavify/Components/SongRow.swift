@@ -12,17 +12,23 @@ struct SongRow: View {
     let showArtwork: Bool
     let onTap: () -> Void
     let onLike: (() -> Void)?
+    var showMenu: Bool = false
+    var onAddToPlaylist: (() -> Void)? = nil
     
     init(
         song: Song,
         showArtwork: Bool = true,
         onTap: @escaping () -> Void,
-        onLike: (() -> Void)? = nil
+        onLike: (() -> Void)? = nil,
+        showMenu: Bool = false,
+        onAddToPlaylist: (() -> Void)? = nil
     ) {
         self.song = song
         self.showArtwork = showArtwork
         self.onTap = onTap
         self.onLike = onLike
+        self.showMenu = showMenu
+        self.onAddToPlaylist = onAddToPlaylist
     }
     
     var body: some View {
@@ -74,7 +80,35 @@ struct SongRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 
-                if let onLike = onLike {
+                // Three-dot menu
+                if showMenu {
+                    Menu {
+                        if let onAddToPlaylist = onAddToPlaylist {
+                            Button {
+                                onAddToPlaylist()
+                            } label: {
+                                Label("Add to Playlist", systemImage: "text.badge.plus")
+                            }
+                        }
+                        
+                        if let onLike = onLike {
+                            Button {
+                                onLike()
+                            } label: {
+                                Label(
+                                    song.isLiked ? "Remove from Liked" : "Add to Liked",
+                                    systemImage: song.isLiked ? "heart.slash" : "heart"
+                                )
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                    }
+                } else if let onLike = onLike {
+                    // Legacy like button (when menu is not shown)
                     Button(action: onLike) {
                         Image(systemName: song.isLiked ? "heart.fill" : "heart")
                             .font(.system(size: 16))
