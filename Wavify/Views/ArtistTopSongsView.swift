@@ -53,6 +53,7 @@ struct ArtistTopSongsView: View {
                                 song: song,
                                 isPlaying: audioPlayer.currentSong?.id == song.id,
                                 isLiked: likedSongIds.contains(song.videoId),
+                                showImage: true,
                                 onTap: {
                                     playSong(song)
                                 },
@@ -66,12 +67,13 @@ struct ArtistTopSongsView: View {
                             
                             if index < songs.count - 1 {
                                 Divider()
-                                    .padding(.leading, 50)
+                                    .padding(.leading, 72) // Increased padding for image
                                     .opacity(0.3)
                             }
                         }
                     }
                     .padding(.vertical)
+                    .padding(.horizontal) // Create side padding
                     // Bottom padding for player bar
                     .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 20)
                 }
@@ -80,7 +82,6 @@ struct ArtistTopSongsView: View {
         .navigationTitle("Top Songs")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(Color(white: 0.05), for: .navigationBar)
         .task {
             if songs.isEmpty {
                 await loadSongs()

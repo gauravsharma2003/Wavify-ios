@@ -414,6 +414,7 @@ struct AlbumSongRow: View {
     var onAddToPlaylist: (() -> Void)? = nil
     var onToggleLike: (() -> Void)? = nil
     var isLiked: Bool = false
+    var showImage: Bool = false
     
     // Legacy initializer for backward compatibility
     init(
@@ -437,6 +438,7 @@ struct AlbumSongRow: View {
         self.onAddToPlaylist = nil
         self.onToggleLike = nil
         self.isLiked = false
+        self.showImage = false // Default for legacy
     }
     
     // New initializer with Song and menu callbacks
@@ -445,6 +447,7 @@ struct AlbumSongRow: View {
         song: Song,
         isPlaying: Bool,
         isLiked: Bool = false,
+        showImage: Bool = false,
         onTap: @escaping () -> Void,
         onAddToPlaylist: (() -> Void)? = nil,
         onToggleLike: (() -> Void)? = nil
@@ -453,6 +456,7 @@ struct AlbumSongRow: View {
         self.song = song
         self.isPlaying = isPlaying
         self.isLiked = isLiked
+        self.showImage = showImage
         self.onTap = onTap
         self.onAddToPlaylist = onAddToPlaylist
         self.onToggleLike = onToggleLike
@@ -461,32 +465,68 @@ struct AlbumSongRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Track Number or Playing Indicator
-                ZStack {
-                    if isPlaying {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white)
-                            .symbolEffect(.variableColor.iterative)
-                    } else {
-                        Text("\(index)")
-                            .font(.system(size: 14, weight: .medium))
+                // Image or Track Number
+                if showImage {
+                    ZStack {
+                        AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(song.thumbnailUrl))) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Rectangle().fill(Color.gray.opacity(0.3))
+                        }
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        
+                        // Playing overlay for image
+                        if isPlaying {
+                            ZStack {
+                                Color.black.opacity(0.4)
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.white)
+                                    .symbolEffect(.variableColor.iterative)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                } else {
+                    // Standard Track Number / Waveform
+                    ZStack {
+                        if isPlaying {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white)
+                                .symbolEffect(.variableColor.iterative)
+                        } else {
+                            Text("\(index)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 28)
+                }
+                
+                // Song Title & Artist (if image shown, likely want artist too?)
+                // For now, sticking to Title as per existing row, but Top Songs usually show artist name too if mixed,
+                // but here it's Artist Page so artist is implied.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.title)
+                        .font(.system(size: 15))
+                        .foregroundStyle(isPlaying ? .white : .primary)
+                        .lineLimit(1)
+                    
+                    if showImage {
+                        Text(song.artist)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
-                .frame(width: 28)
-                
-                // Song Title
-                Text(song.title)
-                    .font(.system(size: 15))
-                    .foregroundStyle(isPlaying ? .white : .primary)
-                    .lineLimit(1)
                 
                 Spacer()
                 
                 // Duration
                 Text(song.duration)
-                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 
                 // Options Menu

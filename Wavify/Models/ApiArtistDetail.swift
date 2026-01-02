@@ -32,6 +32,7 @@ struct ArtistSection: Identifiable {
     let title: String
     let items: [ArtistItem]
     let browseId: String? // For "See All" endpoint
+    let params: String? // For "See All" endpoint filters
 }
 
 struct ArtistItem: Identifiable, Hashable {

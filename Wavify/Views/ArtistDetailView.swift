@@ -190,30 +190,43 @@ struct ArtistDetailView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text(section.title)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    if let browseId = section.browseId, section.type == .topSongs {
-                        Spacer()
-                        NavigationLink {
+                if let browseId = section.browseId {
+                    NavigationLink {
+                        if section.type == .topSongs {
                             ArtistTopSongsView(
                                 browseId: browseId,
                                 artistName: artistDetail?.name ?? initialName,
                                 audioPlayer: audioPlayer
                             )
-                        } label: {
+                        } else {
+                            ArtistItemsGridView(
+                                title: section.title,
+                                browseId: browseId,
+                                params: section.params,
+                                artistName: artistDetail?.name ?? initialName,
+                                audioPlayer: audioPlayer
+                            )
+                        }
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(section.title)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.primary)
+                            
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(8)
-                                .background(Color(white: 0.15))
-                                .clipShape(Circle())
+                                .foregroundStyle(.primary)
                         }
                     }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                } else {
+                    Text(section.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal)
                 }
-                .padding(.horizontal)
                 
                 switch section.type {
                 case .topSongs:

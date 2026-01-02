@@ -1429,20 +1429,24 @@ extension NetworkManager {
             }
         }
         
-        // Helper to extract browseId from bottomEndpoint
+        // Helper to extract browseId and params
         var browseId: String?
+        var params: String?
+        
         if let bottomEndpoint = shelf["bottomEndpoint"] as? [String: Any],
            let browseEndpoint = bottomEndpoint["browseEndpoint"] as? [String: Any] {
             browseId = browseEndpoint["browseId"] as? String
+            params = browseEndpoint["params"] as? String
         } else if let bottomText = shelf["bottomText"] as? [String: Any],
                   let runs = bottomText["runs"] as? [[String: Any]],
                   let firstRun = runs.first,
                   let endpoint = firstRun["navigationEndpoint"] as? [String: Any],
                   let browseEndpoint = endpoint["browseEndpoint"] as? [String: Any] {
             browseId = browseEndpoint["browseId"] as? String
+            params = browseEndpoint["params"] as? String
         }
         
-        return ArtistSection(type: type, title: title, items: items, browseId: browseId)
+        return ArtistSection(type: type, title: title, items: items, browseId: browseId, params: params)
     }
     
     private func parseCarouselShelf(_ shelf: [String: Any]) -> ArtistSection? {
@@ -1520,6 +1524,8 @@ extension NetworkManager {
         
         // Check for title endpoint (sometimes clicking title goes to See All)
         var sectionBrowseId: String?
+        var sectionParams: String?
+        
         if let header = shelf["header"] as? [String: Any],
            let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
            let titleData = basicHeader["title"] as? [String: Any],
@@ -1528,8 +1534,161 @@ extension NetworkManager {
            let endpoint = firstRun["navigationEndpoint"] as? [String: Any],
            let browseEndpoint = endpoint["browseEndpoint"] as? [String: Any] {
             sectionBrowseId = browseEndpoint["browseId"] as? String
+            sectionParams = browseEndpoint["params"] as? String
         }
         
-        return ArtistSection(type: type, title: title, items: items, browseId: sectionBrowseId)
+        return ArtistSection(type: type, title: title, items: items, browseId: sectionBrowseId, params: sectionParams)
+    }
+    
+    // MARK: - Section Items (See All)
+    
+    // Generic method to fetch items for a section (Grid or List from See All)
+    func getSectionItems(browseId: String, params: String? = nil) async throws -> [ArtistItem] {
+        let url = URL(string: "\(baseURL)/browse?prettyPrint=false")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        webHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        
+        var body: [String: Any] = [
+            "browseId": browseId,
+            "context": webContext
+        ]
+        
+        if let params = params {
+            body["params"] = params
+        }
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await session.data(for: request)
+        return try parseSectionItemsResponse(data)
+    }
+    
+    private func parseSectionItemsResponse(_ data: Data) throws -> [ArtistItem] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+              let tabs = singleColumn["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabContent = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabContent["content"] as? [String: Any],
+              let sectionList = content["sectionListRenderer"] as? [String: Any],
+              let sections = sectionList["contents"] as? [[String: Any]],
+              let firstSection = sections.first else {
+            // Might be a playlist response (for Top Songs) which has different structure
+            // Try parsing as playlist if section list fails
+            if let playlistItems = try? parsePlaylistResponseAsItems(data) {
+                return playlistItems
+            }
+             throw YouTubeMusicError.parseError("Invalid section items response")
+        }
+        
+        // Check for Grid (Singles, Albums)
+        if let gridRenderer = firstSection["gridRenderer"] as? [String: Any],
+           let items = gridRenderer["items"] as? [[String: Any]] {
+            return parseGridItems(items)
+        }
+        
+        // Check for Music Shelf (List)
+        if let musicShelf = firstSection["musicShelfRenderer"] as? [String: Any] {
+             if let section = parseMusicShelf(musicShelf) {
+                 return section.items
+             }
+        }
+        
+        return []
+    }
+    
+    private func parseGridItems(_ items: [[String: Any]]) -> [ArtistItem] {
+        var artistItems: [ArtistItem] = []
+        
+        for itemWrapper in items {
+            if let twoRowItem = itemWrapper["musicTwoRowItemRenderer"] as? [String: Any] {
+                // Parse similarly to parseCarouselShelf item logic
+                
+                // Browse ID
+                var browseId: String?
+                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any],
+                   let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
+                    browseId = browseEndpoint["browseId"] as? String
+                }
+                
+                // Title
+                var itemTitle = ""
+                if let titleData = twoRowItem["title"] as? [String: Any],
+                   let runs = titleData["runs"] as? [[String: Any]],
+                   let firstRun = runs.first {
+                    itemTitle = firstRun["text"] as? String ?? ""
+                }
+                
+                // Subtitle
+                var subtitle = ""
+                if let subtitleData = twoRowItem["subtitle"] as? [String: Any],
+                   let runs = subtitleData["runs"] as? [[String: Any]] {
+                     subtitle = runs.compactMap { $0["text"] as? String }.joined()
+                }
+                
+                // Thumbnail
+                 var thumbUrl = ""
+                 if let thumbRenderer = twoRowItem["thumbnailRenderer"] as? [String: Any],
+                    let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+                    let thumbData = musicThumb["thumbnail"] as? [String: Any],
+                    let thumbnails = thumbData["thumbnails"] as? [[String: Any]],
+                    let lastThumb = thumbnails.last {
+                     thumbUrl = lastThumb["url"] as? String ?? ""
+                 }
+                
+                artistItems.append(ArtistItem(
+                    id: browseId ?? UUID().uuidString,
+                    title: itemTitle,
+                    subtitle: subtitle,
+                    thumbnailUrl: thumbUrl,
+                    isExplicit: false,
+                    videoId: nil,
+                    playlistId: nil,
+                    browseId: browseId
+                ))
+            }
+        }
+        
+        return artistItems
+    }
+    
+    private func parsePlaylistResponseAsItems(_ data: Data) throws -> [ArtistItem] {
+        // Reuse existing parseBrowseResponse or similar structure logic but extract items directly
+        // Top Songs See All returns a playlist structure
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let twoColumn = contents["twoColumnBrowseResultsRenderer"] as? [String: Any],
+              let secondaryContents = twoColumn["secondaryContents"] as? [String: Any],
+              let sectionList = secondaryContents["sectionListRenderer"] as? [String: Any],
+              let sectionContents = sectionList["contents"] as? [[String: Any]],
+              let firstSection = sectionContents.first,
+              let musicPlaylistShelf = firstSection["musicPlaylistShelfRenderer"] as? [String: Any],
+              let items = musicPlaylistShelf["contents"] as? [[String: Any]] else {
+            throw YouTubeMusicError.parseError("Not a playlist response")
+        }
+        
+        var artistItems: [ArtistItem] = []
+        
+        for itemData in items {
+             if let listItem = itemData["musicResponsiveListItemRenderer"] as? [String: Any] {
+                 // Reuse parseListItem logic but map to ArtistItem
+                 if let searchResult = parseListItem(listItem) {
+                     artistItems.append(ArtistItem(
+                        id: searchResult.id,
+                        title: searchResult.name,
+                        subtitle: searchResult.artist,
+                        thumbnailUrl: searchResult.thumbnailUrl,
+                        isExplicit: searchResult.isExplicit,
+                        videoId: searchResult.type == .song ? searchResult.id : nil,
+                        playlistId: nil,
+                        browseId: nil 
+                     ))
+                 }
+             }
+        }
+        
+        return artistItems
     }
 }
