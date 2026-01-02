@@ -11,6 +11,10 @@ struct MiniPlayer: View {
     @Bindable var audioPlayer: AudioPlayer
     let onTap: () -> Void
     
+    // Swipe gesture state
+    @State private var dragOffset: CGFloat = 0
+    private let swipeThreshold: CGFloat = 50
+    
     var body: some View {
         if let song = audioPlayer.currentSong {
             VStack(spacing: 0) {
@@ -106,6 +110,47 @@ struct MiniPlayer: View {
                 .padding(.bottom, 10)
             }
             .contentShape(Rectangle())
+            .offset(x: dragOffset)
+            .clipShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        // Only track horizontal movement
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            // Clamp the drag offset to prevent content overflow
+                            let dampened = value.translation.width * 0.4
+                            withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.8)) {
+                                dragOffset = max(-60, min(60, dampened))
+                            }
+                        }
+                    }
+                    .onEnded { value in
+                        let horizontalAmount = value.translation.width
+                        
+                        if horizontalAmount < -swipeThreshold {
+                            // Swipe left → Play next song
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                            
+                            Task {
+                                await audioPlayer.playNext()
+                            }
+                        } else if horizontalAmount > swipeThreshold {
+                            // Swipe right → Play previous song
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                            
+                            Task {
+                                await audioPlayer.playPrevious()
+                            }
+                        }
+                        
+                        // Always smoothly reset to center
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            dragOffset = 0
+                        }
+                    }
+            )
             .onTapGesture {
                 onTap()
             }
