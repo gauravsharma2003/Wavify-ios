@@ -23,6 +23,12 @@ struct NowPlayingView: View {
     @State private var secondaryColor: Color = Color(red: 0.1, green: 0.1, blue: 0.2)
     @State private var lastSongId: String = ""
     
+    // Lyrics state
+    @State private var showLyrics = false
+    @State private var lyricsState: LyricsState = .idle
+    @State private var lastLyricsFetchedSongId: String = ""
+    @State private var lyricsExpanded = false
+    
     var navigationManager: NavigationManager = .shared // Default for preview compatibility
     
     var body: some View {
@@ -34,33 +40,38 @@ struct NowPlayingView: View {
             GeometryReader { geometry in
                 GlassEffectContainer {
                     VStack(spacing: 0) {
-                        // Drag Handle
+                        // Drag Handle (always visible)
                         dragHandle
                         
-                        // Main Content
-                        ScrollView(showsIndicators: false) {
-                            VStack(spacing: 32) {
-                                // Album Art
-                                albumArtView(geometry: geometry)
-                                
-                                // Song Info
-                                songInfoView
-                                
-                                // Progress Bar
-                                progressView
-                                
-                                // Controls
-                                controlsView
-                                
-                                // Additional Controls
-                                additionalControlsView
+                        if lyricsExpanded && showLyrics {
+                            // Expanded Lyrics Mode
+                            expandedLyricsContent(geometry: geometry)
+                        } else {
+                            // Normal Mode - Main Content
+                            ScrollView(showsIndicators: false) {
+                                VStack(spacing: 32) {
+                                    // Album Art or Lyrics
+                                    albumArtView(geometry: geometry)
+                                    
+                                    // Song Info
+                                    songInfoView
+                                    
+                                    // Progress Bar
+                                    progressView
+                                    
+                                    // Controls
+                                    controlsView
+                                    
+                                    // Additional Controls
+                                    additionalControlsView
+                                }
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 40)
                             }
-                            .padding(.horizontal, 24)
-                            .padding(.bottom, 40)
                         }
                     }
                 }
-                .offset(y: dragOffset)
+                .offset(y: lyricsExpanded ? 0 : dragOffset)
                 .animation(
                     isDragging ? .none : .spring(response: 0.4, dampingFraction: 0.85, blendDuration: 0.1),
                     value: dragOffset
@@ -68,7 +79,7 @@ struct NowPlayingView: View {
             }
         }
         .gesture(
-            DragGesture(coordinateSpace: .global)
+            lyricsExpanded ? nil : DragGesture(coordinateSpace: .global)
                 .onChanged { value in
                     isDragging = true
                     let dragAmount = value.translation.height
@@ -110,6 +121,117 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
+    }
+    
+    // MARK: - Expanded Lyrics Content
+    
+    private func expandedLyricsContent(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            // Compact Song Info
+            compactSongInfoView
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+            
+            // Progress Bar (slim version)
+            slimProgressView
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            
+            // Fullscreen Lyrics
+            LyricsView(
+                lyricsState: lyricsState,
+                currentTime: audioPlayer.currentTime,
+                onSeek: { time in
+                    audioPlayer.seek(to: time)
+                },
+                isExpanded: true,
+                onExpandToggle: {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        lyricsExpanded = false
+                    }
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    
+    // MARK: - Compact Song Info (for expanded mode)
+    
+    private var compactSongInfoView: some View {
+        HStack(spacing: 12) {
+            // Small album art
+            if let song = audioPlayer.currentSong {
+                AsyncImage(url: URL(string: song.thumbnailUrl)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle()
+                            .fill(.white.opacity(0.1))
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    
+                    Text(song.artist)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                // Play/Pause button
+                Button {
+                    audioPlayer.togglePlayPause()
+                } label: {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Slim Progress View (for expanded mode)
+    
+    private var slimProgressView: some View {
+        VStack(spacing: 4) {
+            // Slim Slider
+            Slider(
+                value: Binding(
+                    get: { audioPlayer.currentTime },
+                    set: { audioPlayer.seek(to: $0) }
+                ),
+                in: 0...max(audioPlayer.duration, 1)
+            )
+            .tint(.white)
+            .scaleEffect(y: 0.8)
+            
+            // Time Labels
+            HStack {
+                Text(audioPlayer.currentTime.formattedTime)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                Text(audioPlayer.duration.formattedTime)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
     
     // MARK: - Background
@@ -134,6 +256,10 @@ struct NowPlayingView: View {
                 extractColorsFromArtwork()
                 checkLikeStatus()
                 saveToHistory()
+                
+                // Reset lyrics state when song changes
+                showLyrics = false
+                lyricsState = .idle
             }
         }
         .task {
@@ -282,50 +408,73 @@ struct NowPlayingView: View {
     
     private func albumArtView(geometry: GeometryProxy) -> some View {
         let size = min(geometry.size.width - 48, 340)
+        // Lyrics container can be taller than album art
+        let lyricsHeight = size 
         
         return Group {
             if let song = audioPlayer.currentSong {
-                // Use high-quality upscaled thumbnail for the player
-                let highQualityUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
-                
-                AsyncImage(url: URL(string: highQualityUrl)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure, .empty:
-                        albumPlaceholder
-                    @unknown default:
-                        albumPlaceholder
-                    }
-                }
-                .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: 24))
-                .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
-                .contextMenu {
-                    if let albumId = song.albumId {
-                        Button {
-                            navigationManager.navigateToAlbum(
-                                id: albumId,
-                                name: song.title, // FIXME: Needs Album Name ideally
-                                artist: song.artist,
-                                thumbnail: song.thumbnailUrl
-                            )
-                        } label: {
-                            Label("Go to Album", systemImage: "opticaldisc")
+                if showLyrics {
+                    // Lyrics View
+                    LyricsView(
+                        lyricsState: lyricsState,
+                        currentTime: audioPlayer.currentTime,
+                        onSeek: { time in
+                            audioPlayer.seek(to: time)
+                        },
+                        isExpanded: lyricsExpanded,
+                        onExpandToggle: {
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                lyricsExpanded = true
+                            }
+                        }
+                    )
+                    .frame(width: size, height: lyricsHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    // Album Art
+                    let highQualityUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+                    
+                    AsyncImage(url: URL(string: highQualityUrl)) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure, .empty:
+                            albumPlaceholder
+                        @unknown default:
+                            albumPlaceholder
                         }
                     }
-                    
-                    if let artistId = song.artistId {
-                        Button {
-                            navigationManager.navigateToArtist(
-                                id: artistId,
-                                name: song.artist,
-                                thumbnail: song.thumbnailUrl
-                            )
-                        } label: {
-                            Label("Go to Artist", systemImage: "music.mic")
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .contextMenu {
+                        if let albumId = song.albumId {
+                            Button {
+                                navigationManager.navigateToAlbum(
+                                    id: albumId,
+                                    name: song.title, // FIXME: Needs Album Name ideally
+                                    artist: song.artist,
+                                    thumbnail: song.thumbnailUrl
+                                )
+                            } label: {
+                                Label("Go to Album", systemImage: "opticaldisc")
+                            }
+                        }
+                        
+                        if let artistId = song.artistId {
+                            Button {
+                                navigationManager.navigateToArtist(
+                                    id: artistId,
+                                    name: song.artist,
+                                    thumbnail: song.thumbnailUrl
+                                )
+                            } label: {
+                                Label("Go to Artist", systemImage: "music.mic")
+                            }
                         }
                     }
                 }
@@ -336,6 +485,7 @@ struct NowPlayingView: View {
             }
         }
         .padding(.top, 32)
+        .animation(.easeInOut(duration: 0.3), value: showLyrics)
     }
     
     private var albumPlaceholder: some View {
@@ -471,7 +621,7 @@ struct NowPlayingView: View {
     // MARK: - Additional Controls
     
     private var additionalControlsView: some View {
-        HStack(spacing: 48) {
+        HStack(spacing: 36) {
             // Like Button
             Button {
                 toggleLike()
@@ -498,8 +648,50 @@ struct NowPlayingView: View {
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(.secondary)
             }
+            
+            // Lyrics Button
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showLyrics.toggle()
+                }
+                // Fetch lyrics if showing and not already fetched for this song
+                if showLyrics, let song = audioPlayer.currentSong,
+                   song.id != lastLyricsFetchedSongId {
+                    fetchLyrics()
+                }
+            } label: {
+                Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(showLyrics ? .white : .secondary)
+            }
         }
         .padding(.top, 8)
+    }
+    
+    // MARK: - Lyrics Fetching
+    
+    private func fetchLyrics() {
+        guard let song = audioPlayer.currentSong else { return }
+        
+        lyricsState = .loading
+        lastLyricsFetchedSongId = song.id
+        
+        Task {
+            let result = await LyricsService.shared.fetchLyrics(
+                title: song.title,
+                artist: song.artist,
+                duration: audioPlayer.duration
+            )
+            
+            // Update lyrics state based on result
+            if let synced = result.syncedLyrics, !synced.isEmpty {
+                lyricsState = .synced(synced)
+            } else if let plain = result.plainLyrics, !plain.isEmpty {
+                lyricsState = .plain(plain)
+            } else {
+                lyricsState = .notFound
+            }
+        }
     }
 }
 

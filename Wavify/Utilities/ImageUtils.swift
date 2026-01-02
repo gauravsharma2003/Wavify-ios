@@ -61,4 +61,33 @@ enum ImageUtils {
     static func thumbnailForPlayer(_ url: String) -> String {
         return upscaleThumbnail(url, targetSize: 544)
     }
+    
+    /// Resizes Google/YouTube thumbnail URLs to specific dimensions
+    /// - Parameters:
+    ///   - url: The original thumbnail URL
+    ///   - width: Target width
+    ///   - height: Target height
+    /// - Returns: The resized URL
+    static func resizeThumbnail(_ url: String, width: Int, height: Int) -> String {
+        guard !url.isEmpty else { return url }
+        
+        // Handle lh3.googleusercontent.com URLs (YouTube Music thumbnails)
+        if url.contains("googleusercontent.com") || url.contains("ytimg.com") {
+            var resized = url
+            
+            // Replace width parameter
+            if let range = resized.range(of: "=w\\d+", options: .regularExpression) {
+                resized.replaceSubrange(range, with: "=w\(width)")
+            }
+            
+            // Replace height parameter
+            if let range = resized.range(of: "-h\\d+", options: .regularExpression) {
+                resized.replaceSubrange(range, with: "-h\(height)")
+            }
+            
+            return resized
+        }
+        
+        return url
+    }
 }

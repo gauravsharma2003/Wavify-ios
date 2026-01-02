@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DA4DCE1B2F06FBED00721B11 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */; };
+		DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,9 +34,22 @@
 		DAC714F12F03FCB400B08888 /* WavifyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WavifyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DA4DCE222F07230700721B11 /* Exceptions for "Wavify" folder in "Wavify" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DAC714D92F03FCB200B08888 /* Wavify */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DAC714DC2F03FCB200B08888 /* Wavify */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DA4DCE222F07230700721B11 /* Exceptions for "Wavify" folder in "Wavify" target */,
+			);
 			path = Wavify;
 			sourceTree = "<group>";
 		};
@@ -57,7 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DA4DCE1B2F06FBED00721B11 /* BackgroundTasks.framework in Frameworks */,
+				DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -413,6 +426,7 @@
 				DEVELOPMENT_TEAM = 4HXQRL8SHT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Wavify/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = "(audio)";
@@ -446,6 +460,7 @@
 				DEVELOPMENT_TEAM = 4HXQRL8SHT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Wavify/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = "(audio)";
