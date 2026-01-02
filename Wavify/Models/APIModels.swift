@@ -154,6 +154,7 @@ struct Song: Identifiable, Hashable {
     var isLiked: Bool
     var artistId: String? = nil
     var albumId: String? = nil
+    var isRecommendation: Bool = false
     
     var videoId: String { id }
     
@@ -212,7 +213,8 @@ struct Song: Identifiable, Hashable {
         duration: String,
         isLiked: Bool = false,
         artistId: String? = nil,
-        albumId: String? = nil
+        albumId: String? = nil,
+        isRecommendation: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -222,6 +224,7 @@ struct Song: Identifiable, Hashable {
         self.isLiked = isLiked
         self.artistId = artistId
         self.albumId = albumId
+        self.isRecommendation = isRecommendation
     }
 
 }

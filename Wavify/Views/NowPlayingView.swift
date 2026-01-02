@@ -690,14 +690,6 @@ struct NowPlayingView: View {
                 Image(systemName: audioPlayer.loopMode.icon)
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
-                    .overlay(alignment: .topTrailing) {
-                        if audioPlayer.loopMode == .one {
-                            Text("1")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
-                                .offset(x: 2, y: -2)
-                        }
-                    }
             }
         }
     }

@@ -28,9 +28,9 @@ enum LoopMode: String, CaseIterable {
     
     func next() -> LoopMode {
         switch self {
-        case .none: return .one
-        case .one: return .all
-        case .all: return .none
+        case .none: return .all
+        case .all: return .one
+        case .one: return .none
         }
     }
 }
@@ -280,7 +280,11 @@ class AudioPlayer {
     private func loadRelatedSongs(videoId: String, replaceQueue: Bool) async {
         do {
             let relatedSongs = try await networkManager.getRelatedSongs(videoId: videoId)
-            let newSongs = relatedSongs.map { Song(from: $0) }
+            let newSongs = relatedSongs.map { song -> Song in
+                var s = Song(from: song)
+                s.isRecommendation = true
+                return s
+            }
             
             if replaceQueue {
                 // When replacing queue, preserve userQueue songs at the beginning
@@ -308,6 +312,9 @@ class AudioPlayer {
     
     /// Check if near end of queue and append more songs if needed
     private func checkAndAppendToQueue() {
+        // Don't fetch recommendations if loop mode is active (Loop One or Loop All)
+        guard loopMode == .none else { return }
+        
         let songsRemaining = queue.count - currentIndex - 1
         
         // If less than 10 songs remaining, fetch more
@@ -414,6 +421,31 @@ class AudioPlayer {
     
     func toggleLoopMode() {
         loopMode = loopMode.next()
+        
+        // Handle logic when entering Loop All
+        if loopMode == .all {
+            if let current = currentSong {
+                if !current.isRecommendation {
+                    // We are in the core content (Album, Playlist, or User Selection).
+                    // Remove all auto-generated recommendations to strictly loop the core content.
+                    // User-added songs (addToQueue) are NOT marked isRecommendation, so they are preserved.
+                    queue = queue.filter { !$0.isRecommendation }
+                    
+                    // Reset index to match the filtered queue
+                    if let newIndex = queue.firstIndex(where: { $0.id == current.id }) {
+                        currentIndex = newIndex
+                    }
+                } else {
+                    // We are currently playing a recommendation.
+                    // Keep the current queue (history + recommendations so far).
+                    // checkAndAppendToQueue will guard against adding MORE, effectively creating a closed loop of what we have.
+                }
+            }
+
+        } else if loopMode == .none {
+            // Resume recommendation fetching if needed
+            checkAndAppendToQueue()
+        }
     }
     
     // MARK: - User Queue Management
