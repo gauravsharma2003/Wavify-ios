@@ -76,7 +76,9 @@ struct ArtistDetailView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task {
+        .task(id: artistId) {
+            // Only load if we don't already have data for this artist
+            guard artistDetail == nil || artistDetail?.name != initialName else { return }
             await loadArtistDetails()
             await extractColors()
         }
@@ -443,6 +445,12 @@ struct ArtistDetailView: View {
     // MARK: - Actions
     
     private func loadArtistDetails() async {
+        // Skip if already loaded
+        guard artistDetail == nil else {
+            isLoading = false
+            return
+        }
+        
         do {
             artistDetail = try await networkManager.getArtistDetails(browseId: artistId)
         } catch {
