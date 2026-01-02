@@ -289,7 +289,7 @@ struct SearchView: View {
                     // Playlists Section (only show when filter is All)
                     let playlists = viewModel.results.filter { $0.type == .playlist }
                     if !playlists.isEmpty && viewModel.selectedFilter == .all {
-                        albumSection(albums: Array(playlists.prefix(4)), title: "Playlists")
+                        playlistSection(playlists: Array(playlists.prefix(4)))
                     }
                 }
             }
@@ -371,12 +371,24 @@ struct SearchView: View {
                 }
                 .buttonStyle(.plain)
                 
-            case .album, .playlist:
+            case .album:
                 NavigationLink {
                     AlbumDetailView(
                         albumId: result.id,
                         initialName: result.name,
                         initialArtist: result.artist,
+                        initialThumbnail: result.thumbnailUrl,
+                        audioPlayer: audioPlayer
+                    )
+                } label: {
+                    topResultRowContent(result)
+                }
+                .buttonStyle(.plain)
+            case .playlist:
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlistId: result.id,
+                        initialName: result.name,
                         initialThumbnail: result.thumbnailUrl,
                         audioPlayer: audioPlayer
                     )
@@ -636,6 +648,75 @@ struct SearchView: View {
             .padding(.horizontal)
         }
     }
+    
+    private func playlistSection(playlists: [SearchResult]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Playlists")
+                .font(.system(size: 20, weight: .bold))
+                .padding(.horizontal)
+                .padding(.top, 20)
+            
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ],
+                spacing: 16
+            ) {
+                ForEach(playlists) { playlist in
+                    NavigationLink {
+                        PlaylistDetailView(
+                            playlistId: playlist.id,
+                            initialName: playlist.name,
+                            initialThumbnail: playlist.thumbnailUrl,
+                            audioPlayer: audioPlayer
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Color.clear
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    AsyncImage(url: URL(string: playlist.thumbnailUrl)) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                        default:
+                                            Rectangle()
+                                                .fill(Color(white: 0.15))
+                                                .overlay {
+                                                    Image(systemName: "music.note.list")
+                                                        .font(.system(size: 32))
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                        }
+                                    }
+                                }
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playlist.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                
+                                Text(playlist.artist)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 4)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+    
     private func handleSuggestionTap(_ result: SearchResult) {
         switch result.type {
         case .song:
@@ -644,8 +725,10 @@ struct SearchView: View {
             }
         case .artist:
             navigationManager.searchPath.append(NavigationDestination.artist(result.id, result.name, result.thumbnailUrl))
-        case .album, .playlist:
+        case .album:
             navigationManager.searchPath.append(NavigationDestination.album(result.id, result.name, result.artist, result.thumbnailUrl))
+        case .playlist:
+            navigationManager.searchPath.append(NavigationDestination.playlist(result.id, result.name, result.thumbnailUrl))
         case .video:
              Task {
                  await audioPlayer.loadAndPlay(song: Song(from: result))
