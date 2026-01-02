@@ -221,10 +221,12 @@ class NetworkManager {
         // Extract subtitle for artist info
         var artist = ""
         if let subtitle = cardShelf["subtitle"] as? [String: Any],
-           let subtitleRuns = subtitle["runs"] as? [[String: Any]],
-           let firstSubtitleRun = subtitleRuns.first,
-           let subtitleText = firstSubtitleRun["text"] as? String {
-            artist = subtitleText
+           let subtitleRuns = subtitle["runs"] as? [[String: Any]] {
+            if subtitleRuns.count > 2, let text = subtitleRuns[2]["text"] as? String {
+                artist = text
+            } else if let firstRun = subtitleRuns.first, let text = firstRun["text"] as? String {
+                artist = text
+            }
         }
         
         // Determine type and ID from navigation endpoint
@@ -373,10 +375,38 @@ class NetworkManager {
                let text = renderer["text"] as? [String: Any],
                let runs = text["runs"] as? [[String: Any]] {
                 
-                // Iterate through runs to find artist
+                // 1. Robust check: Look for MUSIC_PAGE_TYPE_ARTIST
+                for run in runs {
+                    if let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                       let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                       let configs = browseEndpoint["browseEndpointContextSupportedConfigs"] as? [String: Any],
+                       let musicConfig = configs["browseEndpointContextMusicConfig"] as? [String: Any],
+                       let pageType = musicConfig["pageType"] as? String,
+                       pageType == "MUSIC_PAGE_TYPE_ARTIST",
+                       let text = run["text"] as? String,
+                       let browseId = browseEndpoint["browseId"] as? String {
+                        return (text, browseId)
+                    }
+                }
+                
+                // 2. Check explicitly for known artist run structure (often index 2: Type • Artist)
+                if runs.count > 2, let text = runs[2]["text"] as? String {
+                     // Verify it's not a separator (bullet point) and looks like a name
+                     if text != "•" {
+                        // Try to get ID if available
+                        var artistId: String? = nil
+                        if let navEndpoint = runs[2]["navigationEndpoint"] as? [String: Any],
+                           let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                           let browseId = browseEndpoint["browseId"] as? String {
+                            artistId = browseId
+                        }
+                        return (text, artistId)
+                     }
+                }
+                
+                // 3. Fallback: Iterate through runs to find any artist channel (UC...)
                 for (index, run) in runs.enumerated() {
                     if let text = run["text"] as? String {
-                        // Check if this run links to an artist channel (starts with UC)
                         if let navEndpoint = run["navigationEndpoint"] as? [String: Any],
                            let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
                            let browseId = browseEndpoint["browseId"] as? String,
@@ -384,16 +414,10 @@ class NetworkManager {
                             return (text, browseId)
                         }
                         
-                        // If it's the first run and looks like an artist (fallback if no link or different link)
-                        if index == 0 {
-                             return (text, nil)
-                        }
+                        // If it's the first run and looks like an artist (if we haven't found anything better)
+                        // This fallback is weak as it often picks up the Type (Song/Video)
+                        // We skip index 0 if it's likely "Song" or "Video" based on earlier checks being exhausted
                     }
-                }
-                
-                // Fallback: return first run text as name
-                if let firstRun = runs.first, let text = firstRun["text"] as? String {
-                    return (text, nil)
                 }
             }
         }
