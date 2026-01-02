@@ -241,6 +241,7 @@ struct PlaylistDetailView: View {
                     song: song,
                     isPlaying: audioPlayer.currentSong?.id == song.id,
                     isLiked: likedSongIds.contains(song.videoId),
+                    isInQueue: audioPlayer.isInQueue(song),
                     onTap: {
                         Task {
                             await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
@@ -251,6 +252,12 @@ struct PlaylistDetailView: View {
                     },
                     onToggleLike: {
                         toggleLikeSong(song)
+                    },
+                    onPlayNext: {
+                        audioPlayer.playNextSong(song)
+                    },
+                    onAddToQueue: {
+                        _ = audioPlayer.addToQueue(song)
                     }
                 )
                 

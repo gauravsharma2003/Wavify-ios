@@ -291,6 +291,15 @@ struct ArtistDetailView: View {
                             
                             SongOptionsMenu(
                                 isLiked: likedSongIds.contains(item.videoId ?? ""),
+                                isInQueue: {
+                                    guard let videoId = item.videoId else { return false }
+                                    let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                                    return audioPlayer.isInQueue(song)
+                                }(),
+                                isPlaying: {
+                                    guard let videoId = item.videoId else { return false }
+                                    return audioPlayer.currentSong?.id == videoId
+                                }(),
                                 onAddToPlaylist: {
                                     guard let videoId = item.videoId else { return }
                                     let song = Song(from: item, artist: artistDetail?.name ?? initialName)
@@ -300,6 +309,16 @@ struct ArtistDetailView: View {
                                     guard let videoId = item.videoId else { return }
                                     let song = Song(from: item, artist: artistDetail?.name ?? initialName)
                                     toggleLikeSong(song)
+                                },
+                                onPlayNext: {
+                                    guard let videoId = item.videoId else { return }
+                                    let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                                    audioPlayer.playNextSong(song)
+                                },
+                                onAddToQueue: {
+                                    guard let videoId = item.videoId else { return }
+                                    let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                                    _ = audioPlayer.addToQueue(song)
                                 }
                             )
                         }

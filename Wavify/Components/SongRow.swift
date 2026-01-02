@@ -14,6 +14,10 @@ struct SongRow: View {
     let onLike: (() -> Void)?
     var showMenu: Bool = false
     var onAddToPlaylist: (() -> Void)? = nil
+    var onPlayNext: (() -> Void)? = nil
+    var onAddToQueue: (() -> Void)? = nil
+    var isInQueue: Bool = false
+    var isCurrentlyPlaying: Bool = false
     
     init(
         song: Song,
@@ -21,7 +25,11 @@ struct SongRow: View {
         onTap: @escaping () -> Void,
         onLike: (() -> Void)? = nil,
         showMenu: Bool = false,
-        onAddToPlaylist: (() -> Void)? = nil
+        onAddToPlaylist: (() -> Void)? = nil,
+        onPlayNext: (() -> Void)? = nil,
+        onAddToQueue: (() -> Void)? = nil,
+        isInQueue: Bool = false,
+        isCurrentlyPlaying: Bool = false
     ) {
         self.song = song
         self.showArtwork = showArtwork
@@ -29,6 +37,10 @@ struct SongRow: View {
         self.onLike = onLike
         self.showMenu = showMenu
         self.onAddToPlaylist = onAddToPlaylist
+        self.onPlayNext = onPlayNext
+        self.onAddToQueue = onAddToQueue
+        self.isInQueue = isInQueue
+        self.isCurrentlyPlaying = isCurrentlyPlaying
     }
     
     var body: some View {
@@ -83,6 +95,31 @@ struct SongRow: View {
                 // Three-dot menu
                 if showMenu {
                     Menu {
+                        // Queue options first
+                        if let onPlayNext = onPlayNext {
+                            Button {
+                                onPlayNext()
+                            } label: {
+                                Label(isCurrentlyPlaying ? "Currently Playing" : "Play Next", 
+                                      systemImage: isCurrentlyPlaying ? "speaker.wave.2" : "text.line.first.and.arrowtriangle.forward")
+                            }
+                            .disabled(isCurrentlyPlaying)
+                        }
+                        
+                        if let onAddToQueue = onAddToQueue {
+                            Button {
+                                onAddToQueue()
+                            } label: {
+                                Label(isCurrentlyPlaying ? "Currently Playing" : (isInQueue ? "Already in Queue" : "Add to Queue"), 
+                                      systemImage: isCurrentlyPlaying ? "speaker.wave.2" : (isInQueue ? "checkmark" : "text.append"))
+                            }
+                            .disabled(isInQueue || isCurrentlyPlaying)
+                        }
+                        
+                        if onPlayNext != nil || onAddToQueue != nil {
+                            Divider()
+                        }
+                        
                         if let onAddToPlaylist = onAddToPlaylist {
                             Button {
                                 onAddToPlaylist()

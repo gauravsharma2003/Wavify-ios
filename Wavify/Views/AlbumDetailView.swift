@@ -252,6 +252,7 @@ struct AlbumDetailView: View {
                     song: song,
                     isPlaying: audioPlayer.currentSong?.id == song.id,
                     isLiked: likedSongIds.contains(song.videoId),
+                    isInQueue: audioPlayer.isInQueue(song),
                     onTap: {
                         Task {
                             await audioPlayer.playAlbum(songs: songs, startIndex: index, shuffle: false)
@@ -262,6 +263,12 @@ struct AlbumDetailView: View {
                     },
                     onToggleLike: {
                         toggleLikeSong(song)
+                    },
+                    onPlayNext: {
+                        audioPlayer.playNextSong(song)
+                    },
+                    onAddToQueue: {
+                        _ = audioPlayer.addToQueue(song)
                     }
                 )
                 
@@ -413,7 +420,10 @@ struct AlbumSongRow: View {
     let onTap: () -> Void
     var onAddToPlaylist: (() -> Void)? = nil
     var onToggleLike: (() -> Void)? = nil
+    var onPlayNext: (() -> Void)? = nil
+    var onAddToQueue: (() -> Void)? = nil
     var isLiked: Bool = false
+    var isInQueue: Bool = false
     var showImage: Bool = false
     
     // Legacy initializer for backward compatibility
@@ -447,19 +457,25 @@ struct AlbumSongRow: View {
         song: Song,
         isPlaying: Bool,
         isLiked: Bool = false,
+        isInQueue: Bool = false,
         showImage: Bool = false,
         onTap: @escaping () -> Void,
         onAddToPlaylist: (() -> Void)? = nil,
-        onToggleLike: (() -> Void)? = nil
+        onToggleLike: (() -> Void)? = nil,
+        onPlayNext: (() -> Void)? = nil,
+        onAddToQueue: (() -> Void)? = nil
     ) {
         self.index = index
         self.song = song
         self.isPlaying = isPlaying
         self.isLiked = isLiked
+        self.isInQueue = isInQueue
         self.showImage = showImage
         self.onTap = onTap
         self.onAddToPlaylist = onAddToPlaylist
         self.onToggleLike = onToggleLike
+        self.onPlayNext = onPlayNext
+        self.onAddToQueue = onAddToQueue
     }
     
     var body: some View {
@@ -531,6 +547,31 @@ struct AlbumSongRow: View {
                 
                 // Options Menu
                 Menu {
+                    // Queue options first
+                    if let onPlayNext = onPlayNext {
+                        Button {
+                            onPlayNext()
+                        } label: {
+                            Label(isPlaying ? "Currently Playing" : "Play Next", 
+                                  systemImage: isPlaying ? "speaker.wave.2" : "text.line.first.and.arrowtriangle.forward")
+                        }
+                        .disabled(isPlaying)
+                    }
+                    
+                    if let onAddToQueue = onAddToQueue {
+                        Button {
+                            onAddToQueue()
+                        } label: {
+                            Label(isPlaying ? "Currently Playing" : (isInQueue ? "Already in Queue" : "Add to Queue"), 
+                                  systemImage: isPlaying ? "speaker.wave.2" : (isInQueue ? "checkmark" : "text.append"))
+                        }
+                        .disabled(isInQueue || isPlaying)
+                    }
+                    
+                    if onPlayNext != nil || onAddToQueue != nil {
+                        Divider()
+                    }
+                    
                     if let onAddToPlaylist = onAddToPlaylist {
                         Button {
                             onAddToPlaylist()

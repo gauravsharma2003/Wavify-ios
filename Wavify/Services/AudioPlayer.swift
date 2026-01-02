@@ -52,6 +52,9 @@ class AudioPlayer {
     var loopMode: LoopMode = .none
     var isPlayingFromAlbum = false  // When true, don't auto-refresh queue
     
+    // User-managed queue for Play Next and Add to Queue features
+    var userQueue: [Song] = []  // Songs manually added by user
+    
     // MARK: - Private Properties
     
     private var player: AVPlayer?
@@ -280,8 +283,18 @@ class AudioPlayer {
             let newSongs = relatedSongs.map { Song(from: $0) }
             
             if replaceQueue {
-                queue = newSongs
-                currentIndex = 0
+                // When replacing queue, preserve userQueue songs at the beginning
+                // Structure: [currentSong, ...userQueue, ...recommendations]
+                if let currentSong = currentSong {
+                    // Filter out current song and userQueue songs from recommendations
+                    let excludeIds = Set([currentSong.id] + userQueue.map { $0.id })
+                    let filteredNewSongs = newSongs.filter { !excludeIds.contains($0.id) }
+                    queue = [currentSong] + userQueue + filteredNewSongs
+                    currentIndex = 0
+                } else {
+                    queue = userQueue + newSongs
+                    currentIndex = 0
+                }
             } else {
                 // Append new songs, avoiding duplicates
                 let existingIds = Set(queue.map { $0.id })
@@ -349,6 +362,10 @@ class AudioPlayer {
             let nextIndex = currentIndex + 1
             if nextIndex < queue.count {
                 currentIndex = nextIndex
+                // Remove from userQueue if this song was user-added
+                if let song = queue[safe: nextIndex] {
+                    userQueue.removeAll { $0.id == song.id }
+                }
                 await playNewSong(queue[nextIndex], refreshQueue: false)
             } else {
                 // Reached end, loop back to start
@@ -360,6 +377,10 @@ class AudioPlayer {
             let nextIndex = currentIndex + 1
             if nextIndex < queue.count {
                 currentIndex = nextIndex
+                // Remove from userQueue if this song was user-added
+                if let song = queue[safe: nextIndex] {
+                    userQueue.removeAll { $0.id == song.id }
+                }
                 await playNewSong(queue[nextIndex], refreshQueue: false)
             } else if !isPlayingFromAlbum {
                 // Not playing from album and reached end - try to get more songs
@@ -393,6 +414,52 @@ class AudioPlayer {
     
     func toggleLoopMode() {
         loopMode = loopMode.next()
+    }
+    
+    // MARK: - User Queue Management
+    
+    /// Add song to play immediately after current song
+    func playNextSong(_ song: Song) {
+        // Remove if already in userQueue to avoid duplicates, then insert at front
+        userQueue.removeAll { $0.id == song.id }
+        userQueue.insert(song, at: 0)
+        
+        // Update the main queue to reflect userQueue changes
+        rebuildQueueWithUserSongs()
+    }
+    
+    /// Add song to end of queue
+    /// Returns true if added, false if already in queue
+    func addToQueue(_ song: Song) -> Bool {
+        if isInQueue(song) {
+            return false
+        }
+        userQueue.append(song)
+        
+        // Update the main queue to reflect userQueue changes
+        rebuildQueueWithUserSongs()
+        return true
+    }
+    
+    /// Check if song is already in user queue or main queue
+    func isInQueue(_ song: Song) -> Bool {
+        return userQueue.contains { $0.id == song.id } ||
+               queue.dropFirst(currentIndex + 1).contains { $0.id == song.id }
+    }
+    
+    /// Rebuild queue with user songs after current playing song
+    private func rebuildQueueWithUserSongs() {
+        guard currentIndex < queue.count else { return }
+        
+        // Get current song and songs before it
+        let songsUpToCurrent = Array(queue.prefix(currentIndex + 1))
+        
+        // Get remaining recommendation songs (excluding userQueue songs)
+        let userQueueIds = Set(userQueue.map { $0.id })
+        let remainingRecommendations = queue.dropFirst(currentIndex + 1).filter { !userQueueIds.contains($0.id) }
+        
+        // Rebuild: [songs up to current] + [userQueue] + [remaining recommendations]
+        queue = songsUpToCurrent + userQueue + Array(remainingRecommendations)
     }
     
     /// Play album/playlist without refreshing queue

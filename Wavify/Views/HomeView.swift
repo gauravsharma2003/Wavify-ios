@@ -40,6 +40,7 @@ struct HomeView: View {
                                 RecommendationsGridView(
                                     songs: viewModel.recommendedSongs,
                                     likedSongIds: likedSongIds,
+                                    queueSongIds: Set(audioPlayer.userQueue.map { $0.id }),
                                     onSongTap: { result in
                                         handleResultTap(result)
                                     },
@@ -48,6 +49,12 @@ struct HomeView: View {
                                     },
                                     onToggleLike: { result in
                                         toggleLikeSong(Song(from: result))
+                                    },
+                                    onPlayNext: { result in
+                                        audioPlayer.playNextSong(Song(from: result))
+                                    },
+                                    onAddToQueue: { result in
+                                        _ = audioPlayer.addToQueue(Song(from: result))
                                     }
                                 )
                             }
@@ -67,6 +74,7 @@ struct HomeView: View {
                                 YourFavouritesGridView(
                                     items: viewModel.favouriteItems,
                                     likedSongIds: likedSongIds,
+                                    queueSongIds: Set(audioPlayer.userQueue.map { $0.id }),
                                     onItemTap: { result in
                                         handleResultTap(result)
                                     },
@@ -75,6 +83,12 @@ struct HomeView: View {
                                     },
                                     onToggleLike: { result in
                                         toggleLikeSong(Song(from: result))
+                                    },
+                                    onPlayNext: { result in
+                                        audioPlayer.playNextSong(Song(from: result))
+                                    },
+                                    onAddToQueue: { result in
+                                        _ = audioPlayer.addToQueue(Song(from: result))
                                     }
                                 )
                             }
@@ -376,9 +390,12 @@ struct KeepListeningCard: View {
 struct YourFavouritesGridView: View {
     let items: [SearchResult]
     let likedSongIds: Set<String>
+    let queueSongIds: Set<String>
     let onItemTap: (SearchResult) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
+    let onPlayNext: (SearchResult) -> Void
+    let onAddToQueue: (SearchResult) -> Void
     
     // Grid configuration: 2 rows with larger cards
     private let rowCount = 2
@@ -422,6 +439,7 @@ struct YourFavouritesGridView: View {
                                 FavouriteCard(
                                     item: item,
                                     isLiked: likedSongIds.contains(item.id),
+                                    isInQueue: queueSongIds.contains(item.id),
                                     onTap: {
                                         onItemTap(item)
                                     },
@@ -430,6 +448,12 @@ struct YourFavouritesGridView: View {
                                     },
                                     onToggleLike: {
                                         onToggleLike(item)
+                                    },
+                                    onPlayNext: {
+                                        onPlayNext(item)
+                                    },
+                                    onAddToQueue: {
+                                        onAddToQueue(item)
                                     }
                                 )
                             }
@@ -446,9 +470,12 @@ struct YourFavouritesGridView: View {
 struct FavouriteCard: View {
     let item: SearchResult
     let isLiked: Bool
+    let isInQueue: Bool
     let onTap: () -> Void
     var onAddToPlaylist: (() -> Void)? = nil
     var onToggleLike: (() -> Void)? = nil
+    var onPlayNext: (() -> Void)? = nil
+    var onAddToQueue: (() -> Void)? = nil
     
     private var thumbnailUrl: String {
         var p = item.thumbnailUrl
@@ -513,8 +540,11 @@ struct FavouriteCard: View {
                 if !isArtist && item.type == .song {
                     SongOptionsMenu(
                         isLiked: isLiked,
+                        isInQueue: isInQueue,
                         onAddToPlaylist: { onAddToPlaylist?() },
-                        onToggleLike: { onToggleLike?() }
+                        onToggleLike: { onToggleLike?() },
+                        onPlayNext: { onPlayNext?() },
+                        onAddToQueue: { onAddToQueue?() }
                     )
                     .padding(8)
                     .background(
@@ -546,9 +576,12 @@ struct AnyShape: Shape {
 struct RecommendationsGridView: View {
     let songs: [SearchResult]
     let likedSongIds: Set<String>
+    let queueSongIds: Set<String>
     let onSongTap: (SearchResult) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
+    let onPlayNext: (SearchResult) -> Void
+    let onAddToQueue: (SearchResult) -> Void
     
     // Grid configuration: 4 rows
     private let rowCount = 4
@@ -598,6 +631,7 @@ struct RecommendationsGridView: View {
                                 RecommendationListRow(
                                     item: song,
                                     isLiked: likedSongIds.contains(song.id),
+                                    isInQueue: queueSongIds.contains(song.id),
                                     onTap: {
                                         onSongTap(song)
                                     },
@@ -606,6 +640,12 @@ struct RecommendationsGridView: View {
                                     },
                                     onToggleLike: {
                                         onToggleLike(song)
+                                    },
+                                    onPlayNext: {
+                                        onPlayNext(song)
+                                    },
+                                    onAddToQueue: {
+                                        onAddToQueue(song)
                                     }
                                 )
                             }
@@ -623,9 +663,12 @@ struct RecommendationsGridView: View {
 struct RecommendationListRow: View {
     let item: SearchResult
     let isLiked: Bool
+    let isInQueue: Bool
     let onTap: () -> Void
     let onAddToPlaylist: () -> Void
     let onToggleLike: () -> Void
+    let onPlayNext: () -> Void
+    let onAddToQueue: () -> Void
     
     private var thumbnailUrl: String {
         var p = item.thumbnailUrl
@@ -679,8 +722,11 @@ struct RecommendationListRow: View {
                 
                 SongOptionsMenu(
                     isLiked: isLiked,
+                    isInQueue: isInQueue,
                     onAddToPlaylist: onAddToPlaylist,
-                    onToggleLike: onToggleLike
+                    onToggleLike: onToggleLike,
+                    onPlayNext: onPlayNext,
+                    onAddToQueue: onAddToQueue
                 )
             }
             .padding(.vertical, 4)

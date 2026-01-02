@@ -15,6 +15,11 @@ struct SearchView: View {
     var audioPlayer: AudioPlayer
     
     @Environment(\.dismissSearch) private var dismissSearch
+    @Environment(\.modelContext) private var modelContext
+    
+    // Add to playlist and liked status
+    @State private var selectedSongForPlaylist: Song?
+    @State private var likedSongIds: Set<String> = []
     
     var body: some View {
         NavigationStack(path: $navigationManager.searchPath) {
@@ -138,6 +143,9 @@ struct SearchView: View {
                 viewModel.searchTextChanged(newValue)
             }
         }
+        .sheet(item: $selectedSongForPlaylist) { song in
+            AddToPlaylistSheet(song: song)
+        }
     }
     
 
@@ -233,13 +241,29 @@ struct SearchView: View {
                     let songs = viewModel.results.filter { $0.type == .song }
                     if !songs.isEmpty {
                         sectionView(title: viewModel.selectedFilter == .songs ? nil : "Songs", results: viewModel.selectedFilter == .songs ? songs : Array(songs.prefix(5))) { result in
+                            let song = Song(from: result)
                             SongRow(
-                                song: Song(from: result),
+                                song: song,
                                 onTap: {
                                     Task {
-                                        await audioPlayer.loadAndPlay(song: Song(from: result))
+                                        await audioPlayer.loadAndPlay(song: song)
                                     }
-                                }
+                                },
+                                onLike: {
+                                    toggleLikeSong(song)
+                                },
+                                showMenu: true,
+                                onAddToPlaylist: {
+                                    selectedSongForPlaylist = song
+                                },
+                                onPlayNext: {
+                                    audioPlayer.playNextSong(song)
+                                },
+                                onAddToQueue: {
+                                    _ = audioPlayer.addToQueue(song)
+                                },
+                                isInQueue: audioPlayer.isInQueue(song),
+                                isCurrentlyPlaying: audioPlayer.currentSong?.id == song.id
                             )
                         }
                     }
@@ -626,6 +650,15 @@ struct SearchView: View {
              Task {
                  await audioPlayer.loadAndPlay(song: Song(from: result))
              }
+        }
+    }
+    
+    private func toggleLikeSong(_ song: Song) {
+        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
+        if isNowLiked {
+            likedSongIds.insert(song.videoId)
+        } else {
+            likedSongIds.remove(song.videoId)
         }
     }
 }
