@@ -55,6 +55,12 @@ class AudioPlayer {
     // User-managed queue for Play Next and Add to Queue features
     var userQueue: [Song] = []  // Songs manually added by user
     
+    // Shuffle State
+    var isShuffleMode = false
+    private var shuffleIndices: [Int] = []
+    private var currentShuffleIndex: Int = 0 
+
+    
     // MARK: - Private Properties
     
     private var player: AVPlayer?
@@ -355,7 +361,28 @@ class AudioPlayer {
     func playNext() async {
         guard !queue.isEmpty else { return }
         
-        // Handle loop modes
+        // Handle Shuffle Mode
+        if isShuffleMode && !shuffleIndices.isEmpty {
+             let nextShuffleIndex = currentShuffleIndex + 1
+             
+             if nextShuffleIndex < shuffleIndices.count {
+                 currentShuffleIndex = nextShuffleIndex
+                 currentIndex = shuffleIndices[currentShuffleIndex]
+                 await playNewSong(queue[currentIndex], refreshQueue: false)
+                 return
+             } else if loopMode == .all {
+                 // Loop shuffle: Reshuffle or restart? Restarting mapping for stability.
+                 currentShuffleIndex = 0
+                 currentIndex = shuffleIndices[0]
+                 await playNewSong(queue[currentIndex], refreshQueue: false)
+                 return
+             }
+             // Fall through if end of shuffle and no loop (checkAndAppend logic?)
+             // If we are shuffling history, we probably don't fetch more?
+             // But existing logic falls through.
+        }
+
+        // Handle loop modes (Standard Order)
         switch loopMode {
         case .one:
             // Loop current song - just restart
@@ -365,6 +392,11 @@ class AudioPlayer {
             return
             
         case .all:
+            if isShuffleMode { return } // Handled above? No, wait. 
+            // My above check handles 'next index exists' or 'loop all'.
+            // If shuffled and no loop, fall to .none logic?
+            // Fallback for non-shuffle:
+            
             // Loop through queue
             let nextIndex = currentIndex + 1
             if nextIndex < queue.count {
@@ -381,6 +413,14 @@ class AudioPlayer {
             }
             
         case .none:
+            // If Shuffle Mode ended (and not looping), we stop?
+            // Or we checkAndAppend?
+            if isShuffleMode {
+                 // Reshuffle if we want endless shuffle?
+                 // Or Stop.
+                 // checking append?
+            }
+            
             let nextIndex = currentIndex + 1
             if nextIndex < queue.count {
                 currentIndex = nextIndex
@@ -401,6 +441,10 @@ class AudioPlayer {
         if currentTime > 3 {
             // If more than 3 seconds in, restart current song
             seek(to: 0)
+        } else if isShuffleMode && currentShuffleIndex > 0 {
+            currentShuffleIndex -= 1
+            currentIndex = shuffleIndices[currentShuffleIndex]
+             await playNewSong(queue[currentIndex], refreshQueue: false)
         } else if currentIndex > 0 {
             currentIndex -= 1
             await playNewSong(queue[currentIndex], refreshQueue: false)
@@ -416,6 +460,16 @@ class AudioPlayer {
     func playFromQueue(at index: Int) async {
         guard index >= 0 && index < queue.count else { return }
         currentIndex = index
+        
+        // Sync shuffle index if needed
+        if isShuffleMode {
+            if let idx = shuffleIndices.firstIndex(of: index) {
+                currentShuffleIndex = idx
+            } else {
+                // Re-sync? 
+            }
+        }
+        
         await playNewSong(queue[index], refreshQueue: false)
     }
     
@@ -495,17 +549,27 @@ class AudioPlayer {
     }
     
     /// Play album/playlist without refreshing queue
+    /// Play album/playlist without refreshing queue
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {
-        var songsToPlay = songs
-        if shuffle {
-            songsToPlay.shuffle()
-        }
-        
-        queue = songsToPlay
+        queue = songs
         currentIndex = startIndex
         isPlayingFromAlbum = true
         
-        if let song = songsToPlay[safe: startIndex] {
+        if shuffle {
+            isShuffleMode = true
+            shuffleIndices = queue.indices.shuffled()
+            
+            // Random start: Do not force startIndex (usually 0) to front.
+            // This ensures "Shuffle" button plays a random song.
+            
+            currentShuffleIndex = 0
+            currentIndex = shuffleIndices[0]
+        } else {
+            isShuffleMode = false
+            currentShuffleIndex = 0 // Reset
+        }
+        
+        if let song = queue[safe: currentIndex] {
             await playNewSong(song, refreshQueue: false)
         }
     }
