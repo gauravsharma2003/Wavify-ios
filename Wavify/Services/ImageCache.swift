@@ -5,13 +5,14 @@ import SwiftUI
 actor ImageCache {
     static let shared = ImageCache()
     
+    // Use a concurrent dictionary pattern for memory cache to avoid actor bottleneck
     private let memoryCache = NSCache<NSString, UIImage>()
     private let fileManager = FileManager.default
     private let cacheDirectory: URL?
     
     // Config
     private let diskCacheLimit: Int = 200 * 1024 * 1024 // 200MB
-    private let maxMemoryCount = 50
+    private let maxMemoryCount = 100
     
     init() {
         // Setup memory cache
@@ -22,17 +23,26 @@ actor ImageCache {
             self.cacheDirectory = cacheURL.appendingPathComponent("WavifyImageCache")
             try? fileManager.createDirectory(at: self.cacheDirectory!, withIntermediateDirectories: true)
             
-            // Clean old files if needed (fire and forget)
-            Task { await cleanDiskCache() }
+            // Clean old files if needed (fire and forget with lower priority)
+            Task.detached(priority: .background) { [weak self] in
+                await self?.cleanDiskCache()
+            }
         } else {
             self.cacheDirectory = nil
         }
     }
     
+    /// Fast synchronous memory cache check - call from nonisolated context
+    nonisolated func memoryCachedImage(for url: URL) -> UIImage? {
+        let key = url.absoluteString as NSString
+        return memoryCache.object(forKey: key)
+    }
+    
+    /// Full cache check including disk
     func image(for url: URL) async -> UIImage? {
         let key = url.absoluteString as NSString
         
-        // 1. Check memory (fast, sync)
+        // 1. Check memory (fast)
         if let cachedImage = memoryCache.object(forKey: key) {
             return cachedImage
         }
@@ -53,16 +63,18 @@ actor ImageCache {
         // 1. Store in memory
         memoryCache.setObject(image, forKey: key)
         
-        // 2. Store on disk
-        saveToDisk(image, for: url)
+        // 2. Store on disk (fire and forget)
+        Task.detached(priority: .background) { [weak self] in
+            await self?.saveToDisk(image, for: url)
+        }
     }
     
     private func loadFromDisk(for url: URL) async -> UIImage? {
         guard let fileURL = diskFileURL(for: url) else { return nil }
         
-        // Perform disk I/O on background thread to avoid blocking
+        // Perform disk I/O on background thread
         return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 guard let data = try? Data(contentsOf: fileURL),
                       let image = UIImage(data: data) else {
                     continuation.resume(returning: nil)
@@ -122,14 +134,7 @@ actor ImageCache {
     }
     
     nonisolated func clearMemory() {
-        Task {
-            await MainActor.run {
-                // NSCache is thread-safe, but accessing the actor property requires isolation handling 
-                // However, since we define 'memoryCache' as private let, we can't expose it directly safely across contexts without actor isolation effectively.
-                // Actually, accessing 'memoryCache' directly from nonisolated requires it to be Sendable/safe. NSCache is thread safe.
-                // But it's private to actor. So we should make a isolated method.
-            }
-        }
+        memoryCache.removeAllObjects()
     }
     
     func clearAll() {

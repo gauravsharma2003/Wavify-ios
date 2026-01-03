@@ -13,7 +13,18 @@ struct CachedAsyncImagePhase<Content: View>: View {
     
     var body: some View {
         content(phase)
+            .onAppear {
+                // FAST SYNC CHECK: Check memory cache immediately on appear
+                if let url = url,
+                   let cached = ImageCache.shared.memoryCachedImage(for: url) {
+                    phase = .success(Image(uiImage: cached))
+                }
+            }
             .task(id: url) {
+                // Skip if already loaded from memory cache
+                if case .success = phase {
+                    return
+                }
                 await load()
             }
     }
@@ -24,21 +35,18 @@ struct CachedAsyncImagePhase<Content: View>: View {
             return
         }
         
-        // Check cache
+        // Check full cache (memory + disk)
         if let cached = await ImageCache.shared.image(for: url) {
             phase = .success(Image(uiImage: cached))
             return
         }
         
-        phase = .empty
-        
+        // Load from network
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             if let image = UIImage(data: data) {
                 await ImageCache.shared.store(image, for: url)
-                withAnimation {
-                    phase = .success(Image(uiImage: image))
-                }
+                phase = .success(Image(uiImage: image))
             } else {
                 phase = .failure(URLError(.badServerResponse))
             }
