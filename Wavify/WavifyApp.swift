@@ -10,6 +10,8 @@ import SwiftData
 
 @main
 struct WavifyApp: App {
+    @State private var splashFinished = false
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             LocalSong.self,
@@ -33,7 +35,16 @@ struct WavifyApp: App {
     
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            ZStack {
+                if splashFinished {
+                    MainTabView()
+                        .transition(.opacity)
+                } else {
+                    SplashView(isFinished: $splashFinished)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: splashFinished)
         }
         .modelContainer(sharedModelContainer)
     }

@@ -25,20 +25,12 @@ struct HomeView: View {
                 // Background
                 gradientBackground
                 
-                if viewModel.isLoading && viewModel.homePage == nil {
-                    VStack(spacing: 20) {
-                        Image(systemName: "music.note.house.fill")
-                            .font(.system(size: 80))
-                            .foregroundStyle(.white)
-                            .symbolEffect(.bounce, options: .repeating)
-                        
-                        Text("Wavify")
-                            .font(.largeTitle)
-                            .bold()
-                            .foregroundStyle(.white)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(gradientBackground)
+                if viewModel.isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 24) {
@@ -998,6 +990,9 @@ class HomeViewModel {
     private let chartsManager = ChartsManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
+        // Always show loading on fresh start
+        isLoading = true
+        
         // 1. Load cached data instantly
         loadCachedRecommendations()
         loadCachedKeepListening()
@@ -1005,28 +1000,42 @@ class HomeViewModel {
         
         hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
         
-        // 2. Check if charts are cached - if so, show immediately
-        if chartsManager.hasCachedData {
-            // Charts already cached, just load home
-            if homePage == nil {
-                await loadHome()
-            }
-        } else {
-            // No cached charts, show loading and fetch
-            isLoading = true
+        // 2. Load charts and home data
+        if !chartsManager.hasCachedData {
             await chartsManager.refreshInBackground()
-            await loadHome()
-            isLoading = false
         }
         
-        // 3. Refresh Keep Listening and Favourites AFTER UI is interactive
+        await loadHome()
+        
+        // 3. Wait for initial images to start loading
+        // Longer delay (3s) for first launch to prevent image decoding freeze
+        // Shorter delay (1.5s) for subsequent launches for better UX
+        let hasLaunched = UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
+        let delay: UInt64 = hasLaunched ? 1_500_000_000 : 3_000_000_000
+        try? await Task.sleep(nanoseconds: delay)
+        
+        if !hasLaunched {
+            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+        }
+        
+        isLoading = false
+        
+        // 3. Refresh Keep Listening and Favourites AFTER UI is fully interactive
+        // Delay by 1 second to ensure smooth scrolling first
         Task { [weak self] in
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
             guard let self = self else { return }
             
             if hasHistory {
                 self.keepListeningSongs = self.keepListeningManager.refreshSongs(in: modelContext)
+                
+                // Yield between operations to keep UI responsive
+                await Task.yield()
+                
                 self.favouriteItems = self.favouritesManager.refreshFavourites(in: modelContext)
+                
+                await Task.yield()
+                
                 await self.recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
             }
             

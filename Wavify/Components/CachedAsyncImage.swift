@@ -21,16 +21,6 @@ struct CachedAsyncImagePhase<Content: View>: View {
                 }
             }
             .task(id: url) {
-                // Reset phase when URL changes to ensure we always load the new image
-                phase = .empty
-                
-                // Quick sync check for memory cache before async load
-                if let url = url,
-                   let cached = ImageCache.shared.memoryCachedImage(for: url) {
-                    phase = .success(Image(uiImage: cached))
-                    return
-                }
-                
                 await load()
             }
     }
@@ -38,6 +28,12 @@ struct CachedAsyncImagePhase<Content: View>: View {
     private func load() async {
         guard let url = url else {
             phase = .empty
+            return
+        }
+        
+        // Quick sync check for memory cache
+        if let cached = ImageCache.shared.memoryCachedImage(for: url) {
+            phase = .success(Image(uiImage: cached))
             return
         }
         
