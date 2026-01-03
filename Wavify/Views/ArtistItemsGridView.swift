@@ -49,10 +49,13 @@ struct ArtistItemsGridView: View {
                             // Reuse Navigation Link logic from ArtistDetailView or create new components
                             NavigationLink(destination: destinationView(for: item)) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                                        image.resizable().aspectRatio(contentMode: .fill)
-                                    } placeholder: {
-                                        Rectangle().fill(Color.gray.opacity(0.3))
+                                    CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().aspectRatio(contentMode: .fill)
+                                        default:
+                                            Rectangle().fill(Color.gray.opacity(0.3))
+                                        }
                                     }
                                     .frame(width: 160, height: 160)
                                     .clipShape(RoundedRectangle(cornerRadius: 8))

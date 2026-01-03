@@ -93,7 +93,7 @@ class NetworkManager {
         return parseSuggestions(data)
     }
     
-    private func parseSuggestions(_ data: Data) -> [SearchSuggestion] {
+    private nonisolated func parseSuggestions(_ data: Data) -> [SearchSuggestion] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [[String: Any]] else { return [] }
         
@@ -150,7 +150,7 @@ class NetworkManager {
         return parseSearchResults(data)
     }
     
-    private func parseSearchResults(_ data: Data) -> (topResults: [SearchResult], results: [SearchResult]) {
+    private nonisolated func parseSearchResults(_ data: Data) -> (topResults: [SearchResult], results: [SearchResult]) {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let tabbedResults = contents["tabbedSearchResultsRenderer"] as? [String: Any],
@@ -200,7 +200,7 @@ class NetworkManager {
         return (topResults, results)
     }
     
-    private func parseCardShelfItem(_ cardShelf: [String: Any]) -> SearchResult? {
+    private nonisolated func parseCardShelfItem(_ cardShelf: [String: Any]) -> SearchResult? {
         // Extract title
         guard let title = cardShelf["title"] as? [String: Any],
               let titleRuns = title["runs"] as? [[String: Any]],
@@ -256,7 +256,7 @@ class NetworkManager {
         return nil
     }
     
-    private func parseListItem(_ item: [String: Any]) -> SearchResult? {
+    private nonisolated func parseListItem(_ item: [String: Any]) -> SearchResult? {
         // Extract title from flexColumns
         guard let flexColumns = item["flexColumns"] as? [[String: Any]],
               let firstColumn = flexColumns.first,
@@ -319,7 +319,7 @@ class NetworkManager {
         return nil
     }
     
-    private func extractThumbnailUrl(from item: [String: Any]) -> String {
+    private nonisolated func extractThumbnailUrl(from item: [String: Any]) -> String {
         if let thumbnail = item["thumbnail"] as? [String: Any],
            let musicThumbnail = thumbnail["musicThumbnailRenderer"] as? [String: Any],
            let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
@@ -331,7 +331,7 @@ class NetworkManager {
         return ""
     }
     
-    private func checkIfExplicit(_ item: [String: Any]) -> Bool {
+    private nonisolated func checkIfExplicit(_ item: [String: Any]) -> Bool {
         if let badges = item["badges"] as? [[String: Any]] {
             for badge in badges {
                 if let badgeRenderer = badge["musicInlineBadgeRenderer"] as? [String: Any],
@@ -345,7 +345,7 @@ class NetworkManager {
         return false
     }
     
-    private func extractYear(from item: [String: Any]) -> String {
+    private nonisolated func extractYear(from item: [String: Any]) -> String {
         if let flexColumns = item["flexColumns"] as? [[String: Any]] {
             for column in flexColumns {
                 if let renderer = column["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
@@ -364,11 +364,11 @@ class NetworkManager {
         return ""
     }
     
-    private func extractArtist(from item: [String: Any]) -> String {
+    private nonisolated func extractArtist(from item: [String: Any]) -> String {
         return extractArtistInfo(from: item).name
     }
 
-    private func extractArtistInfo(from item: [String: Any]) -> (name: String, id: String?) {
+    private nonisolated func extractArtistInfo(from item: [String: Any]) -> (name: String, id: String?) {
         if let flexColumns = item["flexColumns"] as? [[String: Any]], flexColumns.count > 1 {
             let secondColumn = flexColumns[1]
             if let renderer = secondColumn["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
@@ -442,7 +442,7 @@ class NetworkManager {
         return try parsePlaybackResponse(data)
     }
     
-    private func parsePlaybackResponse(_ data: Data) throws -> PlaybackInfo {
+    private nonisolated func parsePlaybackResponse(_ data: Data) throws -> PlaybackInfo {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let playabilityStatus = json["playabilityStatus"] as? [String: Any],
               let status = playabilityStatus["status"] as? String,
@@ -506,7 +506,7 @@ class NetworkManager {
         )
     }
     
-    private func extractThumbnailFromVideoDetails(_ details: [String: Any]) -> String {
+    private nonisolated func extractThumbnailFromVideoDetails(_ details: [String: Any]) -> String {
         if let thumbnail = details["thumbnail"] as? [String: Any],
            let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
            let lastThumbnail = thumbnails.last,
@@ -594,7 +594,7 @@ class NetworkManager {
         return parseQueueResponse(data)
     }
     
-    private func parseQueueResponse(_ data: Data) -> [QueueSong] {
+    private nonisolated func parseQueueResponse(_ data: Data) -> [QueueSong] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let singleColumn = contents["singleColumnMusicWatchNextResultsRenderer"] as? [String: Any],
@@ -635,7 +635,7 @@ class NetworkManager {
         return songs
     }
     
-    private func extractTitleFromVideoRenderer(_ renderer: [String: Any]) -> String {
+    private nonisolated func extractTitleFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let title = renderer["title"] as? [String: Any],
            let runs = title["runs"] as? [[String: Any]],
            let firstRun = runs.first,
@@ -645,7 +645,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractArtistFromVideoRenderer(_ renderer: [String: Any]) -> String {
+    private nonisolated func extractArtistFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let byline = renderer["longBylineText"] as? [String: Any],
            let runs = byline["runs"] as? [[String: Any]],
            let firstRun = runs.first,
@@ -655,7 +655,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractThumbnailFromVideoRenderer(_ renderer: [String: Any]) -> String {
+    private nonisolated func extractThumbnailFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let thumbnail = renderer["thumbnail"] as? [String: Any],
            let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
            let lastThumbnail = thumbnails.last,
@@ -665,7 +665,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractDurationFromVideoRenderer(_ renderer: [String: Any]) -> String {
+    private nonisolated func extractDurationFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let lengthText = renderer["lengthText"] as? [String: Any],
            let runs = lengthText["runs"] as? [[String: Any]],
            let firstRun = runs.first,
@@ -693,7 +693,7 @@ class NetworkManager {
         return try parseAlbumResponse(data, albumId: albumId)
     }
     
-    private func parseAlbumResponse(_ data: Data, albumId: String) throws -> AlbumDetail {
+    private nonisolated func parseAlbumResponse(_ data: Data, albumId: String) throws -> AlbumDetail {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let twoColumn = contents["twoColumnBrowseResultsRenderer"] as? [String: Any],
@@ -772,7 +772,7 @@ class NetworkManager {
         )
     }
     
-    private func extractAlbumThumbnail(_ header: [String: Any]) -> String {
+    private nonisolated func extractAlbumThumbnail(_ header: [String: Any]) -> String {
         if let thumbnail = header["thumbnail"] as? [String: Any],
            let musicThumbnail = thumbnail["musicThumbnailRenderer"] as? [String: Any],
            let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
@@ -784,7 +784,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractAlbumName(_ header: [String: Any]) -> String {
+    private nonisolated func extractAlbumName(_ header: [String: Any]) -> String {
         if let title = header["title"] as? [String: Any],
            let runs = title["runs"] as? [[String: Any]],
            let firstRun = runs.first,
@@ -794,7 +794,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractAlbumArtist(_ header: [String: Any]) -> String {
+    private nonisolated func extractAlbumArtist(_ header: [String: Any]) -> String {
         if let strapline = header["straplineTextOne"] as? [String: Any],
            let runs = strapline["runs"] as? [[String: Any]],
            let firstRun = runs.first,
@@ -804,7 +804,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractArtistThumbnail(_ header: [String: Any]) -> String {
+    private nonisolated func extractArtistThumbnail(_ header: [String: Any]) -> String {
         if let strapline = header["straplineThumbnail"] as? [String: Any],
            let musicThumbnail = strapline["musicThumbnailRenderer"] as? [String: Any],
            let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
@@ -816,7 +816,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractAlbumInfo(_ header: [String: Any]) -> (String, String) {
+    private nonisolated func extractAlbumInfo(_ header: [String: Any]) -> (String, String) {
         var songCount = ""
         var duration = ""
         
@@ -837,7 +837,7 @@ class NetworkManager {
         return (songCount, duration)
     }
     
-    private func extractSongTitle(_ item: [String: Any]) -> String {
+    private nonisolated func extractSongTitle(_ item: [String: Any]) -> String {
         if let flexColumns = item["flexColumns"] as? [[String: Any]],
            let firstColumn = flexColumns.first,
            let renderer = firstColumn["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
@@ -850,7 +850,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractViewCount(_ item: [String: Any]) -> String {
+    private nonisolated func extractViewCount(_ item: [String: Any]) -> String {
         if let flexColumns = item["flexColumns"] as? [[String: Any]], flexColumns.count > 2 {
             let thirdColumn = flexColumns[2]
             if let renderer = thirdColumn["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
@@ -864,7 +864,7 @@ class NetworkManager {
         return ""
     }
     
-    private func extractSongDuration(_ item: [String: Any]) -> String {
+    private nonisolated func extractSongDuration(_ item: [String: Any]) -> String {
         if let fixedColumns = item["fixedColumns"] as? [[String: Any]],
            let firstColumn = fixedColumns.first,
            let renderer = firstColumn["musicResponsiveListItemFixedColumnRenderer"] as? [String: Any],
@@ -877,7 +877,7 @@ class NetworkManager {
         return ""
     }
     
-    private func parseRelatedAlbum(_ item: [String: Any]) -> RelatedAlbum? {
+    private nonisolated func parseRelatedAlbum(_ item: [String: Any]) -> RelatedAlbum? {
         guard let navigationEndpoint = item["navigationEndpoint"] as? [String: Any],
               let browseEndpoint = navigationEndpoint["browseEndpoint"] as? [String: Any],
               let browseId = browseEndpoint["browseId"] as? String else { return nil }
@@ -971,7 +971,7 @@ extension NetworkManager {
     
     // MARK: - Parsing Logic
     
-    private func parseBrowseResponse(_ data: Data) throws -> HomePage {
+    private nonisolated func parseBrowseResponse(_ data: Data) throws -> HomePage {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any] else {
             throw YouTubeMusicError.parseError("Invalid browse response")
@@ -1022,7 +1022,7 @@ extension NetworkManager {
         return HomePage(chips: chips, sections: sections, continuation: continuation)
     }
     
-    private func parseChips(_ chipsData: [[String: Any]]) -> [Chip] {
+    private nonisolated func parseChips(_ chipsData: [[String: Any]]) -> [Chip] {
         var chips: [Chip] = []
         
         for chipData in chipsData {
@@ -1049,7 +1049,7 @@ extension NetworkManager {
         return chips
     }
     
-    private func parseHomeSections(_ sectionsData: [[String: Any]]) -> [HomeSection] {
+    private nonisolated func parseHomeSections(_ sectionsData: [[String: Any]]) -> [HomeSection] {
         var sections: [HomeSection] = []
         
         for sectionData in sectionsData {
@@ -1076,7 +1076,7 @@ extension NetworkManager {
         return sections
     }
     
-    private func parseCarouselSection(_ carousel: [String: Any]) -> HomeSection? {
+    private nonisolated func parseCarouselSection(_ carousel: [String: Any]) -> HomeSection? {
         // Header
         var title = ""
         var strapline: String? = nil
@@ -1118,7 +1118,7 @@ extension NetworkManager {
         return HomeSection(title: title, strapline: strapline, items: items)
     }
     
-    private func parseShelfSection(_ shelf: [String: Any]) -> HomeSection? {
+    private nonisolated func parseShelfSection(_ shelf: [String: Any]) -> HomeSection? {
         var title = ""
         var strapline: String? = nil
         
@@ -1145,7 +1145,7 @@ extension NetworkManager {
         return HomeSection(title: title, strapline: strapline, items: items)
     }
     
-    private func parsePlaylistShelfSection(_ shelf: [String: Any]) -> HomeSection? {
+    private nonisolated func parsePlaylistShelfSection(_ shelf: [String: Any]) -> HomeSection? {
         // Playlist shelves often don't have intrinsic titles in the shelf itself (title is in page header)
         // We'll use a default or empty title
         let title = "Songs"
@@ -1165,7 +1165,7 @@ extension NetworkManager {
         return HomeSection(title: title, strapline: nil, items: items)
     }
     
-    private func parseTwoRowItem(_ item: [String: Any]) -> SearchResult? {
+    private nonisolated func parseTwoRowItem(_ item: [String: Any]) -> SearchResult? {
         // Title
         var title = ""
         if let titleData = item["title"] as? [String: Any],
@@ -1262,7 +1262,7 @@ extension NetworkManager {
         return try parseArtistDetails(data, browseId: browseId)
     }
     
-    private func parseArtistDetails(_ data: Data, browseId: String) throws -> ArtistDetail {
+    private nonisolated func parseArtistDetails(_ data: Data, browseId: String) throws -> ArtistDetail {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             print("DEBUG: Failed to parse JSON data")
             throw YouTubeMusicError.parseError("Invalid JSON")
@@ -1312,7 +1312,7 @@ extension NetworkManager {
         throw YouTubeMusicError.parseError("Invalid artist data format")
     }
     
-    private func parseArtistSectionList(_ sections: [[String: Any]], header: [String: Any]?, browseId: String) -> ArtistDetail {
+    private nonisolated func parseArtistSectionList(_ sections: [[String: Any]], header: [String: Any]?, browseId: String) -> ArtistDetail {
         // Parse Header
         var name = ""
         var subscribers = ""
@@ -1378,7 +1378,7 @@ extension NetworkManager {
         )
     }
     
-    private func parseMusicShelf(_ shelf: [String: Any]) -> ArtistSection? {
+    private nonisolated func parseMusicShelf(_ shelf: [String: Any]) -> ArtistSection? {
         // Get Title
         var title = ""
         if let titleData = shelf["title"] as? [String: Any],
@@ -1473,7 +1473,7 @@ extension NetworkManager {
         return ArtistSection(type: type, title: title, items: items, browseId: browseId, params: params)
     }
     
-    private func parseCarouselShelf(_ shelf: [String: Any]) -> ArtistSection? {
+    private nonisolated func parseCarouselShelf(_ shelf: [String: Any]) -> ArtistSection? {
         // Get Title
         var title = ""
         if let header = shelf["header"] as? [String: Any],
@@ -1588,7 +1588,7 @@ extension NetworkManager {
         return try parseSectionItemsResponse(data)
     }
     
-    private func parseSectionItemsResponse(_ data: Data) throws -> [ArtistItem] {
+    private nonisolated func parseSectionItemsResponse(_ data: Data) throws -> [ArtistItem] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
@@ -1623,7 +1623,7 @@ extension NetworkManager {
         return []
     }
     
-    private func parseGridItems(_ items: [[String: Any]]) -> [ArtistItem] {
+    private nonisolated func parseGridItems(_ items: [[String: Any]]) -> [ArtistItem] {
         var artistItems: [ArtistItem] = []
         
         for itemWrapper in items {
@@ -1678,7 +1678,7 @@ extension NetworkManager {
         return artistItems
     }
     
-    private func parsePlaylistResponseAsItems(_ data: Data) throws -> [ArtistItem] {
+    private nonisolated func parsePlaylistResponseAsItems(_ data: Data) throws -> [ArtistItem] {
         // Reuse existing parseBrowseResponse or similar structure logic but extract items directly
         // Top Songs See All returns a playlist structure
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

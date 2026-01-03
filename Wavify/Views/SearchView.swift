@@ -61,7 +61,7 @@ struct SearchView: View {
                                 handleSuggestionTap(result)
                             } label: {
                                 HStack(spacing: 12) {
-                                    AsyncImage(url: URL(string: result.thumbnailUrl)) { phase in
+                                    CachedAsyncImagePhase(url: URL(string: result.thumbnailUrl)) { phase in
                                         if let image = phase.image {
                                             image.resizable()
                                                 .aspectRatio(contentMode: .fill)
@@ -411,7 +411,7 @@ struct SearchView: View {
     
     private func topResultRowContent(_ result: SearchResult) -> some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: result.thumbnailUrl)) { phase in
+            CachedAsyncImagePhase(url: URL(string: result.thumbnailUrl)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -550,7 +550,7 @@ struct SearchView: View {
                             )
                         } label: {
                             VStack(spacing: 8) {
-                                AsyncImage(url: URL(string: artist.thumbnailUrl)) { phase in
+                                CachedAsyncImagePhase(url: URL(string: artist.thumbnailUrl)) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -609,7 +609,7 @@ struct SearchView: View {
                         )
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            AsyncImage(url: URL(string: album.thumbnailUrl)) { phase in
+                            CachedAsyncImagePhase(url: URL(string: album.thumbnailUrl)) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -676,7 +676,7 @@ struct SearchView: View {
                             Color.clear
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay {
-                                    AsyncImage(url: URL(string: playlist.thumbnailUrl)) { phase in
+                                    CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
                                         switch phase {
                                         case .success(let image):
                                             image

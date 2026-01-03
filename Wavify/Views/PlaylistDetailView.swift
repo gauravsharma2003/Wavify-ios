@@ -131,7 +131,7 @@ struct PlaylistDetailView: View {
     private var headerView: some View {
         VStack(spacing: 16) {
             // Artwork
-            AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(initialThumbnail))) { phase in
+            CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(initialThumbnail))) { phase in
                 switch phase {
                 case .success(let image):
                     image

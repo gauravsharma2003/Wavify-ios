@@ -55,6 +55,11 @@ class AudioPlayer {
     // User-managed queue for Play Next and Add to Queue features
     var userQueue: [Song] = []  // Songs manually added by user
     
+    // Cached set of user queue IDs for efficient lookup in views
+    var userQueueIds: Set<String> {
+        Set(userQueue.map { $0.id })
+    }
+    
     // Shuffle State
     var isShuffleMode = false
     private var shuffleIndices: [Int] = []

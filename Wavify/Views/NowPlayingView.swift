@@ -247,7 +247,7 @@ struct NowPlayingView: View {
         HStack(spacing: 12) {
             // Small album art
             if let song = audioPlayer.currentSong {
-                AsyncImage(url: URL(string: song.thumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -519,7 +519,7 @@ struct NowPlayingView: View {
                     // Album Art
                     let highQualityUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
                     
-                    AsyncImage(url: URL(string: highQualityUrl)) { phase in
+                    CachedAsyncImagePhase(url: URL(string: highQualityUrl)) { phase in
                         switch phase {
                         case .success(let image):
                             image

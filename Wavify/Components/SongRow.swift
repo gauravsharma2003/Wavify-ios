@@ -44,10 +44,10 @@ struct SongRow: View {
     }
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             HStack(spacing: 12) {
                 if showArtwork {
-                    AsyncImage(url: URL(string: song.thumbnailUrl)) { phase in
+                    CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -170,9 +170,9 @@ struct CompactSongRow: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             HStack(spacing: 12) {
-                AsyncImage(url: URL(string: song.thumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                     switch phase {
                     case .success(let image):
                         image

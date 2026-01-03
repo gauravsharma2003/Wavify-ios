@@ -40,7 +40,7 @@ struct HomeView: View {
                                 RecommendationsGridView(
                                     songs: viewModel.recommendedSongs,
                                     likedSongIds: likedSongIds,
-                                    queueSongIds: Set(audioPlayer.userQueue.map { $0.id }),
+                                    queueSongIds: audioPlayer.userQueueIds,
                                     onSongTap: { result in
                                         handleResultTap(result)
                                     },
@@ -74,7 +74,7 @@ struct HomeView: View {
                                 YourFavouritesGridView(
                                     items: viewModel.favouriteItems,
                                     likedSongIds: likedSongIds,
-                                    queueSongIds: Set(audioPlayer.userQueue.map { $0.id }),
+                                    queueSongIds: audioPlayer.userQueueIds,
                                     onItemTap: { result in
                                         handleResultTap(result)
                                     },
@@ -156,7 +156,6 @@ struct HomeView: View {
             }
         }
         .task {
-            await viewModel.loadInitialContent(modelContext: modelContext)
             await viewModel.loadInitialContent(modelContext: modelContext)
             loadLikedStatus()
         }
@@ -353,7 +352,7 @@ struct KeepListeningCard: View {
         Button(action: onTap) {
             HStack(spacing: 10) {
                 // Thumbnail - square, medium size
-                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
                     if let image = phase.image {
                         image
                             .resizable()
@@ -497,7 +496,7 @@ struct FavouriteCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
                 // Thumbnail - larger size, circular for artists
-                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
                     if let image = phase.image {
                         image
                             .resizable()
@@ -686,7 +685,7 @@ struct RecommendationListRow: View {
         Button(action: onTap) {
             HStack(spacing: 12) {
                 // Thumbnail
-                AsyncImage(url: URL(string: thumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
                     if let image = phase.image {
                         image
                             .resizable()
@@ -817,7 +816,7 @@ struct ItemCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
                 // Image
-                AsyncImage(url: URL(string: highQualityThumbnailUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: highQualityThumbnailUrl)) { phase in
                     if let image = phase.image {
                         image
                             .resizable()

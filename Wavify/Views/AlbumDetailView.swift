@@ -132,7 +132,7 @@ struct AlbumDetailView: View {
     // MARK: - Album Artwork
     
     private var albumArtwork: some View {
-        AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(displayThumbnail))) { phase in
+        CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(displayThumbnail))) { phase in
             switch phase {
             case .success(let image):
                 image
@@ -479,15 +479,18 @@ struct AlbumSongRow: View {
     }
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             HStack(spacing: 12) {
                 // Image or Track Number
                 if showImage {
                     ZStack {
-                        AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(song.thumbnailUrl))) { image in
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Rectangle().fill(Color.gray.opacity(0.3))
+                        CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(song.thumbnailUrl))) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            default:
+                                Rectangle().fill(Color.gray.opacity(0.3))
+                            }
                         }
                         .frame(width: 48, height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 6))

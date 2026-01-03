@@ -49,7 +49,7 @@ struct PlaylistCoverImage: View {
     }
     
     private func gridCell(url: String) -> some View {
-        AsyncImage(url: URL(string: url)) { phase in
+        CachedAsyncImagePhase(url: URL(string: url)) { phase in
             switch phase {
             case .success(let image):
                 image
@@ -66,7 +66,7 @@ struct PlaylistCoverImage: View {
     // MARK: - Single Cover (1-3 songs)
     
     private func singleCover(url: String) -> some View {
-        AsyncImage(url: URL(string: url)) { phase in
+        CachedAsyncImagePhase(url: URL(string: url)) { phase in
             switch phase {
             case .success(let image):
                 image

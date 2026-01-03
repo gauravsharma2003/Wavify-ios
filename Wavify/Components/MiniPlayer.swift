@@ -21,7 +21,7 @@ struct MiniPlayer: View {
                 HStack(spacing: 12) {
                     // Album Art & Song Info (tappable area)
                     HStack(spacing: 12) {
-                        AsyncImage(url: URL(string: song.thumbnailUrl)) { phase in
+                        CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                             switch phase {
                             case .success(let image):
                                 image

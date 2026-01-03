@@ -98,7 +98,7 @@ struct ArtistDetailView: View {
             
             ZStack(alignment: .bottom) {
                 // Background Image
-                AsyncImage(url: URL(string: ImageUtils.thumbnailForPlayer(artistDetail?.thumbnailUrl ?? initialThumbnail))) { phase in
+                CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForPlayer(artistDetail?.thumbnailUrl ?? initialThumbnail))) { phase in
                     if let image = phase.image {
                         image
                             .resizable()
@@ -266,10 +266,13 @@ struct ArtistDetailView: View {
                                 playSong(item)
                             } label: {
                                 HStack(spacing: 12) {
-                                    AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                                        image.resizable().aspectRatio(contentMode: .fill)
-                                    } placeholder: {
-                                        Rectangle().fill(Color.gray.opacity(0.3))
+                                    CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().aspectRatio(contentMode: .fill)
+                                        default:
+                                            Rectangle().fill(Color.gray.opacity(0.3))
+                                        }
                                     }
                                     .frame(width: 50, height: 50)
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -380,10 +383,13 @@ struct ArtistDetailView: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(Color.gray.opacity(0.3))
+                CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle().fill(Color.gray.opacity(0.3))
+                    }
                 }
                 .frame(width: 140, height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -420,10 +426,13 @@ struct ArtistDetailView: View {
                         }
                     } label: {
                         VStack(spacing: 8) {
-                            AsyncImage(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { image in
-                                image.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Circle().fill(Color.gray.opacity(0.3))
+                            CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                default:
+                                    Circle().fill(Color.gray.opacity(0.3))
+                                }
                             }
                             .frame(width: 100, height: 100)
                             .clipShape(Circle())

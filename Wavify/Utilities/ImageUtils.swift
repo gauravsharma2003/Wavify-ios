@@ -106,3 +106,28 @@ enum ImageUtils {
         return url
     }
 }
+
+// MARK: - Size Presets for Common UI Components
+
+extension ImageUtils {
+    
+    /// Thumbnail for list rows and small cards (120px)
+    static func thumbnailSmall(_ url: String) -> String {
+        resizeThumbnail(url, width: 120, height: 120)
+    }
+    
+    /// Thumbnail for medium cards like Keep Listening (360px)
+    static func thumbnailMedium(_ url: String) -> String {
+        resizeThumbnail(url, width: 360, height: 360)
+    }
+    
+    /// Thumbnail for large cards like Favourites (540px)
+    static func thumbnailLarge(_ url: String) -> String {
+        resizeThumbnail(url, width: 540, height: 540)
+    }
+    
+    /// Thumbnail for recommendation list rows (226px)
+    static func thumbnailRecommendation(_ url: String) -> String {
+        resizeThumbnail(url, width: 226, height: 226)
+    }
+}

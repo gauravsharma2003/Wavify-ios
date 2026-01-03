@@ -14,10 +14,10 @@ struct AlbumCard: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             VStack(alignment: .leading, spacing: 8) {
                 // Album Art
-                AsyncImage(url: URL(string: imageUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: imageUrl)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -78,12 +78,12 @@ struct PlaylistCard: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             HStack(spacing: 12) {
                 // Playlist Art
                 Group {
                     if let imageUrl = imageUrl, !imageUrl.isEmpty {
-                        AsyncImage(url: URL(string: imageUrl)) { phase in
+                        CachedAsyncImagePhase(url: URL(string: imageUrl)) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -150,10 +150,10 @@ struct FeaturedCard: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { onTap() }) {
             ZStack(alignment: .bottomLeading) {
                 // Background Image
-                AsyncImage(url: URL(string: imageUrl)) { phase in
+                CachedAsyncImagePhase(url: URL(string: imageUrl)) { phase in
                     switch phase {
                     case .success(let image):
                         image
