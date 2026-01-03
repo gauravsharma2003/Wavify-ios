@@ -462,6 +462,15 @@ struct ArtistDetailView: View {
         
         do {
             artistDetail = try await networkManager.getArtistDetails(browseId: artistId)
+            
+            // Update stored artist thumbnail with the correct one if we had a wrong one cached
+            if let realThumbnail = artistDetail?.thumbnailUrl {
+                FavouritesManager.shared.updateArtistThumbnailIfNeeded(
+                    artistId: artistId,
+                    correctThumbnailUrl: realThumbnail,
+                    in: modelContext
+                )
+            }
         } catch {
             print("Failed to load artist details: \(error)")
         }

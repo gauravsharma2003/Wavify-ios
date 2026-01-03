@@ -250,6 +250,13 @@ class FavouritesManager {
     
     // MARK: - Track Artist Play
     
+    /// Check if a thumbnail URL is a proper artist image (not a song/video thumbnail)
+    private func isArtistThumbnail(_ url: String) -> Bool {
+        // Song/video thumbnails use i.ytimg.com
+        // Artist thumbnails use googleusercontent.com
+        return !url.contains("i.ytimg.com") && (url.contains("googleusercontent.com") || url.contains("ggpht.com"))
+    }
+    
     func trackArtistPlay(artistId: String, name: String, thumbnailUrl: String, in context: ModelContext) {
         let descriptor = FetchDescriptor<ArtistPlayCount>(
             predicate: #Predicate { $0.artistId == artistId }
@@ -259,6 +266,11 @@ class FavouritesManager {
             let existing = try context.fetch(descriptor)
             if let artist = existing.first {
                 artist.incrementPlayCount()
+                // Update thumbnail if we're given a proper artist thumbnail
+                // (previous thumbnail might have been a song thumbnail)
+                if isArtistThumbnail(thumbnailUrl) && !isArtistThumbnail(artist.thumbnailUrl) {
+                    artist.thumbnailUrl = thumbnailUrl
+                }
             } else {
                 let newArtist = ArtistPlayCount(
                     artistId: artistId,
@@ -271,6 +283,55 @@ class FavouritesManager {
         } catch {
             print("Failed to track artist play: \(error)")
         }
+    }
+    
+    // MARK: - Update Artist Thumbnail
+    
+    /// Update stored artist thumbnail when the correct artist image becomes available
+    /// Called when ArtistDetailView loads and gets the real artist thumbnail
+    func updateArtistThumbnailIfNeeded(artistId: String, correctThumbnailUrl: String, in context: ModelContext) {
+        // Only update if it's a proper artist thumbnail
+        guard isArtistThumbnail(correctThumbnailUrl) else { return }
+        
+        let descriptor = FetchDescriptor<ArtistPlayCount>(
+            predicate: #Predicate { $0.artistId == artistId }
+        )
+        
+        do {
+            let existing = try context.fetch(descriptor)
+            if let artist = existing.first {
+                // Only update if current thumbnail is NOT a proper artist image
+                if !isArtistThumbnail(artist.thumbnailUrl) {
+                    artist.thumbnailUrl = correctThumbnailUrl
+                    try context.save()
+                    
+                    // Also update the cached favourites to show the correct image
+                    refreshCachedFavouritesThumbnail(artistId: artistId, newThumbnailUrl: correctThumbnailUrl)
+                }
+            }
+        } catch {
+            print("Failed to update artist thumbnail: \(error)")
+        }
+    }
+    
+    /// Update the cached favourites with the correct thumbnail URL
+    private func refreshCachedFavouritesThumbnail(artistId: String, newThumbnailUrl: String) {
+        // Update in-memory favourites
+        if let index = favourites.firstIndex(where: { $0.id == artistId && $0.type == .artist }) {
+            let old = favourites[index]
+            favourites[index] = SearchResult(
+                id: old.id,
+                name: old.name,
+                thumbnailUrl: newThumbnailUrl,
+                isExplicit: old.isExplicit,
+                year: old.year,
+                artist: old.artist,
+                type: old.type
+            )
+        }
+        
+        // Update UserDefaults cache
+        saveToCache(favourites)
     }
     
     // MARK: - Private Methods

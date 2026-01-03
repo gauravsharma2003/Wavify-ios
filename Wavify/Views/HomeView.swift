@@ -26,18 +26,83 @@ struct HomeView: View {
                 gradientBackground
                 
                 if viewModel.isLoading && viewModel.homePage == nil {
-                    ProgressView()
-                        .tint(.white)
+                    VStack(spacing: 20) {
+                        Image(systemName: "music.note.house.fill")
+                            .font(.system(size: 80))
+                            .foregroundStyle(.white)
+                            .symbolEffect(.bounce, options: .repeating)
+                        
+                        Text("Wavify")
+                            .font(.largeTitle)
+                            .bold()
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(gradientBackground)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 24) {
                             // Chip Cloud (Fixed at top of scroll or pinned?)
                             // For now, inside scroll but could be pinned
 
+                            // Chart Sections (No History - shown first)
+                            if !viewModel.hasHistory {
+                                // 1. Trending Songs
+                                if !viewModel.trendingSongs.isEmpty {
+                                    RecommendationsGridView(
+                                        title: "Trending Songs",
+                                        subtitle: "Popular right now",
+                                        songs: viewModel.trendingSongs,
+                                        likedSongIds: likedSongIds,
+                                        queueSongIds: audioPlayer.userQueueIds,
+                                        onSongTap: handleResultTap,
+                                        onAddToPlaylist: handleAddToPlaylist,
+                                        onToggleLike: handleToggleLike,
+                                        onPlayNext: handlePlayNext,
+                                        onAddToQueue: handleAddToQueue
+                                    )
+                                }
+                                
+                                // 2. Top Songs
+                                if !viewModel.topSongs.isEmpty {
+                                    KeepListeningGridView(
+                                        title: "Top Songs",
+                                        songs: viewModel.topSongs,
+                                        onSongTap: handleResultTap
+                                    )
+                                }
+                                
+                                // 3. Global Top 100
+                                if !viewModel.global100Songs.isEmpty {
+                                    RecommendationsGridView(
+                                        title: "Global Top 100",
+                                        subtitle: "Worldwide hits",
+                                        songs: viewModel.global100Songs,
+                                        likedSongIds: likedSongIds,
+                                        queueSongIds: audioPlayer.userQueueIds,
+                                        onSongTap: handleResultTap,
+                                        onAddToPlaylist: handleAddToPlaylist,
+                                        onToggleLike: handleToggleLike,
+                                        onPlayNext: handlePlayNext,
+                                        onAddToQueue: handleAddToQueue
+                                    )
+                                }
+                                
+                                // 4. US Top 100
+                                if !viewModel.us100Songs.isEmpty {
+                                    KeepListeningGridView(
+                                        title: "US Top 100",
+                                        songs: viewModel.us100Songs,
+                                        onSongTap: handleResultTap
+                                    )
+                                }
+                            }
                             
                             // You Might Like Section (4 rows, horizontal scroll)
                             if !viewModel.recommendedSongs.isEmpty {
                                 RecommendationsGridView(
+                                    title: "You might like",
+                                    subtitle: "Based on your listening",
                                     songs: viewModel.recommendedSongs,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
@@ -52,6 +117,7 @@ struct HomeView: View {
                             // Keep Listening Section (2 rows, horizontal scroll)
                             if viewModel.keepListeningSongs.count >= 4 {
                                 KeepListeningGridView(
+                                    title: "Keep Listening",
                                     songs: viewModel.keepListeningSongs,
                                     onSongTap: handleResultTap
                                 )
@@ -71,7 +137,60 @@ struct HomeView: View {
                                 )
                             }
                             
-                            // Sections
+                            // Chart Sections (With History - shown after personalized content)
+                            if viewModel.hasHistory {
+                                // 1. Trending Songs
+                                if !viewModel.trendingSongs.isEmpty {
+                                    RecommendationsGridView(
+                                        title: "Trending Songs",
+                                        subtitle: "Popular right now",
+                                        songs: viewModel.trendingSongs,
+                                        likedSongIds: likedSongIds,
+                                        queueSongIds: audioPlayer.userQueueIds,
+                                        onSongTap: handleResultTap,
+                                        onAddToPlaylist: handleAddToPlaylist,
+                                        onToggleLike: handleToggleLike,
+                                        onPlayNext: handlePlayNext,
+                                        onAddToQueue: handleAddToQueue
+                                    )
+                                }
+                                
+                                // 2. Top Songs
+                                if !viewModel.topSongs.isEmpty {
+                                    KeepListeningGridView(
+                                        title: "Top Songs",
+                                        songs: viewModel.topSongs,
+                                        onSongTap: handleResultTap
+                                    )
+                                }
+                                
+                                // 3. Global Top 100
+                                if !viewModel.global100Songs.isEmpty {
+                                    RecommendationsGridView(
+                                        title: "Global Top 100",
+                                        subtitle: "Worldwide hits",
+                                        songs: viewModel.global100Songs,
+                                        likedSongIds: likedSongIds,
+                                        queueSongIds: audioPlayer.userQueueIds,
+                                        onSongTap: handleResultTap,
+                                        onAddToPlaylist: handleAddToPlaylist,
+                                        onToggleLike: handleToggleLike,
+                                        onPlayNext: handlePlayNext,
+                                        onAddToQueue: handleAddToQueue
+                                    )
+                                }
+                                
+                                // 4. US Top 100
+                                if !viewModel.us100Songs.isEmpty {
+                                    KeepListeningGridView(
+                                        title: "US Top 100",
+                                        songs: viewModel.us100Songs,
+                                        onSongTap: handleResultTap
+                                    )
+                                }
+                            }
+                            
+                            // Sections (Home Page from API)
                             if let sections = viewModel.homePage?.sections {
                                 ForEach(sections) { section in
                                     HomeSectionView(section: section) { result in
@@ -273,6 +392,7 @@ extension Color {
 
 // MARK: - Keep Listening Grid (2 rows, horizontal scroll)
 struct KeepListeningGridView: View {
+    var title: String = "Keep Listening"
     let songs: [SearchResult]
     let onSongTap: (SearchResult) -> Void
     
@@ -303,7 +423,7 @@ struct KeepListeningGridView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
-            Text("Keep Listening")
+            Text(title)
                 .font(.title2)
                 .bold()
                 .foregroundStyle(.white)
@@ -570,6 +690,8 @@ struct AnyShape: Shape {
 
 // MARK: - Recommendations Grid (4 rows, horizontal scroll)
 struct RecommendationsGridView: View {
+    var title: String = "You might like"
+    var subtitle: String = "Based on your listening"
     let songs: [SearchResult]
     let likedSongIds: Set<String>
     let queueSongIds: Set<String>
@@ -607,11 +729,11 @@ struct RecommendationsGridView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
             VStack(alignment: .leading, spacing: 2) {
-                Text("Based on your listening")
+                Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.gray)
                     .textCase(.uppercase)
-                Text("You might like")
+                Text(title)
                     .font(.title2)
                     .bold()
                     .foregroundStyle(.white)
@@ -859,37 +981,55 @@ class HomeViewModel {
     var keepListeningSongs: [SearchResult] = []
     var favouriteItems: [SearchResult] = []
     
+    // Chart sections (computed from ChartsManager cache)
+    var trendingSongs: [SearchResult] { chartsManager.trendingSongs }
+    var topSongs: [SearchResult] { chartsManager.topSongs }
+    var global100Songs: [SearchResult] { chartsManager.global100Songs }
+    var us100Songs: [SearchResult] { chartsManager.us100Songs }
+    var hasHistory: Bool = false
+    
     private let networkManager = NetworkManager.shared
     private let recommendationsManager = RecommendationsManager.shared
     private let keepListeningManager = KeepListeningManager.shared
     private let favouritesManager = FavouritesManager.shared
+    private let chartsManager = ChartsManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
-        // 1. Load cached data instantly (from previous session) - shows UI immediately
+        // 1. Load cached data instantly
         loadCachedRecommendations()
         loadCachedKeepListening()
         loadCachedFavourites()
         
-        // 2. Load home content from network (async, non-blocking)
-        if homePage == nil {
+        hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
+        
+        // 2. Check if charts are cached - if so, show immediately
+        if chartsManager.hasCachedData {
+            // Charts already cached, just load home
+            if homePage == nil {
+                await loadHome()
+            }
+        } else {
+            // No cached charts, show loading and fetch
+            isLoading = true
+            await chartsManager.refreshInBackground()
             await loadHome()
+            isLoading = false
         }
         
         // 3. Refresh Keep Listening and Favourites AFTER UI is interactive
-        // Using Task {} (inherits MainActor) with yield() to let UI render first
         Task { [weak self] in
-            // Yield control to let UI become interactive first
             await Task.yield()
-            
-            // Now run the refreshes (on MainActor, but after UI is responsive)
             guard let self = self else { return }
             
-            if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+            if hasHistory {
                 self.keepListeningSongs = self.keepListeningManager.refreshSongs(in: modelContext)
                 self.favouriteItems = self.favouritesManager.refreshFavourites(in: modelContext)
-                
-                // Prefetch recommendations for next launch
                 await self.recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
+            }
+            
+            // Background refresh charts if needed (won't block UI)
+            if chartsManager.needsRefresh {
+                await chartsManager.refreshInBackground()
             }
         }
     }
@@ -901,82 +1041,44 @@ class HomeViewModel {
         } else {
             await loadHome()
         }
-        // On pull-to-refresh, refresh all sections immediately
-        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+        
+        let hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
+        if hasHistory {
             keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
             favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
             recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
         }
+        
+        // Force refresh charts on pull-to-refresh
+        await chartsManager.forceRefresh()
     }
     
     func loadCachedRecommendations() {
-        // Load from cache instantly
         recommendedSongs = recommendationsManager.recommendations
     }
     
     func loadCachedKeepListening() {
-        // Load from cache instantly
         keepListeningSongs = keepListeningManager.songs
     }
     
     func loadCachedFavourites() {
-        // Load from cache instantly
         favouriteItems = favouritesManager.favourites
     }
     
     func loadHome() async {
-        isLoading = true
+        // Only set loading if we aren't showing chart content already
+        if trendingSongs.isEmpty {
+             isLoading = true
+        }
+        
         do {
-            // 1. Load essential content first
             let home = try await networkManager.getHome()
             self.homePage = home
             self.selectedChipId = nil
-            isLoading = false  // UI can render now!
-            
-            // 2. Load charts in background (non-blocking)
-            Task {
-                await loadChartsInBackground()
-            }
+            isLoading = false
         } catch {
             print("Failed to load home: \(error)")
             isLoading = false
-        }
-    }
-    
-    private func loadChartsInBackground() async {
-        // Fetch charts concurrently
-        async let globalCharts = try? networkManager.getCharts(country: "ZZ")
-        async let punjabiCharts = try? networkManager.getCharts(country: "IN") // Using India for Punjabi context
-        
-        let gCharts = await globalCharts
-        let pCharts = await punjabiCharts
-        
-        // Build new sections from charts
-        var newSections: [HomeSection] = []
-        
-        // Add Global Top Songs if available
-        if let gSections = gCharts?.sections {
-            if let topSongs = gSections.first(where: { $0.title.contains("Top songs") }) {
-                newSections.append(HomeSection(title: "Global Top Songs", strapline: "Trending Worldwide", items: topSongs.items))
-            }
-        }
-        
-        // Add Punjabi/India Top Songs if available
-        if let pSections = pCharts?.sections {
-            if let topSongs = pSections.first(where: { $0.title.contains("Top songs") }) {
-                newSections.append(HomeSection(title: "Trending in India", strapline: "Top Songs", items: topSongs.items))
-            }
-        }
-        
-        // Insert charts after they load (at position 1, after Quick Picks)
-        guard !newSections.isEmpty else { return }
-        
-        await MainActor.run {
-            if self.homePage != nil && !self.homePage!.sections.isEmpty {
-                self.homePage!.sections.insert(contentsOf: newSections, at: 1)
-            } else if self.homePage != nil {
-                self.homePage!.sections.append(contentsOf: newSections)
-            }
         }
     }
     

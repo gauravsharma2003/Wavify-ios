@@ -578,7 +578,7 @@ class NetworkManager {
         throw YouTubeMusicError.parseError("Playlist ID not found")
     }
     
-    private func getQueueSongs(playlistId: String) async throws -> [QueueSong] {
+    func getQueueSongs(playlistId: String) async throws -> [QueueSong] {
         let url = URL(string: "\(baseURL)/next?prettyPrint=false")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -923,9 +923,9 @@ extension NetworkManager {
     }
     
     func getCharts(country: String? = nil) async throws -> HomePage {
-        // "ggMGCgQIgAQ%3D" is the params for Charts
+        // Use FEmusic_explore instead of FEmusic_charts for trending content
         var context = webContext
-        if let country = country {
+        if let country = country, country != "ZZ" {
             context["client"] = [
                 "clientName": "WEB_REMIX",
                 "clientVersion": webRemixVersion,
@@ -933,7 +933,47 @@ extension NetworkManager {
                 "hl": "en"
             ]
         }
-        return try await browse(browseId: "FEmusic_charts", params: "ggMGCgQIgAQ%3D", context: context)
+        // FEmusic_explore has "New releases" and trending content
+        return try await browse(browseId: "FEmusic_explore", params: nil, context: context)
+    }
+    
+    // Get Trending Songs from Explore page
+    func getTrendingSongs(country: String) async throws -> [SearchResult] {
+        var context = webContext
+        context["client"] = [
+            "clientName": "WEB_REMIX",
+            "clientVersion": webRemixVersion,
+            "gl": country,
+            "hl": "en"
+        ]
+        
+        let explorePage = try await browse(browseId: "FEmusic_explore", params: nil, context: context)
+        
+        print("DEBUG Explore: Got \(explorePage.sections.count) sections for country \(country)")
+        for section in explorePage.sections {
+            print("DEBUG Explore: Section '\(section.title)' has \(section.items.count) items, first item type: \(section.items.first?.type.rawValue ?? "none")")
+        }
+        
+        // Look for sections with songs - check for "new", "trending", "top", "popular"
+        for section in explorePage.sections {
+            let title = section.title.lowercased()
+            // Check if section has song items
+            let songs = section.items.filter { $0.type == .song }
+            if !songs.isEmpty && (title.contains("new") || title.contains("trend") || title.contains("top") || title.contains("popular") || title.contains("release")) {
+                return songs
+            }
+        }
+        
+        // Fallback: return first section with song items
+        for section in explorePage.sections {
+            let songs = section.items.filter { $0.type == .song }
+            if !songs.isEmpty {
+                return songs
+            }
+        }
+        
+        // Last fallback: return first section items (may include albums/playlists)
+        return explorePage.sections.first?.items ?? []
     }
     
     func getPlaylist(id: String) async throws -> HomePage {
@@ -1715,4 +1755,98 @@ extension NetworkManager {
         
         return artistItems
     }
+
+    // MARK: - Location & Charts
+    
+    func getLocation() async throws -> UserLocation {
+        guard let url = URL(string: "https://locate.indiatimes.com/service/locate") else {
+            return .fallback
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json, text/plain, /", forHTTPHeaderField: "accept")
+        request.setValue("no-cache", forHTTPHeaderField: "cache-control")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36", forHTTPHeaderField: "user-agent")
+        
+        do {
+            let (data, _) = try await session.data(for: request)
+            let location = try JSONDecoder().decode(UserLocation.self, from: data)
+            return location
+        } catch {
+            print("Location fetch failed: \(error)")
+            return .fallback
+        }
+    }
+    
+    // Safe version that never throws - always returns a location
+    func getLocationSafe() async -> UserLocation {
+        do {
+            return try await getLocation()
+        } catch {
+            return .fallback
+        }
+    }
+    
+    // Fetch both Country and Global charts using simpler existing methods
+    func getChartsFlow(countryCode: String, countryName: String) async throws -> (country: [SearchResult], global: [SearchResult], countryName: String) {
+        
+        // Get explore page with country context
+        let explorePage = try await getCharts(country: countryCode)
+        
+        print("DEBUG Charts: Got \(explorePage.sections.count) sections")
+        for (index, section) in explorePage.sections.enumerated() {
+            let itemTypes = section.items.prefix(3).map { $0.type.rawValue }.joined(separator: ", ")
+            print("DEBUG Charts: [\(index)] '\(section.title)' has \(section.items.count) items, types: \(itemTypes)")
+        }
+        
+        // For Country: Get first section with songs (usually "New releases" or trending)
+        var countrySongs: [SearchResult] = []
+        for section in explorePage.sections {
+            let songs = section.items.filter { $0.type == .song }
+            if !songs.isEmpty {
+                countrySongs = songs
+                print("DEBUG: Using '\(section.title)' for country songs (\(songs.count) songs)")
+                break
+            }
+        }
+        
+        // For Global: Get a DIFFERENT section with songs
+        var globalSongs: [SearchResult] = []
+        var usedFirstSection = false
+        for section in explorePage.sections {
+            let songs = section.items.filter { $0.type == .song }
+            if !songs.isEmpty {
+                if !usedFirstSection {
+                    // Skip the first section with songs (already used for country)
+                    usedFirstSection = true
+                    continue
+                }
+                globalSongs = songs
+                print("DEBUG: Using '\(section.title)' for global songs (\(songs.count) songs)")
+                break
+            }
+        }
+        
+        // If no second song section found, fallback to albums/playlists from different section
+        if globalSongs.isEmpty {
+            // Try to get content from a "Charts" or "Trending" section if exists
+            for section in explorePage.sections {
+                let title = section.title.lowercased()
+                if (title.contains("chart") || title.contains("trend") || title.contains("top")) && !section.items.isEmpty {
+                    globalSongs = section.items
+                    print("DEBUG: Fallback using '\(section.title)' for global (\(globalSongs.count) items)")
+                    break
+                }
+            }
+        }
+        
+        // Last fallback: use a mix from later sections
+        if globalSongs.isEmpty && explorePage.sections.count > 1 {
+            globalSongs = explorePage.sections.last?.items ?? []
+        }
+        
+        return (countrySongs, globalSongs, countryName)
+    }
 }
+
