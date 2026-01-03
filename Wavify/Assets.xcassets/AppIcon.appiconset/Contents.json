@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "Wavify.png",
+      "filename" : "W.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "dark.png",
+      "filename" : "Wdark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "tinted.png",
+      "filename" : "Wtinted.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

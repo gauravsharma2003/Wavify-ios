@@ -49,33 +49,41 @@ struct PlaylistCoverImage: View {
     }
     
     private func gridCell(url: String) -> some View {
-        CachedAsyncImagePhase(url: URL(string: url)) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            default:
-                cellPlaceholder
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                CachedAsyncImagePhase(url: URL(string: url)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    default:
+                        cellPlaceholder
+                    }
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
+            .clipped()
     }
     
     // MARK: - Single Cover (1-3 songs)
     
     private func singleCover(url: String) -> some View {
-        CachedAsyncImagePhase(url: URL(string: url)) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            default:
-                placeholderView
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                CachedAsyncImagePhase(url: URL(string: url)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    default:
+                        placeholderView
+                    }
+                }
             }
-        }
+            .clipped()
     }
     
     // MARK: - Placeholders

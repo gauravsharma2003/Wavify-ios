@@ -40,7 +40,14 @@ final class LocalPlaylist {
     }
     
     /// Returns up to 4 thumbnail URLs for grid cover display
+    /// - For saved playlists (with storedThumbnailUrl): returns the original thumbnail
+    /// - For user-created playlists: returns first 4 song thumbnails for grid display
     var coverThumbnails: [String] {
-        Array(sortedSongs.prefix(4).compactMap { $0.thumbnailUrl })
+        // If this is a saved playlist with original thumbnail, use it
+        if let storedUrl = storedThumbnailUrl, !storedUrl.isEmpty {
+            return [storedUrl]
+        }
+        // Otherwise generate 4-photo grid for user-created playlists
+        return Array(sortedSongs.prefix(4).compactMap { $0.thumbnailUrl })
     }
 }
