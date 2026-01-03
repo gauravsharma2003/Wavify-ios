@@ -29,16 +29,16 @@ actor ImageCache {
         }
     }
     
-    func image(for url: URL) -> UIImage? {
+    func image(for url: URL) async -> UIImage? {
         let key = url.absoluteString as NSString
         
-        // 1. Check memory
+        // 1. Check memory (fast, sync)
         if let cachedImage = memoryCache.object(forKey: key) {
             return cachedImage
         }
         
-        // 2. Check disk
-        if let diskImage = loadFromDisk(for: url) {
+        // 2. Check disk (async to avoid blocking)
+        if let diskImage = await loadFromDisk(for: url) {
             // Populate memory cache
             memoryCache.setObject(diskImage, forKey: key)
             return diskImage
@@ -57,13 +57,20 @@ actor ImageCache {
         saveToDisk(image, for: url)
     }
     
-    private func loadFromDisk(for url: URL) -> UIImage? {
-        guard let fileURL = diskFileURL(for: url),
-              let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
-            return nil
+    private func loadFromDisk(for url: URL) async -> UIImage? {
+        guard let fileURL = diskFileURL(for: url) else { return nil }
+        
+        // Perform disk I/O on background thread to avoid blocking
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let data = try? Data(contentsOf: fileURL),
+                      let image = UIImage(data: data) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: image)
+            }
         }
-        return image
     }
     
     private func saveToDisk(_ image: UIImage, for url: URL) {
