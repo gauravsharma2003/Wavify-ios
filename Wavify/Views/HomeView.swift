@@ -134,8 +134,13 @@ struct HomeView: View {
             }
         }
         .task {
+            // Start loading home content first
             await viewModel.loadInitialContent(modelContext: modelContext)
-            loadLikedStatus()
+        }
+        .task {
+            // Load liked status separately with yield to not block UI
+            await Task.yield()
+            loadLikedStatusSync()
         }
         .sheet(item: $selectedSongForPlaylist) { song in
             AddToPlaylistSheet(song: song)
@@ -215,10 +220,8 @@ struct HomeView: View {
     
     // MARK: - Like Management
     
-    private func loadLikedStatus() {
-        // We can't easily check all recommended songs at once efficiently without a batch query
-        // But for now we can rely on cached liked status or check when rendering
-        // A better approach for HomeView is to load all liked song IDs into a set
+    private func loadLikedStatusSync() {
+        // Runs on MainActor after yield - stays on main thread for SwiftData safety
         let descriptor = FetchDescriptor<LocalSong>(
             predicate: #Predicate { $0.isLiked == true }
         )
@@ -862,26 +865,31 @@ class HomeViewModel {
     private let favouritesManager = FavouritesManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
-        // Load cached data instantly (from previous session)
+        // 1. Load cached data instantly (from previous session) - shows UI immediately
         loadCachedRecommendations()
         loadCachedKeepListening()
         loadCachedFavourites()
         
-        // Load home content
+        // 2. Load home content from network (async, non-blocking)
         if homePage == nil {
             await loadHome()
         }
         
-        // Refresh Keep Listening and Favourites on app launch (stays on main actor for thread safety)
-        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
-            keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
-            favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
-        }
-        
-        // Prefetch new recommendations in background for next launch
-        if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
-            Task {
-                await recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
+        // 3. Refresh Keep Listening and Favourites AFTER UI is interactive
+        // Using Task {} (inherits MainActor) with yield() to let UI render first
+        Task { [weak self] in
+            // Yield control to let UI become interactive first
+            await Task.yield()
+            
+            // Now run the refreshes (on MainActor, but after UI is responsive)
+            guard let self = self else { return }
+            
+            if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
+                self.keepListeningSongs = self.keepListeningManager.refreshSongs(in: modelContext)
+                self.favouriteItems = self.favouritesManager.refreshFavourites(in: modelContext)
+                
+                // Prefetch recommendations for next launch
+                await self.recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
             }
         }
     }
