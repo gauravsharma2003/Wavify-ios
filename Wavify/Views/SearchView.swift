@@ -139,9 +139,9 @@ struct SearchView: View {
                     )
                 }
             }
-            .onChange(of: viewModel.searchText) { _, newValue in
-                viewModel.searchTextChanged(newValue)
-            }
+        }
+        .task {
+            await viewModel.loadChipsIfNeeded()
         }
         .sheet(item: $selectedSongForPlaylist) { song in
             AddToPlaylistSheet(song: song)
@@ -769,7 +769,14 @@ enum SearchFilter: String, CaseIterable {
 @MainActor
 @Observable
 class SearchViewModel {
-    var searchText = ""
+    var searchText = "" {
+        didSet {
+            // Only trigger if value actually changed and not during init
+            if searchText != oldValue {
+                handleSearchTextChange(searchText)
+            }
+        }
+    }
     var suggestions: [SearchSuggestion] = []
     var topResults: [SearchResult] = []
     var results: [SearchResult] = []
@@ -778,15 +785,19 @@ class SearchViewModel {
     var hasSearched = false
     var chips: [Chip] = []
     private var justPerformedSearchFromSuggestion = false
+    private var chipsLoaded = false
     
     private let networkManager = NetworkManager.shared
     private var suggestionTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
     
-    init() {
-        Task {
-            await fetchChips()
-        }
+    // Don't auto-fetch chips in init - load lazily when view appears
+    init() {}
+    
+    func loadChipsIfNeeded() async {
+        guard !chipsLoaded else { return }
+        chipsLoaded = true
+        await fetchChips()
     }
     
     func fetchChips() async {
@@ -799,22 +810,29 @@ class SearchViewModel {
         }
     }
     
-    func searchTextChanged(_ query: String) {
+    private func handleSearchTextChange(_ query: String) {
         debounceTask?.cancel()
+        suggestionTask?.cancel()
         
         if justPerformedSearchFromSuggestion {
             justPerformedSearchFromSuggestion = false
             return
         }
         
+        // Clear suggestions immediately if query is empty
+        guard !query.isEmpty else {
+            suggestions = []
+            return
+        }
+        
         debounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            fetchSuggestions(query: query)
+            await fetchSuggestions(query: query)
         }
     }
     
-    private func fetchSuggestions(query: String) {
+    private func fetchSuggestions(query: String) async {
         suggestionTask?.cancel()
         
         guard !query.isEmpty else {
@@ -822,16 +840,14 @@ class SearchViewModel {
             return
         }
         
-        suggestionTask = Task {
-            do {
-                let fetchedSuggestions = try await networkManager.getSearchSuggestions(query: query)
-                if !Task.isCancelled {
-                    suggestions = fetchedSuggestions
-                }
-            } catch {
-                if !Task.isCancelled {
-                    print("Failed to fetch suggestions: \(error)")
-                }
+        do {
+            let fetchedSuggestions = try await networkManager.getSearchSuggestions(query: query)
+            if !Task.isCancelled {
+                suggestions = fetchedSuggestions
+            }
+        } catch {
+            if !Task.isCancelled {
+                print("Failed to fetch suggestions: \(error)")
             }
         }
     }

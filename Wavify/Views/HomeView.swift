@@ -41,21 +41,11 @@ struct HomeView: View {
                                     songs: viewModel.recommendedSongs,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
-                                    onSongTap: { result in
-                                        handleResultTap(result)
-                                    },
-                                    onAddToPlaylist: { result in
-                                        selectedSongForPlaylist = Song(from: result)
-                                    },
-                                    onToggleLike: { result in
-                                        toggleLikeSong(Song(from: result))
-                                    },
-                                    onPlayNext: { result in
-                                        audioPlayer.playNextSong(Song(from: result))
-                                    },
-                                    onAddToQueue: { result in
-                                        _ = audioPlayer.addToQueue(Song(from: result))
-                                    }
+                                    onSongTap: handleResultTap,
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
                                 )
                             }
                             
@@ -63,9 +53,7 @@ struct HomeView: View {
                             if viewModel.keepListeningSongs.count >= 4 {
                                 KeepListeningGridView(
                                     songs: viewModel.keepListeningSongs,
-                                    onSongTap: { result in
-                                        handleResultTap(result)
-                                    }
+                                    onSongTap: handleResultTap
                                 )
                             }
                             
@@ -75,21 +63,11 @@ struct HomeView: View {
                                     items: viewModel.favouriteItems,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
-                                    onItemTap: { result in
-                                        handleResultTap(result)
-                                    },
-                                    onAddToPlaylist: { result in
-                                        selectedSongForPlaylist = Song(from: result)
-                                    },
-                                    onToggleLike: { result in
-                                        toggleLikeSong(Song(from: result))
-                                    },
-                                    onPlayNext: { result in
-                                        audioPlayer.playNextSong(Song(from: result))
-                                    },
-                                    onAddToQueue: { result in
-                                        _ = audioPlayer.addToQueue(Song(from: result))
-                                    }
+                                    onItemTap: handleResultTap,
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
                                 )
                             }
                             
@@ -217,6 +195,22 @@ struct HomeView: View {
         } else if result.type == .playlist {
             navigationManager.homePath.append(NavigationDestination.playlist(result.id, result.name, result.thumbnailUrl))
         }
+    }
+    
+    private func handleAddToPlaylist(_ result: SearchResult) {
+        selectedSongForPlaylist = Song(from: result)
+    }
+    
+    private func handleToggleLike(_ result: SearchResult) {
+        toggleLikeSong(Song(from: result))
+    }
+    
+    private func handlePlayNext(_ result: SearchResult) {
+        audioPlayer.playNextSong(Song(from: result))
+    }
+    
+    private func handleAddToQueue(_ result: SearchResult) {
+        _ = audioPlayer.addToQueue(Song(from: result))
     }
     
     // MARK: - Like Management
@@ -878,13 +872,13 @@ class HomeViewModel {
             await loadHome()
         }
         
-        // Refresh Keep Listening and Favourites on app launch
+        // Refresh Keep Listening and Favourites on app launch (stays on main actor for thread safety)
         if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
             keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
             favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
         }
         
-        // After everything is loaded, prefetch new recommendations in background for next launch
+        // Prefetch new recommendations in background for next launch
         if PlayCountManager.shared.hasPlayHistory(in: modelContext) {
             Task {
                 await recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
@@ -925,52 +919,57 @@ class HomeViewModel {
     func loadHome() async {
         isLoading = true
         do {
-            // Load Standard Home
-            var home = try await networkManager.getHome()
-            
-            // Load Global Charts (Top Songs)
-            async let globalCharts = try? networkManager.getCharts(country: "ZZ")
-            async let punjabiCharts = try? networkManager.getCharts(country: "IN") // Using India for Punjabi context
-            
-            let gCharts = await globalCharts
-            let pCharts = await punjabiCharts
-            
-            // Insert Charts into Sections
-            // We want "Global" and "Punjabi" sections at the top or after quick picks
-            
-            var newSections: [HomeSection] = []
-            
-            // Add Global Top Songs if available
-            if let gSections = gCharts?.sections {
-                // Find "Top Songs" section
-                if let topSongs = gSections.first(where: { $0.title.contains("Top songs") }) {
-                    newSections.append(HomeSection(title: "Global Top Songs", strapline: "Trending Worldwide", items: topSongs.items))
-                }
-            }
-            
-            // Add Punjabi/India Top Songs if available
-            if let pSections = pCharts?.sections {
-                // Find "Top Songs" section
-                if let topSongs = pSections.first(where: { $0.title.contains("Top songs") }) {
-                    newSections.append(HomeSection(title: "Trending in India", strapline: "Top Songs", items: topSongs.items))
-                }
-            }
-            
-            // Combine with Home Sections
-            // We'll put these new sections after the first section (usually Quick Picks)
-            if !home.sections.isEmpty {
-                home.sections.insert(contentsOf: newSections, at: 1)
-            } else {
-                home.sections.append(contentsOf: newSections)
-            }
-            
+            // 1. Load essential content first
+            let home = try await networkManager.getHome()
             self.homePage = home
             self.selectedChipId = nil
+            isLoading = false  // UI can render now!
             
+            // 2. Load charts in background (non-blocking)
+            Task {
+                await loadChartsInBackground()
+            }
         } catch {
             print("Failed to load home: \(error)")
+            isLoading = false
         }
-        isLoading = false
+    }
+    
+    private func loadChartsInBackground() async {
+        // Fetch charts concurrently
+        async let globalCharts = try? networkManager.getCharts(country: "ZZ")
+        async let punjabiCharts = try? networkManager.getCharts(country: "IN") // Using India for Punjabi context
+        
+        let gCharts = await globalCharts
+        let pCharts = await punjabiCharts
+        
+        // Build new sections from charts
+        var newSections: [HomeSection] = []
+        
+        // Add Global Top Songs if available
+        if let gSections = gCharts?.sections {
+            if let topSongs = gSections.first(where: { $0.title.contains("Top songs") }) {
+                newSections.append(HomeSection(title: "Global Top Songs", strapline: "Trending Worldwide", items: topSongs.items))
+            }
+        }
+        
+        // Add Punjabi/India Top Songs if available
+        if let pSections = pCharts?.sections {
+            if let topSongs = pSections.first(where: { $0.title.contains("Top songs") }) {
+                newSections.append(HomeSection(title: "Trending in India", strapline: "Top Songs", items: topSongs.items))
+            }
+        }
+        
+        // Insert charts after they load (at position 1, after Quick Picks)
+        guard !newSections.isEmpty else { return }
+        
+        await MainActor.run {
+            if self.homePage != nil && !self.homePage!.sections.isEmpty {
+                self.homePage!.sections.insert(contentsOf: newSections, at: 1)
+            } else if self.homePage != nil {
+                self.homePage!.sections.append(contentsOf: newSections)
+            }
+        }
     }
     
     func selectChip(_ chip: Chip) async {
