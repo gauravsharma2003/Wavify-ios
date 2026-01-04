@@ -99,6 +99,7 @@ struct QueueSong: Identifiable, Hashable {
     let artist: String
     let thumbnailUrl: String
     let duration: String
+    var artistId: String? = nil  // Added for artist navigation
     
     var videoId: String { id }
     
@@ -176,6 +177,7 @@ struct Song: Identifiable, Hashable {
         self.thumbnailUrl = queueSong.thumbnailUrl
         self.duration = queueSong.duration
         self.isLiked = false
+        self.artistId = queueSong.artistId
     }
     
     init(from albumSong: AlbumSong, artist: String, thumbnailUrl: String) {

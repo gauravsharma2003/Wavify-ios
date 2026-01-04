@@ -15,6 +15,7 @@ struct CachedFavouriteItem: Codable {
     let thumbnailUrl: String
     let artist: String
     let type: String  // "song", "album", "artist"
+    let artistId: String?  // Added for artist navigation
     
     func toSearchResult() -> SearchResult {
         let resultType: SearchResultType
@@ -30,7 +31,8 @@ struct CachedFavouriteItem: Codable {
             isExplicit: false,
             year: "",
             artist: artist,
-            type: resultType
+            type: resultType,
+            artistId: artistId
         )
     }
 }
@@ -326,7 +328,8 @@ class FavouritesManager {
                 isExplicit: old.isExplicit,
                 year: old.year,
                 artist: old.artist,
-                type: old.type
+                type: old.type,
+                artistId: old.artistId
             )
         }
         
@@ -343,7 +346,8 @@ class FavouritesManager {
                 name: result.name,
                 thumbnailUrl: result.thumbnailUrl,
                 artist: result.artist,
-                type: result.type == .album ? "album" : (result.type == .artist ? "artist" : "song")
+                type: result.type == .album ? "album" : (result.type == .artist ? "artist" : "song"),
+                artistId: result.artistId
             )
         }
         if let data = try? JSONEncoder().encode(cached) {

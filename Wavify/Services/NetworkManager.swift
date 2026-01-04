@@ -151,7 +151,6 @@ class NetworkManager {
     }
     
     private nonisolated func parseSearchResults(_ data: Data) -> (topResults: [SearchResult], results: [SearchResult]) {
-        print("DEBUG [parseSearchResults]: CALLED - this log confirms the parsing function runs")
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let tabbedResults = contents["tabbedSearchResultsRenderer"] as? [String: Any],
@@ -196,11 +195,6 @@ class NetworkManager {
                     }
                 }
             }
-        }
-        
-        // Debug: Log top results with artistId
-        for result in topResults {
-            print("DEBUG [search]: topResult type=\(result.type), name=\(result.name), artistId=\(result.artistId ?? "nil")")
         }
         
         return (topResults, results)
@@ -260,7 +254,6 @@ class NetworkManager {
         if let navigationEndpoint = cardShelf["onTap"] as? [String: Any] {
             if let watchEndpoint = navigationEndpoint["watchEndpoint"] as? [String: Any],
                let videoId = watchEndpoint["videoId"] as? String {
-                print("DEBUG [parseCardShelfItem]: videoId=\(videoId), artist=\(artist), artistId=\(artistId ?? "nil")")
                 return SearchResult(id: videoId, name: name, thumbnailUrl: thumbnailUrl,
                                     isExplicit: false, year: "", artist: artist, type: .song, artistId: artistId)
             }
@@ -521,8 +514,6 @@ class NetworkManager {
             // It's often better fetched from 'next' endpoint (Watch Next)
         }
         
-        print("DEBUG [parsePlaybackResponse]: videoId=\(videoId), channelId/artistId=\(artistId ?? "nil"), author=\(author)")
-        
         return PlaybackInfo(
             audioUrl: audioUrl,
             videoId: videoId,
@@ -651,13 +642,15 @@ class NetworkManager {
                 let artist = extractArtistFromVideoRenderer(videoRenderer)
                 let thumbnailUrl = extractThumbnailFromVideoRenderer(videoRenderer)
                 let duration = extractDurationFromVideoRenderer(videoRenderer)
+                let artistId = extractArtistIdFromVideoRenderer(videoRenderer)
                 
                 songs.append(QueueSong(
                     id: videoId,
                     name: title,
                     artist: artist,
                     thumbnailUrl: thumbnailUrl,
-                    duration: duration
+                    duration: duration,
+                    artistId: artistId
                 ))
             }
         }
@@ -683,6 +676,23 @@ class NetworkManager {
             return text
         }
         return ""
+    }
+    
+    /// Extract artistId from video renderer's longBylineText runs navigation endpoint
+    private nonisolated func extractArtistIdFromVideoRenderer(_ renderer: [String: Any]) -> String? {
+        if let byline = renderer["longBylineText"] as? [String: Any],
+           let runs = byline["runs"] as? [[String: Any]] {
+            for run in runs {
+                if let text = run["text"] as? String,
+                   text != "•" && text != " • " && !text.isEmpty,
+                   let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                   let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                   let browseId = browseEndpoint["browseId"] as? String {
+                    return browseId
+                }
+            }
+        }
+        return nil
     }
     
     private nonisolated func extractThumbnailFromVideoRenderer(_ renderer: [String: Any]) -> String {
@@ -978,11 +988,6 @@ extension NetworkManager {
         ]
         
         let explorePage = try await browse(browseId: "FEmusic_explore", params: nil, context: context)
-        
-        print("DEBUG Explore: Got \(explorePage.sections.count) sections for country \(country)")
-        for section in explorePage.sections {
-            print("DEBUG Explore: Section '\(section.title)' has \(section.items.count) items, first item type: \(section.items.first?.type.rawValue ?? "none")")
-        }
         
         // Look for sections with songs - check for "new", "trending", "top", "popular"
         for section in explorePage.sections {
@@ -1349,15 +1354,10 @@ extension NetworkManager {
     
     private nonisolated func parseArtistDetails(_ data: Data, browseId: String) throws -> ArtistDetail {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("DEBUG: Failed to parse JSON data")
             throw YouTubeMusicError.parseError("Invalid JSON")
         }
         
         guard let contents = json["contents"] as? [String: Any] else {
-            print("DEBUG: Missing 'contents'. Available keys: \(json.keys)")
-            if let singleColumn = json["singleColumnBrowseResultsRenderer"] as? [String: Any] {
-                 print("DEBUG: Found singleColumnBrowseResultsRenderer instead")
-            }
             throw YouTubeMusicError.parseError("Invalid artist data format: missing contents")
         }
         
@@ -1383,16 +1383,6 @@ extension NetworkManager {
              return parseArtistSectionList(sections, header: json["header"] as? [String: Any], browseId: browseId)
         }
         
-        print("DEBUG: Failed to match structure. Keys in contents: \(contents.keys)")
-        if let twoColumn = contents["twoColumnBrowseResultsRenderer"] as? [String: Any] {
-             print("DEBUG: Found twoColumn. Keys: \(twoColumn.keys)")
-             if let tabs = twoColumn["tabs"] as? [[String: Any]] {
-                 print("DEBUG: Found tabs. Count: \(tabs.count)")
-                 if let firstTab = tabs.first {
-                     print("DEBUG: First tab keys: \(firstTab.keys)")
-                 }
-             }
-        }
         
         throw YouTubeMusicError.parseError("Invalid artist data format")
     }
@@ -1870,19 +1860,12 @@ extension NetworkManager {
         // Get explore page with country context
         let explorePage = try await getCharts(country: countryCode)
         
-        print("DEBUG Charts: Got \(explorePage.sections.count) sections")
-        for (index, section) in explorePage.sections.enumerated() {
-            let itemTypes = section.items.prefix(3).map { $0.type.rawValue }.joined(separator: ", ")
-            print("DEBUG Charts: [\(index)] '\(section.title)' has \(section.items.count) items, types: \(itemTypes)")
-        }
-        
         // For Country: Get first section with songs (usually "New releases" or trending)
         var countrySongs: [SearchResult] = []
         for section in explorePage.sections {
             let songs = section.items.filter { $0.type == .song }
             if !songs.isEmpty {
                 countrySongs = songs
-                print("DEBUG: Using '\(section.title)' for country songs (\(songs.count) songs)")
                 break
             }
         }
@@ -1899,7 +1882,6 @@ extension NetworkManager {
                     continue
                 }
                 globalSongs = songs
-                print("DEBUG: Using '\(section.title)' for global songs (\(songs.count) songs)")
                 break
             }
         }
@@ -1911,7 +1893,6 @@ extension NetworkManager {
                 let title = section.title.lowercased()
                 if (title.contains("chart") || title.contains("trend") || title.contains("top")) && !section.items.isEmpty {
                     globalSongs = section.items
-                    print("DEBUG: Fallback using '\(section.title)' for global (\(globalSongs.count) items)")
                     break
                 }
             }

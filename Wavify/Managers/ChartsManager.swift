@@ -65,8 +65,6 @@ class ChartsManager {
             self.hasLoaded = true
             self.lastRefreshTime = Date()
         }
-        
-        print("DEBUG ChartsManager: Cached trending=\(trendingSongs.count), top=\(topSongs.count), global100=\(global100Songs.count), us100=\(us100Songs.count)")
     }
     
     /// Force refresh (for pull-to-refresh)
@@ -104,8 +102,6 @@ class ChartsManager {
             // Restore previous refresh time so we don't keep trying failed refreshes
             self.lastRefreshTime = previousRefreshTime
         }
-        
-        print("DEBUG ChartsManager: Force refresh - trending=\(trendingSongs.count), global100=\(global100Songs.count), us100=\(us100Songs.count)")
     }
     
     // MARK: - Private Fetch Methods
@@ -137,7 +133,8 @@ class ChartsManager {
                     isExplicit: false,
                     year: queueSong.duration,
                     artist: queueSong.artist,
-                    type: .song
+                    type: .song,
+                    artistId: queueSong.artistId
                 )
             }
         } catch {

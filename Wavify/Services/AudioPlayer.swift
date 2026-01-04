@@ -231,7 +231,6 @@ class AudioPlayer {
         isLoading = true
         currentSong = song
         
-        print("DEBUG [playNewSong]: Starting with song.artistId=\(song.artistId ?? "nil"), song.artist=\(song.artist)")
         
         // Notify for play count tracking - this captures ALL song plays
         NotificationCenter.default.post(
@@ -255,7 +254,6 @@ class AudioPlayer {
             // IMPORTANT: playbackInfo.artistId is the video UPLOADER's channel (e.g., "Rehan Records"),
             // NOT the actual artist (e.g., "Karan Aujla"). So we should prefer the artistId from search.
             if var song = currentSong {
-                print("DEBUG [playNewSong]: Before update - song.artistId=\(song.artistId ?? "nil"), playbackInfo.artistId=\(playbackInfo.artistId ?? "nil")")
                 if (song.artistId == nil && playbackInfo.artistId != nil) ||
                    (song.albumId == nil && playbackInfo.albumId != nil) {
                     // Create a copy with updated IDs - only fill in missing fields, don't overwrite
@@ -270,9 +268,6 @@ class AudioPlayer {
                         albumId: song.albumId ?? playbackInfo.albumId
                     )
                     self.currentSong = updatedSong
-                    print("DEBUG [playNewSong]: Updated song.artistId=\(updatedSong.artistId ?? "nil")")
-                } else {
-                    print("DEBUG [playNewSong]: No update needed, keeping existing artistId=\(song.artistId ?? "nil")")
                 }
             }
             

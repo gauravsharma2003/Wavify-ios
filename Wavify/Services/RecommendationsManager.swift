@@ -14,12 +14,14 @@ struct CachedRecommendation: Codable {
     let name: String
     let thumbnailUrl: String
     let artist: String
+    let artistId: String?  // Added for artist navigation
     
     init(from searchResult: SearchResult) {
         self.id = searchResult.id
         self.name = searchResult.name
         self.thumbnailUrl = searchResult.thumbnailUrl
         self.artist = searchResult.artist
+        self.artistId = searchResult.artistId
     }
     
     func toSearchResult() -> SearchResult {
@@ -30,7 +32,8 @@ struct CachedRecommendation: Codable {
             isExplicit: false,
             year: "",
             artist: artist,
-            type: .song
+            type: .song,
+            artistId: artistId
         )
     }
 }
@@ -154,7 +157,8 @@ class RecommendationsManager {
                         isExplicit: false,
                         year: "",
                         artist: queueSong.artist,
-                        type: .song
+                        type: .song,
+                        artistId: queueSong.artistId
                     )
                     allRecommendations.append(searchResult)
                 }
