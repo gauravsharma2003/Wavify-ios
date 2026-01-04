@@ -92,7 +92,7 @@ struct NowPlayingView: View {
                                         
                                         // Share Button
                                         Button {
-                                            // Share
+                                            shareSong()
                                         } label: {
                                             Image(systemName: "square.and.arrow.up")
                                                 .font(.system(size: 22, weight: .medium))
@@ -204,6 +204,9 @@ struct NowPlayingView: View {
         }
         .sheet(isPresented: $showActiveSleepSheet) {
             SleepTimerActiveSheet(sleepTimerManager: sleepTimerManager)
+        }
+        .overlay(alignment: .top) {
+            NetworkToastView()
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
     }
@@ -710,7 +713,7 @@ struct NowPlayingView: View {
             
             // Share Button
             Button {
-                // Share
+                shareSong()
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 22, weight: .medium))
@@ -775,6 +778,30 @@ struct NowPlayingView: View {
             } else {
                 lyricsState = .notFound
             }
+        }
+    }
+    
+    // MARK: - Sharing
+    
+    private func shareSong() {
+        guard let song = audioPlayer.currentSong else { return }
+        
+        let shareURL = "https://gauravsharma2003.github.io/wavifyapp/song/\(song.videoId)"
+        let shareText = "\(song.title) by \(song.artist)"
+        
+        let activityVC = UIActivityViewController(
+            activityItems: [shareText, URL(string: shareURL)!],
+            applicationActivities: nil
+        )
+        
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootViewController = windowScene.windows.first?.rootViewController {
+            // Find the topmost presented view controller
+            var topController = rootViewController
+            while let presented = topController.presentedViewController {
+                topController = presented
+            }
+            topController.present(activityVC, animated: true)
         }
     }
 }

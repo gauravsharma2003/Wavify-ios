@@ -201,6 +201,31 @@ class AudioPlayer {
         await playNewSong(song, refreshQueue: true)
     }
     
+    /// Play a song by videoId only (for deep links) - fetches info from API first
+    func loadAndPlay(videoId: String) async {
+        isLoading = true
+        
+        do {
+            let playbackInfo = try await networkManager.getPlaybackInfo(videoId: videoId)
+            
+            let song = Song(
+                id: videoId,
+                title: playbackInfo.title,
+                artist: playbackInfo.artist,
+                thumbnailUrl: playbackInfo.thumbnailUrl,
+                duration: playbackInfo.duration,
+                artistId: playbackInfo.artistId,
+                albumId: playbackInfo.albumId
+            )
+            
+            await loadAndPlay(song: song)
+        } catch {
+            isLoading = false
+            print("Failed to load song from deep link: \(error)")
+        }
+    }
+
+    
     /// Internal method to play a song with optional queue refresh
     private func playNewSong(_ song: Song, refreshQueue: Bool) async {
         isLoading = true

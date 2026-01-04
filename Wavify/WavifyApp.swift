@@ -44,8 +44,54 @@ struct WavifyApp: App {
                         .transition(.opacity)
                 }
             }
+            .overlay(alignment: .top) {
+                NetworkToastView()
+            }
             .animation(.easeInOut(duration: 0.3), value: splashFinished)
+            .onOpenURL { url in
+                handleDeepLink(url)
+            }
         }
         .modelContainer(sharedModelContainer)
     }
+    
+    private func handleDeepLink(_ url: URL) {
+        // Supports both:
+        // - Universal Links: https://gauravsharma2003.github.io/wavifyapp/song/xyz123
+        // - Custom URL Scheme: wavify://song/xyz123
+        
+        var videoId: String?
+        
+        if url.scheme == "wavify" {
+            // Custom URL scheme: wavify://song/xyz123
+            // host is "song", path is "/xyz123" or path components directly
+            if url.host == "song" {
+                // wavify://song/xyz123 → host = "song", path = "/xyz123"
+                videoId = url.pathComponents.last
+            } else if let pathComponents = url.host.map({ [$0] + url.pathComponents.dropFirst() }),
+                      let songIndex = pathComponents.firstIndex(of: "song"),
+                      pathComponents.indices.contains(songIndex + 1) {
+                videoId = pathComponents[songIndex + 1]
+            }
+        } else {
+            // Universal Links: https://...
+            guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+                return
+            }
+            
+            let pathComponents = components.path.split(separator: "/").map(String.init)
+            
+            if let songIndex = pathComponents.firstIndex(of: "song"),
+               pathComponents.indices.contains(songIndex + 1) {
+                videoId = pathComponents[songIndex + 1]
+            }
+        }
+        
+        guard let videoId = videoId, !videoId.isEmpty else { return }
+        
+        Task {
+            await AudioPlayer.shared.loadAndPlay(videoId: videoId)
+        }
+    }
+
 }
