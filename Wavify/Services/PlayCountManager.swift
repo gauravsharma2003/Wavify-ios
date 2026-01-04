@@ -18,6 +18,7 @@ class PlayCountManager {
     /// Increment play count for a song (creates entry if doesn't exist)
     func incrementPlayCount(for song: Song, in context: ModelContext) {
         let videoId = song.videoId
+        print("DEBUG [PlayCountManager]: Recording play for videoId=\(videoId), artistId=\(song.artistId ?? "nil")")
         
         // Try to find existing entry
         let descriptor = FetchDescriptor<SongPlayCount>(
@@ -30,14 +31,17 @@ class PlayCountManager {
             if let playCount = existing.first {
                 // Update existing entry
                 playCount.incrementPlayCount()
+                // Update artistId if not already set (for records created before this field existed)
+                playCount.updateArtistIdIfNeeded(song.artistId)
             } else {
-                // Create new entry
+                // Create new entry with artistId
                 let newPlayCount = SongPlayCount(
                     videoId: song.videoId,
                     title: song.title,
                     artist: song.artist,
                     thumbnailUrl: song.thumbnailUrl,
-                    duration: song.duration
+                    duration: song.duration,
+                    artistId: song.artistId
                 )
                 context.insert(newPlayCount)
             }

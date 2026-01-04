@@ -206,6 +206,8 @@ class AudioPlayer {
         isLoading = true
         currentSong = song
         
+        print("DEBUG [playNewSong]: Starting with song.artistId=\(song.artistId ?? "nil"), song.artist=\(song.artist)")
+        
         // Notify for play count tracking - this captures ALL song plays
         NotificationCenter.default.post(
             name: .songDidStartPlaying,
@@ -224,10 +226,14 @@ class AudioPlayer {
             // Use YouTube API's duration (lengthSeconds) - more reliable than AVPlayer's duration
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
-            // Update artistId if available in playbackInfo (critical for navigation)
+            // Update artistId/albumId if NOT already available from search results
+            // IMPORTANT: playbackInfo.artistId is the video UPLOADER's channel (e.g., "Rehan Records"),
+            // NOT the actual artist (e.g., "Karan Aujla"). So we should prefer the artistId from search.
             if var song = currentSong {
-                if song.artistId == nil || (song.albumId == nil && playbackInfo.albumId != nil) {
-                    // Create a copy with updated IDs
+                print("DEBUG [playNewSong]: Before update - song.artistId=\(song.artistId ?? "nil"), playbackInfo.artistId=\(playbackInfo.artistId ?? "nil")")
+                if (song.artistId == nil && playbackInfo.artistId != nil) ||
+                   (song.albumId == nil && playbackInfo.albumId != nil) {
+                    // Create a copy with updated IDs - only fill in missing fields, don't overwrite
                     let updatedSong = Song(
                         id: song.id,
                         title: song.title,
@@ -235,10 +241,13 @@ class AudioPlayer {
                         thumbnailUrl: song.thumbnailUrl,
                         duration: song.duration,
                         isLiked: song.isLiked,
-                        artistId: playbackInfo.artistId ?? song.artistId,
-                        albumId: playbackInfo.albumId ?? song.albumId
+                        artistId: song.artistId ?? playbackInfo.artistId,  // Preserve existing artistId
+                        albumId: song.albumId ?? playbackInfo.albumId
                     )
                     self.currentSong = updatedSong
+                    print("DEBUG [playNewSong]: Updated song.artistId=\(updatedSong.artistId ?? "nil")")
+                } else {
+                    print("DEBUG [playNewSong]: No update needed, keeping existing artistId=\(song.artistId ?? "nil")")
                 }
             }
             

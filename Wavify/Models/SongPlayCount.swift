@@ -17,13 +17,15 @@ final class SongPlayCount {
     var duration: String
     var playCount: Int
     var lastPlayedAt: Date
+    var artistId: String?  // Optional artist ID for navigation (UC channel or music artist ID)
     
     init(
         videoId: String,
         title: String,
         artist: String,
         thumbnailUrl: String,
-        duration: String
+        duration: String,
+        artistId: String? = nil
     ) {
         self.videoId = videoId
         self.title = title
@@ -32,12 +34,20 @@ final class SongPlayCount {
         self.duration = duration
         self.playCount = 1
         self.lastPlayedAt = .now
+        self.artistId = artistId
     }
     
     /// Increment play count and update last played time
     func incrementPlayCount() {
         self.playCount += 1
         self.lastPlayedAt = .now
+    }
+    
+    /// Update artistId if not already set
+    func updateArtistIdIfNeeded(_ newArtistId: String?) {
+        if self.artistId == nil, let newId = newArtistId {
+            self.artistId = newId
+        }
     }
 }
 
@@ -52,7 +62,8 @@ extension SongPlayCount {
             isExplicit: false,
             year: "",
             artist: artist,
-            type: .song
+            type: .song,
+            artistId: artistId
         )
     }
 }

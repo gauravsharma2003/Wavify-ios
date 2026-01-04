@@ -151,6 +151,7 @@ class NetworkManager {
     }
     
     private nonisolated func parseSearchResults(_ data: Data) -> (topResults: [SearchResult], results: [SearchResult]) {
+        print("DEBUG [parseSearchResults]: CALLED - this log confirms the parsing function runs")
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let tabbedResults = contents["tabbedSearchResultsRenderer"] as? [String: Any],
@@ -197,6 +198,11 @@ class NetworkManager {
             }
         }
         
+        // Debug: Log top results with artistId
+        for result in topResults {
+            print("DEBUG [search]: topResult type=\(result.type), name=\(result.name), artistId=\(result.artistId ?? "nil")")
+        }
+        
         return (topResults, results)
     }
     
@@ -218,13 +224,34 @@ class NetworkManager {
             thumbnailUrl = url
         }
         
-        // Extract subtitle for artist info
+        // Extract subtitle for artist info AND artistId
         var artist = ""
+        var artistId: String? = nil
         if let subtitle = cardShelf["subtitle"] as? [String: Any],
            let subtitleRuns = subtitle["runs"] as? [[String: Any]] {
-            if subtitleRuns.count > 2, let text = subtitleRuns[2]["text"] as? String {
+            
+            // Look for artist with navigation endpoint (UC channel or music artist)
+            for run in subtitleRuns {
+                if let text = run["text"] as? String,
+                   text != "•" && text != " • " && !text.isEmpty {
+                    // Check if this run has a navigation endpoint with browseId
+                    if let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                       let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                       let browseId = browseEndpoint["browseId"] as? String {
+                        // Found an artist with browseId
+                        if artist.isEmpty {
+                            artist = text
+                            artistId = browseId
+                        }
+                        break // Use the first artist found
+                    }
+                }
+            }
+            
+            // Fallback: if no artist with browseId found, try to get artist name from runs[2]
+            if artist.isEmpty && subtitleRuns.count > 2, let text = subtitleRuns[2]["text"] as? String {
                 artist = text
-            } else if let firstRun = subtitleRuns.first, let text = firstRun["text"] as? String {
+            } else if artist.isEmpty, let firstRun = subtitleRuns.first, let text = firstRun["text"] as? String, text != "Video" && text != "Song" {
                 artist = text
             }
         }
@@ -233,8 +260,9 @@ class NetworkManager {
         if let navigationEndpoint = cardShelf["onTap"] as? [String: Any] {
             if let watchEndpoint = navigationEndpoint["watchEndpoint"] as? [String: Any],
                let videoId = watchEndpoint["videoId"] as? String {
+                print("DEBUG [parseCardShelfItem]: videoId=\(videoId), artist=\(artist), artistId=\(artistId ?? "nil")")
                 return SearchResult(id: videoId, name: name, thumbnailUrl: thumbnailUrl,
-                                    isExplicit: false, year: "", artist: artist, type: .song)
+                                    isExplicit: false, year: "", artist: artist, type: .song, artistId: artistId)
             }
             
             if let browseEndpoint = navigationEndpoint["browseEndpoint"] as? [String: Any],
@@ -492,6 +520,8 @@ class NetworkManager {
             // For now, YouTube Music player API is tricky with album ID in player endpoint
             // It's often better fetched from 'next' endpoint (Watch Next)
         }
+        
+        print("DEBUG [parsePlaybackResponse]: videoId=\(videoId), channelId/artistId=\(artistId ?? "nil"), author=\(author)")
         
         return PlaybackInfo(
             audioUrl: audioUrl,
@@ -1214,12 +1244,27 @@ extension NetworkManager {
             title = firstRun["text"] as? String ?? ""
         }
         
-        // Subtitle & Artist
+        // Subtitle & Artist - also extract artistId
         var artist = ""
+        var artistId: String? = nil
         var isExplicit = false
         if let subtitleData = item["subtitle"] as? [String: Any],
            let runs = subtitleData["runs"] as? [[String: Any]] {
-             artist = runs.compactMap { $0["text"] as? String }.joined()
+            // Build artist string
+            artist = runs.compactMap { $0["text"] as? String }.joined()
+            
+            // Extract artistId from navigation endpoint in subtitle runs
+            for run in runs {
+                if let text = run["text"] as? String,
+                   text != "•" && text != " • " && !text.isEmpty,
+                   let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                   let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                   let browseId = browseEndpoint["browseId"] as? String {
+                    // Found an artist with browseId (UC for channels, or music artist ID)
+                    artistId = browseId
+                    break
+                }
+            }
         }
         
         // Badges for explicit
@@ -1250,7 +1295,7 @@ extension NetworkManager {
         // Check for Watch Endpoint (Song/Video)
         if let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any],
            let videoId = watchEndpoint["videoId"] as? String {
-            return SearchResult(id: videoId, name: title, thumbnailUrl: thumbnailUrl, isExplicit: isExplicit, year: "", artist: artist, type: .song)
+            return SearchResult(id: videoId, name: title, thumbnailUrl: thumbnailUrl, isExplicit: isExplicit, year: "", artist: artist, type: .song, artistId: artistId)
         }
         
         // Check for Browse Endpoint (Album/Playlist/Artist)
@@ -1359,35 +1404,66 @@ extension NetworkManager {
         var thumbnailUrl = ""        
 
         
-        if let header = header,
-           let immersiveHeader = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
-            
-            // Name
-            if let title = immersiveHeader["title"] as? [String: Any],
-               let runs = title["runs"] as? [[String: Any]],
-               let firstRun = runs.first,
-               let text = firstRun["text"] as? String {
-                name = text
+        if let header = header {
+            // Try musicImmersiveHeaderRenderer first (standard artist pages)
+            if let immersiveHeader = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
+                
+                // Name
+                if let title = immersiveHeader["title"] as? [String: Any],
+                   let runs = title["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let text = firstRun["text"] as? String {
+                    name = text
+                }
+                
+                // Subscribers
+                if let subButton = immersiveHeader["subscriptionButton"] as? [String: Any],
+                   let subRenderer = subButton["subscribeButtonRenderer"] as? [String: Any],
+                   let subText = subRenderer["subscriberCountText"] as? [String: Any],
+                   let runs = subText["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let text = firstRun["text"] as? String {
+                    subscribers = text
+                }
+                
+                // Thumbnail
+                if let thumbnailRenderer = immersiveHeader["thumbnail"] as? [String: Any],
+                   let musicThumbnail = thumbnailRenderer["musicThumbnailRenderer"] as? [String: Any],
+                   let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
+                   let thumbnails = thumbnailData["thumbnails"] as? [[String: Any]],
+                   let lastThumbnail = thumbnails.last,
+                   let url = lastThumbnail["url"] as? String {
+                    thumbnailUrl = url
+                }
             }
-            
-            // Subscribers
-            if let subButton = immersiveHeader["subscriptionButton"] as? [String: Any],
-               let subRenderer = subButton["subscribeButtonRenderer"] as? [String: Any],
-               let subText = subRenderer["subscriberCountText"] as? [String: Any],
-               let runs = subText["runs"] as? [[String: Any]],
-               let firstRun = runs.first,
-               let text = firstRun["text"] as? String {
-                subscribers = text
-            }
-            
-            // Thumbnail
-            if let thumbnailRenderer = immersiveHeader["thumbnail"] as? [String: Any],
-               let musicThumbnail = thumbnailRenderer["musicThumbnailRenderer"] as? [String: Any],
-               let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
-               let thumbnails = thumbnailData["thumbnails"] as? [[String: Any]],
-               let lastThumbnail = thumbnails.last,
-               let url = lastThumbnail["url"] as? String {
-                thumbnailUrl = url
+            // Fallback to musicVisualHeaderRenderer (YouTube channel-based artists from video songs)
+            else if let visualHeader = header["musicVisualHeaderRenderer"] as? [String: Any] {
+                
+                // Name
+                if let title = visualHeader["title"] as? [String: Any],
+                   let runs = title["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let text = firstRun["text"] as? String {
+                    name = text
+                }
+                
+                // Subscribers (in subtitleTwo for visual header, e.g. "1.5M subscribers")
+                if let subtitleTwo = visualHeader["subtitleTwo"] as? [String: Any],
+                   let runs = subtitleTwo["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let text = firstRun["text"] as? String {
+                    subscribers = text
+                }
+                
+                // Thumbnail (foregroundThumbnail for visual header)
+                if let foregroundThumbnail = visualHeader["foregroundThumbnail"] as? [String: Any],
+                   let musicThumbnail = foregroundThumbnail["musicThumbnailRenderer"] as? [String: Any],
+                   let thumbnailData = musicThumbnail["thumbnail"] as? [String: Any],
+                   let thumbnails = thumbnailData["thumbnails"] as? [[String: Any]],
+                   let lastThumbnail = thumbnails.last,
+                   let url = lastThumbnail["url"] as? String {
+                    thumbnailUrl = url
+                }
             }
         }
         

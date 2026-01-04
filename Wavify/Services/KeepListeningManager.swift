@@ -15,6 +15,7 @@ struct CachedKeepListeningSong: Codable {
     let thumbnailUrl: String
     let artist: String
     let duration: String
+    let artistId: String?  // Added for artist navigation
     
     init(from song: SongPlayCount) {
         self.id = song.videoId
@@ -22,6 +23,7 @@ struct CachedKeepListeningSong: Codable {
         self.thumbnailUrl = song.thumbnailUrl
         self.artist = song.artist
         self.duration = song.duration
+        self.artistId = song.artistId
     }
     
     func toSearchResult() -> SearchResult {
@@ -32,7 +34,8 @@ struct CachedKeepListeningSong: Codable {
             isExplicit: false,
             year: duration,  // Use year field for duration display
             artist: artist,
-            type: .song
+            type: .song,
+            artistId: artistId
         )
     }
 }
@@ -99,7 +102,8 @@ class KeepListeningManager {
                 isExplicit: false,
                 year: song.duration,  // Use year field for duration
                 artist: song.artist,
-                type: .song
+                type: .song,
+                artistId: song.artistId
             )
         }
         
