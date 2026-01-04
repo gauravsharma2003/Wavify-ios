@@ -34,6 +34,10 @@ struct AlbumDetailView: View {
     @State private var selectedSongForPlaylist: Song?
     @State private var likedSongIds: Set<String> = []
     
+    // Rename playlist state
+    @State private var showRenameAlert = false
+    @State private var newPlaylistName = ""
+    
     private let networkManager = NetworkManager.shared
     
     // Computed properties for unified data access
@@ -66,6 +70,11 @@ struct AlbumDetailView: View {
         localPlaylist != nil && albumId == nil
     }
     
+    /// User-created playlists have no albumId (external playlists that are saved have an albumId)
+    private var isUserCreatedPlaylist: Bool {
+        localPlaylist != nil && (localPlaylist?.albumId == nil || localPlaylist?.albumId?.isEmpty == true)
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -73,8 +82,11 @@ struct AlbumDetailView: View {
                 albumInfo
                 if !songs.isEmpty {
                     actionButtons
+                    songList
+                } else if isUserCreatedPlaylist && !isLoading {
+                    // Empty state for user-created playlists with no songs
+                    emptyPlaylistState
                 }
-                songList
             }
             .padding(.top, 20)
             .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
@@ -163,13 +175,26 @@ struct AlbumDetailView: View {
     
     private var albumInfo: some View {
         VStack(spacing: 8) {
-            MarqueeText(
-                text: displayName,
-                font: .system(size: 22, weight: .bold),
-                alignment: .center
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal)
+            // Playlist name - tappable for user-created playlists
+            if isUserCreatedPlaylist {
+                Button {
+                    newPlaylistName = displayName
+                    showRenameAlert = true
+                } label: {
+                    Text(displayName)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal)
+            } else {
+                MarqueeText(
+                    text: displayName,
+                    font: .system(size: 22, weight: .bold),
+                    alignment: .center
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal)
+            }
             
             if !displayArtist.isEmpty {
                 Text(displayArtist)
@@ -180,6 +205,15 @@ struct AlbumDetailView: View {
             Text("\(songCount) songs")
                 .font(.system(size: 14))
                 .foregroundStyle(.tertiary)
+        }
+        .alert("Rename Playlist", isPresented: $showRenameAlert) {
+            TextField("Playlist name", text: $newPlaylistName)
+            Button("Save") {
+                renamePlaylist()
+            }
+            Button("Cancel", role: .cancel) {
+                newPlaylistName = ""
+            }
         }
     }
     
@@ -269,7 +303,10 @@ struct AlbumDetailView: View {
                     },
                     onAddToQueue: {
                         _ = audioPlayer.addToQueue(song)
-                    }
+                    },
+                    onRemoveFromPlaylist: isUserCreatedPlaylist ? {
+                        removeSongFromPlaylist(song)
+                    } : nil
                 )
                 
                 if index < songs.count - 1 {
@@ -281,6 +318,33 @@ struct AlbumDetailView: View {
         }
         .padding(.horizontal)
         .padding(.top, 16)
+    }
+    
+    // MARK: - Empty Playlist State
+    
+    private var emptyPlaylistState: some View {
+        VStack(spacing: 24) {
+            Spacer()
+                .frame(height: 40)
+            
+            Image(systemName: "plus.circle")
+                .font(.system(size: 64))
+                .foregroundStyle(.secondary)
+            
+            VStack(spacing: 8) {
+                Text("No songs yet")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                
+                Text("Add songs to this playlist")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
     }
     
     // MARK: - Actions
@@ -409,6 +473,21 @@ struct AlbumDetailView: View {
             likedSongIds.remove(song.videoId)
         }
     }
+    
+    // MARK: - Playlist Management
+    
+    private func renamePlaylist() {
+        guard !newPlaylistName.isEmpty, let playlist = localPlaylist else { return }
+        playlist.name = newPlaylistName
+        try? modelContext.save()
+        newPlaylistName = ""
+    }
+    
+    private func removeSongFromPlaylist(_ song: Song) {
+        guard let playlist = localPlaylist else { return }
+        playlist.songs.removeAll { $0.videoId == song.videoId }
+        try? modelContext.save()
+    }
 }
 
 // MARK: - Album Song Row
@@ -422,6 +501,7 @@ struct AlbumSongRow: View {
     var onToggleLike: (() -> Void)? = nil
     var onPlayNext: (() -> Void)? = nil
     var onAddToQueue: (() -> Void)? = nil
+    var onRemoveFromPlaylist: (() -> Void)? = nil
     var isLiked: Bool = false
     var isInQueue: Bool = false
     var showImage: Bool = false
@@ -463,7 +543,8 @@ struct AlbumSongRow: View {
         onAddToPlaylist: (() -> Void)? = nil,
         onToggleLike: (() -> Void)? = nil,
         onPlayNext: (() -> Void)? = nil,
-        onAddToQueue: (() -> Void)? = nil
+        onAddToQueue: (() -> Void)? = nil,
+        onRemoveFromPlaylist: (() -> Void)? = nil
     ) {
         self.index = index
         self.song = song
@@ -476,6 +557,7 @@ struct AlbumSongRow: View {
         self.onToggleLike = onToggleLike
         self.onPlayNext = onPlayNext
         self.onAddToQueue = onAddToQueue
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
     }
     
     var body: some View {
@@ -591,6 +673,16 @@ struct AlbumSongRow: View {
                                 isLiked ? "Remove from Liked" : "Add to Liked",
                                 systemImage: isLiked ? "heart.slash" : "heart"
                             )
+                        }
+                    }
+                    
+                    if let onRemoveFromPlaylist = onRemoveFromPlaylist {
+                        Divider()
+                        
+                        Button(role: .destructive) {
+                            onRemoveFromPlaylist()
+                        } label: {
+                            Label("Remove from Playlist", systemImage: "trash")
                         }
                     }
                 } label: {
