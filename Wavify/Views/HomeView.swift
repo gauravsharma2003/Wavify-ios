@@ -115,6 +115,22 @@ struct HomeView: View {
                                 )
                             }
                             
+                            // Based on Your Likes Section (4 rows, horizontal scroll)
+                            if !viewModel.likedBasedRecommendations.isEmpty {
+                                RecommendationsGridView(
+                                    title: "Based on your likes",
+                                    subtitle: "Songs you might enjoy",
+                                    songs: viewModel.likedBasedRecommendations,
+                                    likedSongIds: likedSongIds,
+                                    queueSongIds: audioPlayer.userQueueIds,
+                                    onSongTap: handleResultTap,
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
+                                )
+                            }
+                            
                             // Your Favourites Section (2 rows, large cards)
                             if viewModel.favouriteItems.count >= 4 {
                                 YourFavouritesGridView(
@@ -975,6 +991,7 @@ class HomeViewModel {
     var recommendedSongs: [SearchResult] = []
     var keepListeningSongs: [SearchResult] = []
     var favouriteItems: [SearchResult] = []
+    var likedBasedRecommendations: [SearchResult] = []
     
     // Chart sections (computed from ChartsManager cache)
     var trendingSongs: [SearchResult] { chartsManager.trendingSongs }
@@ -988,6 +1005,7 @@ class HomeViewModel {
     private let keepListeningManager = KeepListeningManager.shared
     private let favouritesManager = FavouritesManager.shared
     private let chartsManager = ChartsManager.shared
+    private let likedBasedRecommendationsManager = LikedBasedRecommendationsManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
         // Always show loading on fresh start
@@ -997,6 +1015,7 @@ class HomeViewModel {
         loadCachedRecommendations()
         loadCachedKeepListening()
         loadCachedFavourites()
+        loadCachedLikedBasedRecommendations()
         
         hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
         
@@ -1037,6 +1056,10 @@ class HomeViewModel {
                 await Task.yield()
                 
                 await self.recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
+                
+                await Task.yield()
+                
+                await self.likedBasedRecommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
             }
             
             // Background refresh charts if needed (won't block UI)
@@ -1059,6 +1082,7 @@ class HomeViewModel {
             keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
             favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
             recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
+            likedBasedRecommendations = await likedBasedRecommendationsManager.refreshRecommendations(in: modelContext)
         }
         
         // Force refresh charts on pull-to-refresh
@@ -1075,6 +1099,10 @@ class HomeViewModel {
     
     func loadCachedFavourites() {
         favouriteItems = favouritesManager.favourites
+    }
+    
+    func loadCachedLikedBasedRecommendations() {
+        likedBasedRecommendations = likedBasedRecommendationsManager.recommendations
     }
     
     func loadHome() async {
