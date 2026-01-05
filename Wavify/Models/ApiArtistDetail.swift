@@ -13,6 +13,7 @@ struct ArtistDetail: Identifiable {
     let description: String?
     let subscribers: String
     let thumbnailUrl: String
+    var isChannel: Bool = false  // True for YouTube channels (vs music artists)
     
     var sections: [ArtistSection]
 }

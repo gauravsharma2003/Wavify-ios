@@ -35,7 +35,7 @@ struct ArtistDetailView: View {
                 headerView
                 
                 // Content with gradient starting here
-                VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 24) {
                     if isLoading {
                         ProgressView()
                             .padding(.top, 50)
@@ -46,14 +46,15 @@ struct ArtistDetailView: View {
                         
                         // Content Sections
                         VStack(spacing: 32) {
-                            ForEach(detail.sections.filter { $0.type != .videos && $0.type != .unknown }) { section in
+                            ForEach(detail.sections.filter { $0.type != .unknown }) { section in
                                 sectionView(for: section)
                             }
                         }
                         .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(minHeight: UIScreen.main.bounds.height - 350)  // Subtract header height
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
                 )
@@ -132,7 +133,7 @@ struct ArtistDetailView: View {
                         .foregroundStyle(.white)
                         .lineLimit(2)
                     
-                    if let subscribers = artistDetail?.subscribers {
+                    if let subscribers = artistDetail?.subscribers, !subscribers.isEmpty, artistDetail?.isChannel != true {
                         Text("\(subscribers) • Listeners")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.8))
@@ -231,14 +232,12 @@ struct ArtistDetailView: View {
                 }
                 
                 switch section.type {
-                case .topSongs:
+                case .topSongs, .videos:  // Videos use same playable layout as top songs
                     topSongsGrid(section.items)
                 case .albums, .singles:
                     albumsGrid(section.items)
                 case .similarArtists:
                     similarArtistsList(section.items)
-                case .videos:
-                    albumsGrid(section.items) // Reuse album grid for now
                 case .unknown:
                     EmptyView()
                 }
@@ -496,7 +495,9 @@ struct ArtistDetailView: View {
     }
     
     private func playTopSongs() {
-        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs }) else { return }
+        // Try topSongs first, then fall back to videos for channels
+        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs })
+              ?? artistDetail?.sections.first(where: { $0.type == .videos }) else { return }
         
         // Track artist play for favourites
         FavouritesManager.shared.trackArtistPlay(
@@ -507,11 +508,15 @@ struct ArtistDetailView: View {
         )
         
         Task {
-            // Try to fetch full list if available
             var songsToPlay: [Song] = []
             
-            if let browseId = section.browseId {
-                // Fetch in background without setting isLoading to prevent refresh
+            // For videos, use items directly (no playlist fetch needed)
+            // For topSongs with browseId, try to fetch full list
+            if section.type == .videos {
+                // Videos section - use items directly
+                songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+            } else if let browseId = section.browseId {
+                // Try to fetch full list for top songs
                 do {
                     let page = try await networkManager.getPlaylist(id: browseId)
                     if let fullSection = page.sections.first {
@@ -531,7 +536,7 @@ struct ArtistDetailView: View {
                 }
             }
             
-            // Fallback to currently loaded songs if fetch failed or no browseId
+            // Fallback to currently loaded items
             if songsToPlay.isEmpty {
                 songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
             }
@@ -543,7 +548,9 @@ struct ArtistDetailView: View {
     }
     
     private func shuffleTopSongs() {
-        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs }) else { return }
+        // Try topSongs first, then fall back to videos for channels
+        guard let section = artistDetail?.sections.first(where: { $0.type == .topSongs })
+              ?? artistDetail?.sections.first(where: { $0.type == .videos }) else { return }
         
         // Track artist play for favourites
         FavouritesManager.shared.trackArtistPlay(
@@ -554,11 +561,15 @@ struct ArtistDetailView: View {
         )
         
         Task {
-            // Try to fetch full list if available
             var songsToPlay: [Song] = []
             
-            if let browseId = section.browseId {
-                // Fetch in background without setting isLoading to prevent refresh
+            // For videos, use items directly (no playlist fetch needed)
+            // For topSongs with browseId, try to fetch full list
+            if section.type == .videos {
+                // Videos section - use items directly
+                songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
+            } else if let browseId = section.browseId {
+                // Try to fetch full list for top songs
                 do {
                     let page = try await networkManager.getPlaylist(id: browseId)
                     if let fullSection = page.sections.first {
@@ -578,7 +589,7 @@ struct ArtistDetailView: View {
                 }
             }
             
-            // Fallback to currently loaded songs
+            // Fallback to currently loaded items
             if songsToPlay.isEmpty {
                 songsToPlay = section.items.map { Song(from: $0, artist: artistDetail?.name ?? initialName) }
             }

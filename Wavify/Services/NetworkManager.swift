@@ -1391,7 +1391,9 @@ extension NetworkManager {
         // Parse Header
         var name = ""
         var subscribers = ""
-        var thumbnailUrl = ""        
+        var thumbnailUrl = ""
+        var isChannel = false  // True for YouTube channels (no proper artist page)
+        
 
         
         if let header = header {
@@ -1428,6 +1430,7 @@ extension NetworkManager {
             }
             // Fallback to musicVisualHeaderRenderer (YouTube channel-based artists from video songs)
             else if let visualHeader = header["musicVisualHeaderRenderer"] as? [String: Any] {
+                isChannel = true  // This is a YouTube channel, not a music artist
                 
                 // Name
                 if let title = visualHeader["title"] as? [String: Any],
@@ -1480,6 +1483,7 @@ extension NetworkManager {
             description: nil,
             subscribers: subscribers,
             thumbnailUrl: thumbnailUrl,
+            isChannel: isChannel,
             sections: artistSections
         )
     }
@@ -1603,13 +1607,20 @@ extension NetworkManager {
         
         for itemData in contents {
             if let twoRowItem = itemData["musicTwoRowItemRenderer"] as? [String: Any] {
-                // Parse Album/Single/Artist
+                // Parse Album/Single/Artist/Video
                 
-                // Browse ID
+                // Browse ID and Video ID from navigation endpoint
                 var browseId: String?
-                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any],
-                   let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
-                    browseId = browseEndpoint["browseId"] as? String
+                var videoId: String?
+                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any] {
+                    // Check for watch endpoint (videos)
+                    if let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any] {
+                        videoId = watchEndpoint["videoId"] as? String
+                    }
+                    // Check for browse endpoint (albums/artists)
+                    if let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
+                        browseId = browseEndpoint["browseId"] as? String
+                    }
                 }
                 
                 // Title
@@ -1638,12 +1649,12 @@ extension NetworkManager {
                 }
                 
                 items.append(ArtistItem(
-                    id: browseId ?? UUID().uuidString,
+                    id: videoId ?? browseId ?? UUID().uuidString,
                     title: itemTitle,
                     subtitle: subtitle,
                     thumbnailUrl: thumbUrl,
                     isExplicit: false,
-                    videoId: nil,
+                    videoId: videoId,
                     playlistId: nil,
                     browseId: browseId
                 ))
