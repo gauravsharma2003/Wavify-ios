@@ -52,9 +52,10 @@ struct MainTabView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: audioPlayer.currentSong != nil)
         }
-        .fullScreenCover(isPresented: $navigationManager.showNowPlaying) {
-            NowPlayingView(audioPlayer: audioPlayer, navigationManager: navigationManager)
-                .background(.clear)
+        .overlay {
+            if navigationManager.showNowPlaying {
+                NowPlayingView(audioPlayer: audioPlayer, navigationManager: navigationManager)
+            }
         }
         .preferredColorScheme(.dark)
         .onAppear {

@@ -158,6 +158,31 @@ struct MiniPlayer: View {
             .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
             .padding(.horizontal, 16)
             .transition(.move(edge: .bottom).combined(with: .opacity))
+            .task(id: song.id) {
+                // Preload high-quality image for NowPlayingView in background
+                await preloadPlayerImage(for: song)
+            }
+        }
+    }
+    
+    /// Preloads the high-quality album art so it's cached when NowPlayingView opens
+    private func preloadPlayerImage(for song: Song) async {
+        let highQualityUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+        guard let url = URL(string: highQualityUrl) else { return }
+        
+        // Check if already cached
+        if await ImageCache.shared.image(for: url) != nil {
+            return
+        }
+        
+        // Load and cache in background
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let image = UIImage(data: data) {
+                await ImageCache.shared.store(image, for: url)
+            }
+        } catch {
+            // Silently fail - image will load normally when needed
         }
     }
 }

@@ -10,7 +10,7 @@ import SwiftData
 
 struct NowPlayingView: View {
     var audioPlayer: AudioPlayer
-    @Environment(\.dismiss) private var dismiss
+
     @Environment(\.modelContext) private var modelContext
     @State private var showQueue = false
     @State private var dragOffset: CGFloat = 0
@@ -37,156 +37,50 @@ struct NowPlayingView: View {
     @State private var showActiveSleepSheet = false
     var sleepTimerManager: SleepTimerManager = .shared
     
+    // Constants for bottom sheet behavior
+    private let maxCornerRadius: CGFloat = 40
+    
+    // Animation state
+    @State private var isVisible: Bool = false
+    
     var navigationManager: NavigationManager = .shared // Default for preview compatibility
     
     var body: some View {
-        ZStack {
-            // Dynamic Background that fills the entire screen
-            dynamicBackground
-                .ignoresSafeArea(.all)
+        GeometryReader { geometry in
+            let screenHeight = geometry.size.height
+            let dragProgress = min(1.0, dragOffset / 200.0)
+            let dynamicCornerRadius = maxCornerRadius * dragProgress
             
-            GeometryReader { geometry in
-                GlassEffectContainer {
-                    VStack(spacing: 0) {
-                        // Drag Handle (always visible)
-                        dragHandle
-                        
-                        if lyricsExpanded && showLyrics {
-                            // Expanded Lyrics Mode
-                            expandedLyricsContent(geometry: geometry)
-                        } else {
-                            // Normal Mode - Main Content
-                            VStack(spacing: 0) {
-                                Spacer()
-                                
-                                // Album Art or Lyrics
-                                albumArtView(geometry: geometry)
-                                
-                                Spacer()
-                                
-                                VStack(spacing: 32) {
-                                    // Song Info
-                                    songInfoView
-                                    
-                                    // Progress Bar
-                                    progressView
-                                    
-                                    // Controls
-                                    controlsView
-                                    
-                                    // Additional Controls
-                                    HStack(spacing: 30) {
-                                        // Sleep Timer Button
-                                        Button {
-                                            if sleepTimerManager.isActive {
-                                                showActiveSleepSheet = true
-                                            } else {
-                                                showSleepSheet = true
-                                            }
-                                        } label: {
-                                            Image(systemName: sleepTimerManager.isActive ? "moon.fill" : "moon")
-                                                .font(.system(size: 22, weight: .medium))
-                                                .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
-                                                .frame(width: 44, height: 44)
-                                        }
-                                        
-                                        // Share Button
-                                        Button {
-                                            shareSong()
-                                        } label: {
-                                            Image(systemName: "square.and.arrow.up")
-                                                .font(.system(size: 22, weight: .medium))
-                                                .foregroundStyle(.white)
-                                                .frame(width: 44, height: 44)
-                                        }
-                                        
-                                        // AirPlay Button
-                                        AirPlayRoutePickerView()
-                                            .frame(width: 44, height: 44)
-                                            .scaleEffect(1.4) // Make it look consistent with other icons
-                                        
-                                        // Lyrics Button
-                                        Button {
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                showLyrics.toggle()
-                                            }
-                                            // Fetch lyrics if showing and not already fetched for this song
-                                            if showLyrics, let song = audioPlayer.currentSong,
-                                               song.id != lastLyricsFetchedSongId {
-                                                fetchLyrics()
-                                            }
-                                        } label: {
-                                            Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
-                                                .font(.system(size: 22, weight: .medium))
-                                                .foregroundStyle(.white)
-                                                .frame(width: 44, height: 44)
-                                        }
-                                        
-                                        // Add to Playlist Button
-                                        Button {
-                                            showAddToPlaylist = true
-                                        } label: {
-                                            Image(systemName: "text.badge.plus")
-                                            .font(.system(size: 22, weight: .medium))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 44, height: 44)
-                                        }
-                                    }
-                                }
-                                
-                                Spacer()
-                                Spacer()
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.bottom, 60) // Push up slightly from bottom edge
-                        }
+            ZStack {
+                // Tap area to dismiss (invisible, no dimming)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        dismissSheet()
                     }
-                }
-                .offset(y: lyricsExpanded ? 0 : dragOffset)
-                .animation(
-                    isDragging ? .none : .spring(response: 0.4, dampingFraction: 0.85, blendDuration: 0.1),
-                    value: dragOffset
-                )
+                
+                // Bottom sheet content
+                sheetContent(geometry: geometry, dragProgress: dragProgress)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(
+                        dynamicBackground
+                            .ignoresSafeArea()
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: dynamicCornerRadius, style: .continuous))
+                    .offset(y: isVisible ? dragOffset : geometry.size.height)
+                    .gesture(
+                        lyricsExpanded ? nil : dragGesture(screenHeight: screenHeight)
+                    )
+                    .ignoresSafeArea()
+                    .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isVisible)
             }
         }
-        .gesture(
-            lyricsExpanded ? nil : DragGesture(coordinateSpace: .global)
-                .onChanged { value in
-                    isDragging = true
-                    let dragAmount = value.translation.height
-                    
-                    if dragAmount > 0 {
-                        // Apply resistance curve for smooth feel
-                        let resistance = min(1.0, dragAmount / (UIScreen.main.bounds.height * 0.7))
-                        let resistanceCurve = 1 - pow(1 - resistance, 2)
-                        dragOffset = dragAmount * (0.4 + 0.6 * resistanceCurve)
-                    }
-                }
-                .onEnded { value in
-                    isDragging = false
-                    let velocity = value.predictedEndTranslation.height
-                    let dragAmount = value.translation.height
-                    
-                    // Enhanced dismiss logic with velocity consideration
-                    let shouldDismiss = dragAmount > 120 || (dragAmount > 80 && velocity > 800)
-                    
-                    if shouldDismiss {
-                        // Animate out with momentum
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            dragOffset = UIScreen.main.bounds.height
-                        }
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            dismiss()
-                        }
-                    } else {
-                        // Smooth spring back
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            dragOffset = 0
-                        }
-                    }
-                }
-        )
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                isVisible = true
+            }
+        }
         .sheet(isPresented: $showQueue) {
             QueueView(audioPlayer: audioPlayer)
                 .presentationDetents([.medium, .large])
@@ -209,6 +103,158 @@ struct NowPlayingView: View {
             NetworkToastView()
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
+        .preferredColorScheme(.dark)
+    }
+    
+    // MARK: - Drag Gesture
+    
+    private func dragGesture(screenHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 5, coordinateSpace: .global)
+            .onChanged { value in
+                isDragging = true
+                let translation = value.translation.height
+                if translation > 0 {
+                    // Apply resistance curve for smooth feel
+                    withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 1, blendDuration: 0)) {
+                        dragOffset = translation
+                    }
+                }
+            }
+            .onEnded { value in
+                isDragging = false
+                let velocity = value.predictedEndTranslation.height - value.translation.height
+                let shouldDismiss = dragOffset > screenHeight * 0.25 || velocity > 400
+                
+                if shouldDismiss {
+                    dismissSheet()
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        dragOffset = 0
+                    }
+                }
+            }
+    }
+    
+    // MARK: - Sheet Content
+    
+    private func sheetContent(geometry: GeometryProxy, dragProgress: Double) -> some View {
+        GlassEffectContainer {
+            VStack(spacing: 0) {
+                // Drag Handle - visibility increases with drag
+                Capsule()
+                    .fill(Color.white.opacity(0.3 + 0.4 * dragProgress))
+                    .frame(width: 40, height: 5)
+                    .padding(.top, geometry.safeAreaInsets.top)
+                    .padding(.bottom, 8)
+                
+                // Header with buttons
+                dragHandle
+                
+                if lyricsExpanded && showLyrics {
+                    // Expanded Lyrics Mode
+                    expandedLyricsContent(geometry: geometry)
+                } else {
+                    // Normal Mode - Main Content
+                    VStack(spacing: 0) {
+                        Spacer()
+                        
+                        // Album Art or Lyrics
+                        albumArtView(geometry: geometry)
+                        
+                        Spacer()
+                        
+                        VStack(spacing: 32) {
+                            // Song Info
+                            songInfoView
+                            
+                            // Progress Bar
+                            progressView
+                            
+                            // Controls
+                            controlsView
+                            
+                            // Additional Controls
+                            HStack(spacing: 30) {
+                                // Sleep Timer Button
+                                Button {
+                                    if sleepTimerManager.isActive {
+                                        showActiveSleepSheet = true
+                                    } else {
+                                        showSleepSheet = true
+                                    }
+                                } label: {
+                                    Image(systemName: sleepTimerManager.isActive ? "moon.fill" : "moon")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
+                                        .frame(width: 44, height: 44)
+                                }
+                                
+                                // Share Button
+                                Button {
+                                    shareSong()
+                                } label: {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                }
+                                
+                                // AirPlay Button
+                                AirPlayRoutePickerView()
+                                    .frame(width: 44, height: 44)
+                                    .scaleEffect(1.4) // Make it look consistent with other icons
+                                
+                                // Lyrics Button
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showLyrics.toggle()
+                                    }
+                                    // Fetch lyrics if showing and not already fetched for this song
+                                    if showLyrics, let song = audioPlayer.currentSong,
+                                       song.id != lastLyricsFetchedSongId {
+                                        fetchLyrics()
+                                    }
+                                } label: {
+                                    Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                }
+                                
+                                // Add to Playlist Button
+                                Button {
+                                    showAddToPlaylist = true
+                                } label: {
+                                    Image(systemName: "text.badge.plus")
+                                    .font(.system(size: 22, weight: .medium))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        Spacer()
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 60) // Push up slightly from bottom edge
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+    
+    // MARK: - Dismiss Helper
+    
+    private func dismissSheet() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            isVisible = false
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            navigationManager.showNowPlaying = false
+            dragOffset = 0
+        }
     }
     
     // MARK: - Expanded Lyrics Content
@@ -449,46 +495,38 @@ struct NowPlayingView: View {
     // MARK: - Drag Handle
     
     private var dragHandle: some View {
-        VStack(spacing: 12) {
-            // Drag indicator
-            RoundedRectangle(cornerRadius: 3)
-                .fill(.white.opacity(0.3))
-                .frame(width: 40, height: 6)
-                .padding(.top, 8)
-            
-            HStack {
-                // Back Button - Glass
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 46, height: 46)
-                }
-                .glassEffect(.regular.interactive(), in: .circle)
-                
-                Spacer()
-                
-                Text("Now Playing")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                
-                Spacer()
-                
-                // Queue Button - Glass
-                Button {
-                    showQueue = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 46, height: 46)
-                }
-                .glassEffect(.regular.interactive(), in: .circle)
+        HStack {
+            // Back Button - Glass
+            Button {
+                dismissSheet()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
             }
-            .padding(.horizontal, 16)
+            .glassEffect(.regular.interactive(), in: .circle)
+            
+            Spacer()
+            
+            Text("Now Playing")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+            
+            Spacer()
+            
+            // Queue Button - Glass
+            Button {
+                showQueue = true
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
+            }
+            .glassEffect(.regular.interactive(), in: .circle)
         }
+        .padding(.horizontal, 16)
     }
     
     // MARK: - Album Art
@@ -519,25 +557,14 @@ struct NowPlayingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 24))
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 } else {
-                    // Album Art
-                    let highQualityUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
-                    
-                    CachedAsyncImagePhase(url: URL(string: highQualityUrl)) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        case .failure, .empty:
-                            albumPlaceholder
-                        @unknown default:
-                            albumPlaceholder
-                        }
-                    }
+                    // Album Art - Progressive loading (low quality first, then high quality)
+                    ProgressiveAlbumArt(
+                        lowQualityUrl: song.thumbnailUrl,
+                        highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+                    )
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 24))
                     .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     .contextMenu {
                         if let albumId = song.albumId {
                             Button {
@@ -573,6 +600,96 @@ struct NowPlayingView: View {
         }
         .padding(.top, 32)
         .animation(.easeInOut(duration: 0.3), value: showLyrics)
+    }
+    
+    // MARK: - Progressive Album Art
+    
+    /// Loads low quality image first, then upgrades to high quality
+    /// Uses SYNC cache check on init so image animates with sheet
+    private struct ProgressiveAlbumArt: View {
+        let lowQualityUrl: String
+        let highQualityUrl: String
+        
+        @State private var displayImage: Image?
+        @State private var isHighQualityLoaded = false
+        
+        // Check cache synchronously on init
+        init(lowQualityUrl: String, highQualityUrl: String) {
+            self.lowQualityUrl = lowQualityUrl
+            self.highQualityUrl = highQualityUrl
+            
+            // SYNC check: Try high quality cache first
+            if let url = URL(string: highQualityUrl),
+               let cached = ImageCache.shared.memoryCachedImage(for: url) {
+                _displayImage = State(initialValue: Image(uiImage: cached))
+                _isHighQualityLoaded = State(initialValue: true)
+            }
+            // SYNC check: Fall back to low quality cache
+            else if let url = URL(string: lowQualityUrl),
+                    let cached = ImageCache.shared.memoryCachedImage(for: url) {
+                _displayImage = State(initialValue: Image(uiImage: cached))
+                _isHighQualityLoaded = State(initialValue: false)
+            }
+        }
+        
+        var body: some View {
+            ZStack {
+                // Display image or placeholder
+                if let image = displayImage {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    // Placeholder only if no image cached
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(white: 0.2), Color(white: 0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .overlay {
+                            Image(systemName: "music.note")
+                                .font(.system(size: 64))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                }
+            }
+            .task {
+                // Only load if not already loaded in init
+                if !isHighQualityLoaded {
+                    await loadHighQuality()
+                }
+            }
+        }
+        
+        private func loadHighQuality() async {
+            guard let url = URL(string: highQualityUrl) else { return }
+            
+            // Check disk cache
+            if let cached = await ImageCache.shared.image(for: url) {
+                await MainActor.run {
+                    displayImage = Image(uiImage: cached)
+                    isHighQualityLoaded = true
+                }
+                return
+            }
+            
+            // Load from network
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let uiImage = UIImage(data: data) {
+                    await ImageCache.shared.store(uiImage, for: url)
+                    await MainActor.run {
+                        displayImage = Image(uiImage: uiImage)
+                        isHighQualityLoaded = true
+                    }
+                }
+            } catch {
+                // Keep current image on error
+            }
+        }
     }
     
     private var albumPlaceholder: some View {
