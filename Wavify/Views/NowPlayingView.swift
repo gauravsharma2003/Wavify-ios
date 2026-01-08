@@ -558,6 +558,7 @@ struct NowPlayingView: View {
                         lowQualityUrl: song.thumbnailUrl,
                         highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
                     )
+                    .id(song.id) // Force view recreation when song changes
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 24))
                     .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
