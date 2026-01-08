@@ -140,15 +140,9 @@ struct NowPlayingView: View {
     private func sheetContent(geometry: GeometryProxy, dragProgress: Double) -> some View {
         GlassEffectContainer {
             VStack(spacing: 0) {
-                // Drag Handle - visibility increases with drag
-                Capsule()
-                    .fill(Color.white.opacity(0.3 + 0.4 * dragProgress))
-                    .frame(width: 40, height: 5)
-                    .padding(.top, geometry.safeAreaInsets.top)
-                    .padding(.bottom, 8)
-                
                 // Header with buttons
                 dragHandle
+                    .padding(.top, geometry.safeAreaInsets.top)
                 
                 if lyricsExpanded && showLyrics {
                     // Expanded Lyrics Mode
@@ -287,6 +281,7 @@ struct NowPlayingView: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 30)
         }
     }
     
@@ -526,7 +521,8 @@ struct NowPlayingView: View {
             }
             .glassEffect(.regular.interactive(), in: .circle)
         }
-        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.horizontal, 20)
     }
     
     // MARK: - Album Art
