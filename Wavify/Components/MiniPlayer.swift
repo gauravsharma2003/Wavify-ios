@@ -15,100 +15,110 @@ struct MiniPlayer: View {
     @State private var dragOffset: CGFloat = 0
     private let swipeThreshold: CGFloat = 50
     
+    // Progress tracking for smooth animations
+    @State private var displayedProgress: Double = 0
+    @State private var isTransitioning: Bool = false
+    @State private var lastSongId: String = ""
+    
+    // Actual progress value
+    private var actualProgress: Double {
+        guard audioPlayer.duration > 0 else { return 0 }
+        return min(1.0, max(0.0, audioPlayer.currentTime / audioPlayer.duration))
+    }
+    
     var body: some View {
         if let song = audioPlayer.currentSong {
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    // Album Art & Song Info (tappable area)
-                    HStack(spacing: 12) {
-                        CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            default:
-                                Rectangle()
-                                    .fill(Color(white: 0.2))
-                                    .overlay {
-                                        Image(systemName: "music.note")
-                                            .foregroundStyle(.secondary)
-                                    }
-                            }
-                        }
-                        .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 50))
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                            
-                            Text(song.artist)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        onTap()
-                    }
+            HStack(spacing: 12) {
+                // Album Art with circular progress ring
+                ZStack {
+                    // Background ring (track)
+                    Circle()
+                        .stroke(Color.white.opacity(0.15), lineWidth: 3)
+                        .frame(width: 50, height: 50)
                     
-                    Spacer()
+                    // Progress ring
+                    Circle()
+                        .trim(from: 0, to: displayedProgress)
+                        .stroke(
+                            LinearGradient(
+                                colors: [.white.opacity(0.9), .white.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                        )
+                        .frame(width: 50, height: 50)
+                        .rotationEffect(.degrees(-90))
                     
-                    // Play/Pause Button
-                    Button {
-                        audioPlayer.togglePlayPause()
-                    } label: {
-                        Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    
-                    // Next Button
-                    Button {
-                        Task {
-                            await audioPlayer.playNext()
+                    // Album art image
+                    CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        default:
+                            Rectangle()
+                                .fill(Color(white: 0.2))
+                                .overlay {
+                                    Image(systemName: "music.note")
+                                        .foregroundStyle(.secondary)
+                                }
                         }
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .frame(width: 36, height: 44)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
                 }
-                .padding(.leading, 20)  // Increased left padding for capsule
-                .padding(.trailing, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
+                .offset(x: dragOffset * 0.3) // Subtle offset with drag
                 
-                // Progress Bar at bottom - smaller and more padding
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.1))
-                        
-                        Rectangle()
-                            .fill(.white.opacity(0.5))
-                            .frame(
-                                width: audioPlayer.duration > 0
-                                    ? geometry.size.width * (audioPlayer.currentTime / audioPlayer.duration)
-                                    : 0
-                            )
-                    }
+                // Song Info (tappable area)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    
+                    Text(song.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .frame(height: 2)  // Smaller height
-                .clipShape(RoundedRectangle(cornerRadius: 1))
-                .padding(.horizontal, 24)  // Increased horizontal padding
-                .padding(.bottom, 10)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onTap()
+                }
+                
+                Spacer()
+                
+                // Play/Pause Button
+                Button {
+                    audioPlayer.togglePlayPause()
+                } label: {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                
+                // Next Button
+                Button {
+                    Task {
+                        await audioPlayer.playNext()
+                    }
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.leading, 16)
+            .padding(.trailing, 16)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
             .offset(x: dragOffset)
             .clipShape(Capsule())
@@ -161,6 +171,36 @@ struct MiniPlayer: View {
             .task(id: song.id) {
                 // Preload high-quality image for NowPlayingView in background
                 await preloadPlayerImage(for: song)
+            }
+            .onChange(of: song.id) { oldId, newId in
+                // Song changed - animate backwards to 0
+                guard oldId != newId, !lastSongId.isEmpty else {
+                    lastSongId = newId
+                    return
+                }
+                
+                isTransitioning = true
+                lastSongId = newId
+                
+                // Smooth backtrack animation to 0
+                withAnimation(.easeOut(duration: 0.25)) {
+                    displayedProgress = 0
+                }
+                
+                // Resume normal tracking after animation completes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    isTransitioning = false
+                }
+            }
+            .onChange(of: actualProgress) { _, newValue in
+                // Only update if not transitioning between songs
+                guard !isTransitioning else { return }
+                displayedProgress = newValue
+            }
+            .onAppear {
+                // Initialize
+                lastSongId = song.id
+                displayedProgress = actualProgress
             }
         }
     }
