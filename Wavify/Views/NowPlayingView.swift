@@ -167,7 +167,7 @@ struct NowPlayingView: View {
                             // Controls
                             controlsView
                             
-                            // Additional Controls
+                            // Additional Controls - reduced top spacing
                             HStack(spacing: 30) {
                                 // Sleep Timer Button
                                 Button {
@@ -225,6 +225,7 @@ struct NowPlayingView: View {
                                     .frame(width: 44, height: 44)
                                 }
                             }
+                            .padding(.top, -16) // Reduce spacing from controls above
                         }
                         
                         Spacer()
