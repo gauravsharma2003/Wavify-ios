@@ -241,6 +241,7 @@ enum YouTubeMusicError: Error, LocalizedError {
     case networkError(Error)
     case parseError(String)
     case invalidResponse
+    case httpError(Int)
     
     var errorDescription: String? {
         switch self {
@@ -258,6 +259,8 @@ enum YouTubeMusicError: Error, LocalizedError {
             return "Parse error: \(message)"
         case .invalidResponse:
             return "Invalid API response"
+        case .httpError(let statusCode):
+            return "HTTP error: \(statusCode)"
         }
     }
 }

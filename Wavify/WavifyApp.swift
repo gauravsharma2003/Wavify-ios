@@ -51,6 +51,10 @@ struct WavifyApp: App {
             .onOpenURL { url in
                 handleDeepLink(url)
             }
+            .task {
+                // Configure background data manager with the shared container
+                await BackgroundDataManager.shared.configure(with: sharedModelContainer)
+            }
         }
         .modelContainer(sharedModelContainer)
     }

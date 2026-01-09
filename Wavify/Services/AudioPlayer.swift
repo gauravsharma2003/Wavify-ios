@@ -611,7 +611,7 @@ class AudioPlayer {
     // MARK: - Time Observer
     
     private func setupTimeObserver() {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        let interval = CMTime(seconds: 1.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self = self else { return }
@@ -644,18 +644,27 @@ class AudioPlayer {
             MPMediaItemPropertyPlaybackDuration: duration
         ]
         
-        // Load artwork asynchronously
+        // Load artwork asynchronously using ImageCache for consistency
         if let url = URL(string: song.thumbnailUrl) {
             Task {
-                do {
-                    let (data, _) = try await URLSession.shared.data(from: url)
-                    if let image = UIImage(data: data) {
-                        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                        nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                // Try cache first, then network
+                if let image = await ImageCache.shared.image(for: url) {
+                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                } else {
+                    // Fallback to direct fetch and cache
+                    do {
+                        let (data, _) = try await URLSession.shared.data(from: url)
+                        if let image = UIImage(data: data) {
+                            await ImageCache.shared.store(image, for: url)
+                            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                        }
+                    } catch {
+                        print("Failed to load artwork: \(error)")
                     }
-                } catch {
-                    print("Failed to load artwork: \(error)")
                 }
             }
         }
