@@ -37,6 +37,20 @@ struct HomeView: View {
                             // Chip Cloud (Fixed at top of scroll or pinned?)
                             // For now, inside scroll but could be pinned
 
+                            // Your Favourites Section (2-column grid, shown first)
+                            if viewModel.favouriteItems.count >= 2 {
+                                YourFavouritesGridView(
+                                    items: viewModel.favouriteItems,
+                                    likedSongIds: likedSongIds,
+                                    queueSongIds: audioPlayer.userQueueIds,
+                                    onItemTap: handleResultTap,
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
+                                )
+                            }
+
                             // Chart Sections (No History - shown first)
                             if !viewModel.hasHistory {
                                 // 1. Trending Songs
@@ -130,20 +144,7 @@ struct HomeView: View {
                                     onAddToQueue: handleAddToQueue
                                 )
                             }
-                            
-                            // Your Favourites Section (2 rows, large cards)
-                            if viewModel.favouriteItems.count >= 4 {
-                                YourFavouritesGridView(
-                                    items: viewModel.favouriteItems,
-                                    likedSongIds: likedSongIds,
-                                    queueSongIds: audioPlayer.userQueueIds,
-                                    onItemTap: handleResultTap,
-                                    onAddToPlaylist: handleAddToPlaylist,
-                                    onToggleLike: handleToggleLike,
-                                    onPlayNext: handlePlayNext,
-                                    onAddToQueue: handleAddToQueue
-                                )
-                            }
+
                             
                             // Chart Sections (With History - shown after personalized content)
                             if viewModel.hasHistory {
@@ -513,7 +514,7 @@ struct KeepListeningCard: View {
     }
 }
 
-// MARK: - Your Favourites Grid (2 rows, large cards like Quick Picks)
+// MARK: - Your Favourites Grid (2-column vertical layout, max 8 items)
 struct YourFavouritesGridView: View {
     let items: [SearchResult]
     let likedSongIds: Set<String>
@@ -524,28 +525,25 @@ struct YourFavouritesGridView: View {
     let onPlayNext: (SearchResult) -> Void
     let onAddToQueue: (SearchResult) -> Void
     
-    // Grid configuration: 2 rows with larger cards
-    private let rowCount = 2
-    private let cardWidth: CGFloat = 180
-    private let columnSpacing: CGFloat = 14
-    private let rowSpacing: CGFloat = 14
+    // Always show even number of items (4, 6, or 8) for balanced columns
+    private var displayItems: [SearchResult] {
+        let maxItems = min(items.count, 8)
+        // Round down to even number
+        let evenCount = maxItems - (maxItems % 2)
+        return Array(items.prefix(evenCount))
+    }
     
-    // Split items into columns for vertical layout
-    private var columns: [[SearchResult]] {
-        var result: [[SearchResult]] = []
-        let columnCount = (items.count + rowCount - 1) / rowCount
-        
-        for colIndex in 0..<columnCount {
-            var column: [SearchResult] = []
-            for rowIndex in 0..<rowCount {
-                let itemIndex = colIndex * rowCount + rowIndex
-                if itemIndex < items.count {
-                    column.append(items[itemIndex])
-                }
-            }
-            result.append(column)
+    // Split into 2 columns (left: 0,2,4,6 right: 1,3,5,7)
+    private var leftColumnItems: [SearchResult] {
+        displayItems.enumerated().compactMap { index, item in
+            index % 2 == 0 ? item : nil
         }
-        return result
+    }
+    
+    private var rightColumnItems: [SearchResult] {
+        displayItems.enumerated().compactMap { index, item in
+            index % 2 == 1 ? item : nil
+        }
     }
     
     var body: some View {
@@ -557,44 +555,47 @@ struct YourFavouritesGridView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal)
             
-            // Horizontal scrolling grid
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: columnSpacing) {
-                    ForEach(columns.indices, id: \.self) { columnIndex in
-                        VStack(spacing: rowSpacing) {
-                            ForEach(columns[columnIndex], id: \.id) { item in
-                                FavouriteCard(
-                                    item: item,
-                                    isLiked: likedSongIds.contains(item.id),
-                                    isInQueue: queueSongIds.contains(item.id),
-                                    onTap: {
-                                        onItemTap(item)
-                                    },
-                                    onAddToPlaylist: {
-                                        onAddToPlaylist(item)
-                                    },
-                                    onToggleLike: {
-                                        onToggleLike(item)
-                                    },
-                                    onPlayNext: {
-                                        onPlayNext(item)
-                                    },
-                                    onAddToQueue: {
-                                        onAddToQueue(item)
-                                    }
-                                )
-                            }
-                        }
+            // 2-column vertical grid
+            HStack(alignment: .top, spacing: 12) {
+                // Left column
+                VStack(spacing: 10) {
+                    ForEach(leftColumnItems, id: \.id) { item in
+                        FavouriteBlockCard(
+                            item: item,
+                            isLiked: likedSongIds.contains(item.id),
+                            isInQueue: queueSongIds.contains(item.id),
+                            onTap: { onItemTap(item) },
+                            onAddToPlaylist: { onAddToPlaylist(item) },
+                            onToggleLike: { onToggleLike(item) },
+                            onPlayNext: { onPlayNext(item) },
+                            onAddToQueue: { onAddToQueue(item) }
+                        )
                     }
                 }
-                .padding(.horizontal)
+                
+                // Right column
+                VStack(spacing: 10) {
+                    ForEach(rightColumnItems, id: \.id) { item in
+                        FavouriteBlockCard(
+                            item: item,
+                            isLiked: likedSongIds.contains(item.id),
+                            isInQueue: queueSongIds.contains(item.id),
+                            onTap: { onItemTap(item) },
+                            onAddToPlaylist: { onAddToPlaylist(item) },
+                            onToggleLike: { onToggleLike(item) },
+                            onPlayNext: { onPlayNext(item) },
+                            onAddToQueue: { onAddToQueue(item) }
+                        )
+                    }
+                }
             }
+            .padding(.horizontal)
         }
     }
 }
 
-// MARK: - Favourite Card (Large, like Quick Picks)
-struct FavouriteCard: View {
+// MARK: - Favourite Block Card (Light grey block with image left, name right)
+struct FavouriteBlockCard: View {
     let item: SearchResult
     let isLiked: Bool
     let isInQueue: Bool
@@ -607,11 +608,11 @@ struct FavouriteCard: View {
     private var thumbnailUrl: String {
         var p = item.thumbnailUrl
         if p.contains("w120-h120") {
-            p = p.replacingOccurrences(of: "w120-h120", with: "w540-h540")
+            p = p.replacingOccurrences(of: "w120-h120", with: "w226-h226")
         } else if p.contains("w60-h60") {
-            p = p.replacingOccurrences(of: "w60-h60", with: "w540-h540")
+            p = p.replacingOccurrences(of: "w60-h60", with: "w226-h226")
         } else if p.contains("s120") {
-            p = p.replacingOccurrences(of: "s120", with: "s540")
+            p = p.replacingOccurrences(of: "s120", with: "s226")
         }
         return p
     }
@@ -622,67 +623,66 @@ struct FavouriteCard: View {
     
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 8) {
-                // Thumbnail - larger size, circular for artists
+            HStack(spacing: 8) {
+                // Thumbnail on the left - circular for artists
                 CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
                     if let image = phase.image {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     } else {
-                        Color.gray.opacity(0.3)
+                        Color.gray.opacity(0.4)
                     }
                 }
-                .frame(width: 150, height: 150)
-                .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 10)))
-                .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
+                .frame(width: 44, height: 44)
+                .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 5)))
                 
-                // Text
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    
-                    if item.type == .album {
-                        Text("Album")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.gray)
-                            .lineLimit(1)
-                    } else if !item.artist.isEmpty && !isArtist {
-                        Text(item.artist)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.gray)
-                            .lineLimit(1)
-                    } else {
-                        Text(isArtist ? "Artist" : "Song")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.gray)
-                            .lineLimit(1)
-                    }
-                }
+                // Name on the right, left-aligned
+                Text(item.name)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
             }
-            .frame(width: 150)
-            .overlay(alignment: .topTrailing) {
-                if !isArtist && item.type == .song {
-                    SongOptionsMenu(
-                        isLiked: isLiked,
-                        isInQueue: isInQueue,
-                        onAddToPlaylist: { onAddToPlaylist?() },
-                        onToggleLike: { onToggleLike?() },
-                        onPlayNext: { onPlayNext?() },
-                        onAddToQueue: { onAddToQueue?() }
-                    )
-                    .padding(8)
-                    .background(
-                        Circle()
-                            .fill(Color.black.opacity(0.5))
-                    )
-                    .padding(4)
+            .padding(6)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(white: 0.22))
+            )
+            .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !isArtist && item.type == .song {
+                Button {
+                    onAddToPlaylist?()
+                } label: {
+                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                }
+                
+                Button {
+                    onToggleLike?()
+                } label: {
+                    Label(isLiked ? "Unlike" : "Like", systemImage: isLiked ? "heart.fill" : "heart")
+                }
+                
+                Button {
+                    onPlayNext?()
+                } label: {
+                    Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+                
+                Button {
+                    onAddToQueue?()
+                } label: {
+                    Label(isInQueue ? "In Queue" : "Add to Queue", systemImage: "text.append")
                 }
             }
         }
-        .buttonStyle(.plain)
     }
 }
 
