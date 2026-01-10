@@ -57,6 +57,8 @@ struct SearchView: View {
                         case .result(let result):
                             Button {
                                 viewModel.searchText = ""
+                                viewModel.suggestions = []
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                 dismissSearch()
                                 handleSuggestionTap(result)
                             } label: {

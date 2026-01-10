@@ -50,6 +50,7 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .ignoresSafeArea(.keyboard)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: audioPlayer.currentSong != nil)
         }
         .overlay {

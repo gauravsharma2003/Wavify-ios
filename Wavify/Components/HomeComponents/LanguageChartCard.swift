@@ -24,7 +24,7 @@ struct LanguageChartCard: View {
     var queueSongIds: Set<String> = []
     
     @Environment(\.modelContext) private var modelContext
-    @State private var gradientColors: [Color] = [Color(white: 0.22), Color(white: 0.18)]
+    @State private var gradientColors: [Color] = [Color(red: 0.15, green: 0.1, blue: 0.2), Color(red: 0.1, green: 0.08, blue: 0.15), Color(white: 0.08)]
     @State private var isSaved: Bool = false
     
     private var thumbnailUrl: String {
@@ -225,10 +225,11 @@ struct LanguageChartCard: View {
         let colors = await ColorExtractor.extractColors(from: uiImage)
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.3)) {
-                // Blend grey with primary color for the gradient
+                // Use pure album colors - darkened for background
                 gradientColors = [
-                    Color(white: 0.22).opacity(0.8).blend(with: colors.0, amount: 0.4),
-                    colors.1.opacity(0.7)
+                    colors.0.opacity(0.85),
+                    colors.1.opacity(0.6),
+                    Color(white: 0.08)
                 ]
             }
         }
