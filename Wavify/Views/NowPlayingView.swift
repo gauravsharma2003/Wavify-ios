@@ -32,6 +32,10 @@ struct NowPlayingView: View {
     // Add to playlist state
     @State private var showAddToPlaylist = false
     
+    // Swipe gesture state for song navigation
+    @State private var horizontalSwipeOffset: CGFloat = 0
+    @State private var isTransitioningTrack: Bool = false
+    
     // Sleep timer state
     @State private var showSleepSheet = false
     @State private var showActiveSleepSheet = false
@@ -135,6 +139,132 @@ struct NowPlayingView: View {
             }
     }
     
+    // MARK: - Combined Gesture for Track Navigation and Sheet Dismiss
+    
+    private func combinedSwipeGesture(screenWidth: CGFloat, screenHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 15, coordinateSpace: .global)
+            .onChanged { value in
+                guard !isTransitioningTrack else { return }
+                
+                let horizontalAmount = abs(value.translation.width)
+                let verticalAmount = abs(value.translation.height)
+                
+                // Determine direction on first significant movement
+                if !isDragging {
+                    isDragging = true
+                    // Lock to the dominant direction
+                }
+                
+                // Horizontal swipe for track change
+                if horizontalAmount > verticalAmount && horizontalAmount > 20 {
+                    // Apply resistance for smooth feel
+                    withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.9, blendDuration: 0)) {
+                        horizontalSwipeOffset = value.translation.width * 0.6
+                    }
+                    // Reset vertical offset
+                    if dragOffset != 0 {
+                        withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 1, blendDuration: 0)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+                // Vertical drag for dismiss
+                else if verticalAmount > horizontalAmount && value.translation.height > 0 {
+                    withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 1, blendDuration: 0)) {
+                        dragOffset = value.translation.height
+                    }
+                    // Reset horizontal offset
+                    if horizontalSwipeOffset != 0 {
+                        withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.9, blendDuration: 0)) {
+                            horizontalSwipeOffset = 0
+                        }
+                    }
+                }
+            }
+            .onEnded { value in
+                isDragging = false
+                guard !isTransitioningTrack else { return }
+                
+                let horizontalAmount = abs(value.translation.width)
+                let verticalAmount = abs(value.translation.height)
+                
+                // Handle horizontal swipe ending
+                if horizontalAmount > verticalAmount {
+                    let velocity = value.predictedEndTranslation.width - value.translation.width
+                    let threshold: CGFloat = 80
+                    let velocityThreshold: CGFloat = 300
+                    
+                    // Swipe left (next track)
+                    if value.translation.width < -threshold || velocity < -velocityThreshold {
+                        performTrackTransition(direction: .next, screenWidth: screenWidth)
+                    }
+                    // Swipe right (previous track)
+                    else if value.translation.width > threshold || velocity > velocityThreshold {
+                        performTrackTransition(direction: .previous, screenWidth: screenWidth)
+                    }
+                    // Not enough to trigger, snap back
+                    else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            horizontalSwipeOffset = 0
+                        }
+                    }
+                }
+                // Handle vertical drag ending (dismiss)
+                else {
+                    let velocity = value.predictedEndTranslation.height - value.translation.height
+                    let shouldDismiss = dragOffset > screenHeight * 0.25 || velocity > 400
+                    
+                    if shouldDismiss {
+                        dismissSheet()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+            }
+    }
+    
+    private enum SwipeDirection {
+        case next, previous
+    }
+    
+    private func performTrackTransition(direction: SwipeDirection, screenWidth: CGFloat) {
+        isTransitioningTrack = true
+        
+        // Animate off-screen in swipe direction
+        let exitOffset: CGFloat = direction == .next ? -screenWidth : screenWidth
+        
+        withAnimation(.easeOut(duration: 0.2)) {
+            horizontalSwipeOffset = exitOffset
+        }
+        
+        // Change track after brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            Task {
+                if direction == .next {
+                    await audioPlayer.playNext()
+                } else {
+                    await audioPlayer.playPrevious()
+                }
+            }
+            
+            // Reset offset from opposite side for new track entrance
+            let entranceOffset: CGFloat = direction == .next ? screenWidth : -screenWidth
+            horizontalSwipeOffset = entranceOffset
+            
+            // Animate new track in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                horizontalSwipeOffset = 0
+            }
+            
+            // Allow new swipes after animation completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                isTransitioningTrack = false
+            }
+        }
+    }
+    
     // MARK: - Sheet Content
     
     private func sheetContent(geometry: GeometryProxy, dragProgress: Double) -> some View {
@@ -152,15 +282,27 @@ struct NowPlayingView: View {
                     VStack(spacing: 0) {
                         Spacer()
                         
-                        // Album Art or Lyrics
-                        albumArtView(geometry: geometry)
+                        // Swipeable container for album art and song info
+                        VStack(spacing: 0) {
+                            // Album Art or Lyrics
+                            albumArtView(geometry: geometry)
+                            
+                            Spacer()
+                                .frame(height: 32)
+                            
+                            // Song Info (included in swipeable area)
+                            songInfoView
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle()) // Make entire area respond to gestures
+                        .offset(x: horizontalSwipeOffset)
+                        .gesture(
+                            showLyrics ? nil : combinedSwipeGesture(screenWidth: geometry.size.width, screenHeight: geometry.size.height)
+                        )
                         
                         Spacer()
                         
                         VStack(spacing: 32) {
-                            // Song Info
-                            songInfoView
-                            
                             // Progress Bar
                             progressView
                             
@@ -904,8 +1046,13 @@ struct NowPlayingView: View {
         let shareURL = "https://gauravsharma2003.github.io/wavifyapp/song/\(song.videoId)"
         let shareText = "\(song.title) by \(song.artist)"
         
+        var activityItems: [Any] = [shareText]
+        if let url = URL(string: shareURL) {
+            activityItems.append(url)
+        }
+        
         let activityVC = UIActivityViewController(
-            activityItems: [shareText, URL(string: shareURL)!],
+            activityItems: activityItems,
             applicationActivities: nil
         )
         

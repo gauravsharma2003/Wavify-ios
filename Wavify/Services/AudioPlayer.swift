@@ -2,7 +2,7 @@
 //  AudioPlayer.swift
 //  Wavify
 //
-//  Created by Gaurav Sharma on 30/12/25.
+//  Coordinator for audio playback, delegating to focused services
 //
 
 import Foundation
@@ -40,57 +40,94 @@ enum LoopMode: String, CaseIterable {
 class AudioPlayer {
     static let shared = AudioPlayer()
     
-    // MARK: - Observable Properties
+    // MARK: - Observable Properties (Public API unchanged)
     
     var isPlaying = false
     var currentSong: Song?
     var currentTime: Double = 0
     var duration: Double = 0
     var isLoading = false
-    var queue: [Song] = []
-    var currentIndex: Int = 0
-    var loopMode: LoopMode = .none
-    var isPlayingFromAlbum = false  // When true, don't auto-refresh queue
     
-    // User-managed queue for Play Next and Add to Queue features
-    var userQueue: [Song] = []  // Songs manually added by user
-    
-    // Cached set of user queue IDs for efficient lookup in views
-    var userQueueIds: Set<String> {
-        Set(userQueue.map { $0.id })
+    // Queue state (delegated to QueueManager)
+    var queue: [Song] {
+        get { queueManager.queue }
+        set { queueManager.queue = newValue }
     }
     
-    // Shuffle State
-    var isShuffleMode = false
-    private var shuffleIndices: [Int] = []
-    private var currentShuffleIndex: Int = 0 
-
+    var currentIndex: Int {
+        get { queueManager.currentIndex }
+        set { queueManager.currentIndex = newValue }
+    }
     
-    // MARK: - Private Properties
+    var userQueue: [Song] {
+        get { queueManager.userQueue }
+        set { queueManager.userQueue = newValue }
+    }
     
-    private var player: AVPlayer?
-    private var playerItem: AVPlayerItem?
-    private var timeObserver: Any?
-    private var statusObserver: NSKeyValueObservation?
-    private var cancellables = Set<AnyCancellable>()
+    var userQueueIds: Set<String> {
+        queueManager.userQueueIds
+    }
     
+    var isPlayingFromAlbum: Bool {
+        get { queueManager.isPlayingFromAlbum }
+        set { queueManager.isPlayingFromAlbum = newValue }
+    }
+    
+    // Shuffle/Loop state (delegated to ShuffleController)
+    var isShuffleMode: Bool {
+        get { shuffleController.isShuffleMode }
+        set { 
+            if newValue {
+                shuffleController.enableShuffle(queueSize: queue.count, currentIndex: currentIndex)
+            } else {
+                shuffleController.disableShuffle()
+            }
+        }
+    }
+    
+    var loopMode: LoopMode {
+        get { shuffleController.loopMode }
+        set { shuffleController.loopMode = newValue }
+    }
+    
+    // MARK: - Services
+    
+    private let queueManager = QueueManager()
+    private let shuffleController = ShuffleController()
+    private let playbackService = PlaybackService()
     private let networkManager = NetworkManager.shared
     
+    // MARK: - Initialization
+    
     private init() {
-        setupAudioSession()
+        setupPlaybackService()
         setupRemoteCommandCenter()
         setupNotifications()
     }
     
-    // MARK: - Audio Session
-    
-    private func setupAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetooth])
-            try session.setActive(true)
-        } catch {
-            print("Failed to setup audio session: \(error)")
+    private func setupPlaybackService() {
+        playbackService.onPlayPauseChanged = { [weak self] playing in
+            self?.isPlaying = playing
+            self?.updateNowPlayingInfo()
+        }
+        
+        playbackService.onTimeUpdated = { [weak self] time in
+            self?.currentTime = time
+        }
+        
+        playbackService.onSongEnded = { [weak self] in
+            Task {
+                await self?.playNext()
+            }
+        }
+        
+        playbackService.onReady = { [weak self] dur in
+            self?.duration = dur
+            self?.isLoading = false
+        }
+        
+        playbackService.onFailed = { [weak self] _ in
+            self?.isLoading = false
         }
     }
     
@@ -193,16 +230,23 @@ class AudioPlayer {
         }
     }
     
-    // MARK: - Playback Control
+    // MARK: - Playback Control (Public API)
     
     /// Play a new song from search/browse - creates fresh queue
     func loadAndPlay(song: Song) async {
-        // Add to queue at current position and start playing
+        guard !song.videoId.isEmpty else {
+            Logger.warning("Attempted to play song with empty videoId", category: .playback)
+            return
+        }
         await playNewSong(song, refreshQueue: true)
     }
     
-    /// Play a song by videoId only (for deep links) - fetches info from API first
+    /// Play a song by videoId only (for deep links)
     func loadAndPlay(videoId: String) async {
+        guard !videoId.isEmpty else {
+            Logger.warning("Attempted to play with empty videoId", category: .playback)
+            return
+        }
         isLoading = true
         
         do {
@@ -221,18 +265,16 @@ class AudioPlayer {
             await loadAndPlay(song: song)
         } catch {
             isLoading = false
-            print("Failed to load song from deep link: \(error)")
+            Logger.error("Failed to load song from deep link", category: .playback, error: error)
         }
     }
-
     
-    /// Internal method to play a song with optional queue refresh
+    /// Internal method to play a song
     private func playNewSong(_ song: Song, refreshQueue: Bool) async {
         isLoading = true
         currentSong = song
         
-        
-        // Notify for play count tracking - this captures ALL song plays
+        // Notify for play count tracking
         NotificationCenter.default.post(
             name: .songDidStartPlaying,
             object: nil,
@@ -247,132 +289,53 @@ class AudioPlayer {
                 return
             }
             
-            // Use YouTube API's duration (lengthSeconds) - more reliable than AVPlayer's duration
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
-            // Update artistId/albumId if NOT already available from search results
-            // IMPORTANT: playbackInfo.artistId is the video UPLOADER's channel (e.g., "Rehan Records"),
-            // NOT the actual artist (e.g., "Karan Aujla"). So we should prefer the artistId from search.
-            if var song = currentSong {
-                if (song.artistId == nil && playbackInfo.artistId != nil) ||
-                   (song.albumId == nil && playbackInfo.albumId != nil) {
-                    // Create a copy with updated IDs - only fill in missing fields, don't overwrite
-                    let updatedSong = Song(
-                        id: song.id,
-                        title: song.title,
-                        artist: song.artist,
-                        thumbnailUrl: song.thumbnailUrl,
-                        duration: song.duration,
-                        isLiked: song.isLiked,
-                        artistId: song.artistId ?? playbackInfo.artistId,  // Preserve existing artistId
-                        albumId: song.albumId ?? playbackInfo.albumId
+            // Update IDs if needed
+            if var updatedSong = currentSong {
+                if (updatedSong.artistId == nil && playbackInfo.artistId != nil) ||
+                   (updatedSong.albumId == nil && playbackInfo.albumId != nil) {
+                    updatedSong = Song(
+                        id: updatedSong.id,
+                        title: updatedSong.title,
+                        artist: updatedSong.artist,
+                        thumbnailUrl: updatedSong.thumbnailUrl,
+                        duration: updatedSong.duration,
+                        isLiked: updatedSong.isLiked,
+                        artistId: updatedSong.artistId ?? playbackInfo.artistId,
+                        albumId: updatedSong.albumId ?? playbackInfo.albumId
                     )
                     self.currentSong = updatedSong
                 }
             }
             
-            // Clean up previous player
-            cleanupPlayer()
+            // Load audio
+            playbackService.load(url: url, expectedDuration: apiDuration)
+            duration = apiDuration
             
-            // Create new player
-            playerItem = AVPlayerItem(url: url)
-            player = AVPlayer(playerItem: playerItem)
-            
-            // Set duration from API before player reports (more accurate)
-            self.duration = apiDuration
-            
-            // Observe player status
-            statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
-                Task { @MainActor in
-                    switch item.status {
-                    case .readyToPlay:
-                        // Keep API duration, don't override with AVPlayer's potentially incorrect duration
-                        self?.isLoading = false
-                        self?.player?.play()
-                        self?.isPlaying = true
-                        self?.updateNowPlayingInfo()
-                    case .failed:
-                        self?.isLoading = false
-                        print("Player failed: \(String(describing: item.error))")
-                    default:
-                        break
-                    }
-                }
-            }
-            
-            // Setup time observer
-            setupTimeObserver()
-            
-            // Only refresh queue for new songs, not when playing from existing queue
+            // Handle queue
             if refreshQueue {
-                await loadRelatedSongs(videoId: song.videoId, replaceQueue: true)
+                await queueManager.loadRelatedSongs(videoId: song.videoId, replaceQueue: true, currentSong: song)
             } else {
-                // Check if we're near the end of queue (last 10 songs) - append more songs
-                checkAndAppendToQueue()
+                queueManager.checkAndAppendIfNeeded(loopMode: shuffleController.loopMode, currentSong: song)
             }
+            
+            updateNowPlayingInfo()
             
         } catch {
             isLoading = false
-            print("Failed to load playback info: \(error)")
-        }
-    }
-    
-    private func loadRelatedSongs(videoId: String, replaceQueue: Bool) async {
-        do {
-            let relatedSongs = try await networkManager.getRelatedSongs(videoId: videoId)
-            let newSongs = relatedSongs.map { song -> Song in
-                var s = Song(from: song)
-                s.isRecommendation = true
-                return s
-            }
-            
-            if replaceQueue {
-                // When replacing queue, preserve userQueue songs at the beginning
-                // Structure: [currentSong, ...userQueue, ...recommendations]
-                if let currentSong = currentSong {
-                    // Filter out current song and userQueue songs from recommendations
-                    let excludeIds = Set([currentSong.id] + userQueue.map { $0.id })
-                    let filteredNewSongs = newSongs.filter { !excludeIds.contains($0.id) }
-                    queue = [currentSong] + userQueue + filteredNewSongs
-                    currentIndex = 0
-                } else {
-                    queue = userQueue + newSongs
-                    currentIndex = 0
-                }
-            } else {
-                // Append new songs, avoiding duplicates
-                let existingIds = Set(queue.map { $0.id })
-                let uniqueNewSongs = newSongs.filter { !existingIds.contains($0.id) }
-                queue.append(contentsOf: uniqueNewSongs)
-            }
-        } catch {
-            print("Failed to load related songs: \(error)")
-        }
-    }
-    
-    /// Check if near end of queue and append more songs if needed
-    private func checkAndAppendToQueue() {
-        // Don't fetch recommendations if loop mode is active (Loop One or Loop All)
-        guard loopMode == .none else { return }
-        
-        let songsRemaining = queue.count - currentIndex - 1
-        
-        // If less than 10 songs remaining, fetch more
-        if songsRemaining < 10, let currentSong = currentSong {
-            Task {
-                await loadRelatedSongs(videoId: currentSong.videoId, replaceQueue: false)
-            }
+            Logger.error("Failed to load playback info", category: .playback, error: error)
         }
     }
     
     func play() {
-        player?.play()
+        playbackService.play()
         isPlaying = true
         updateNowPlayingInfo()
     }
     
     func pause() {
-        player?.pause()
+        playbackService.pause()
         isPlaying = false
         updateNowPlayingInfo()
     }
@@ -386,8 +349,7 @@ class AudioPlayer {
     }
     
     func seek(to time: Double) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        playbackService.seek(to: time)
         currentTime = time
         updateNowPlayingInfo()
     }
@@ -395,212 +357,120 @@ class AudioPlayer {
     func playNext() async {
         guard !queue.isEmpty else { return }
         
-        // Handle Shuffle Mode
-        if isShuffleMode && !shuffleIndices.isEmpty {
-             let nextShuffleIndex = currentShuffleIndex + 1
-             
-             if nextShuffleIndex < shuffleIndices.count {
-                 currentShuffleIndex = nextShuffleIndex
-                 currentIndex = shuffleIndices[currentShuffleIndex]
-                 await playNewSong(queue[currentIndex], refreshQueue: false)
-                 return
-             } else if loopMode == .all {
-                 // Loop shuffle: Reshuffle or restart? Restarting mapping for stability.
-                 currentShuffleIndex = 0
-                 currentIndex = shuffleIndices[0]
-                 await playNewSong(queue[currentIndex], refreshQueue: false)
-                 return
-             }
-             // Fall through if end of shuffle and no loop (checkAndAppend logic?)
-             // If we are shuffling history, we probably don't fetch more?
-             // But existing logic falls through.
+        // Handle shuffle mode
+        if shuffleController.isShuffleMode {
+            if let nextIndex = shuffleController.getNextShuffleIndex() {
+                queueManager.jumpToIndex(nextIndex)
+                if let song = queue[safe: nextIndex] {
+                    queueManager.consumeFromUserQueue(songId: song.id)
+                    await playNewSong(song, refreshQueue: false)
+                }
+                return
+            }
         }
-
-        // Handle loop modes (Standard Order)
-        switch loopMode {
+        
+        // Handle loop modes
+        switch shuffleController.loopMode {
         case .one:
-            // Loop current song - just restart
-            seek(to: 0)
-            player?.play()
+            playbackService.seekToStart()
+            playbackService.play()
             isPlaying = true
             return
             
         case .all:
-            if isShuffleMode { return } // Handled above? No, wait. 
-            // My above check handles 'next index exists' or 'loop all'.
-            // If shuffled and no loop, fall to .none logic?
-            // Fallback for non-shuffle:
-            
-            // Loop through queue
-            let nextIndex = currentIndex + 1
-            if nextIndex < queue.count {
-                currentIndex = nextIndex
-                // Remove from userQueue if this song was user-added
-                if let song = queue[safe: nextIndex] {
-                    userQueue.removeAll { $0.id == song.id }
+            if let _ = queueManager.moveToNext() {
+                if let song = queue[safe: currentIndex] {
+                    await playNewSong(song, refreshQueue: false)
                 }
-                await playNewSong(queue[nextIndex], refreshQueue: false)
             } else {
-                // Reached end, loop back to start
-                currentIndex = 0
-                await playNewSong(queue[0], refreshQueue: false)
+                queueManager.loopToStart()
+                if let song = queue.first {
+                    await playNewSong(song, refreshQueue: false)
+                }
             }
             
         case .none:
-            // If Shuffle Mode ended (and not looping), we stop?
-            // Or we checkAndAppend?
-            if isShuffleMode {
-                 // Reshuffle if we want endless shuffle?
-                 // Or Stop.
-                 // checking append?
-            }
-            
-            let nextIndex = currentIndex + 1
-            if nextIndex < queue.count {
-                currentIndex = nextIndex
-                // Remove from userQueue if this song was user-added
-                if let song = queue[safe: nextIndex] {
-                    userQueue.removeAll { $0.id == song.id }
+            if let _ = queueManager.moveToNext() {
+                if let song = queue[safe: currentIndex] {
+                    await playNewSong(song, refreshQueue: false)
                 }
-                await playNewSong(queue[nextIndex], refreshQueue: false)
-            } else if !isPlayingFromAlbum {
-                // Not playing from album and reached end - try to get more songs
-                checkAndAppendToQueue()
+            } else if !queueManager.isPlayingFromAlbum {
+                queueManager.checkAndAppendIfNeeded(loopMode: .none, currentSong: currentSong)
             }
-            // If playing from album and reached end, just stop
         }
     }
     
     func playPrevious() async {
         if currentTime > 3 {
-            // If more than 3 seconds in, restart current song
             seek(to: 0)
-        } else if isShuffleMode && currentShuffleIndex > 0 {
-            currentShuffleIndex -= 1
-            currentIndex = shuffleIndices[currentShuffleIndex]
-             await playNewSong(queue[currentIndex], refreshQueue: false)
-        } else if currentIndex > 0 {
-            currentIndex -= 1
-            await playNewSong(queue[currentIndex], refreshQueue: false)
-        } else if loopMode == .all && !queue.isEmpty {
-            // Loop to end
-            currentIndex = queue.count - 1
-            await playNewSong(queue[currentIndex], refreshQueue: false)
+        } else if shuffleController.isShuffleMode {
+            if let prevIndex = shuffleController.getPreviousShuffleIndex() {
+                queueManager.jumpToIndex(prevIndex)
+                if let song = queue[safe: prevIndex] {
+                    await playNewSong(song, refreshQueue: false)
+                }
+            } else {
+                seek(to: 0)
+            }
+        } else if let _ = queueManager.moveToPrevious() {
+            if let song = queue[safe: currentIndex] {
+                await playNewSong(song, refreshQueue: false)
+            }
+        } else if shuffleController.loopMode == .all && !queue.isEmpty {
+            queueManager.jumpToIndex(queue.count - 1)
+            if let song = queue.last {
+                await playNewSong(song, refreshQueue: false)
+            }
         } else {
             seek(to: 0)
         }
     }
     
     func playFromQueue(at index: Int) async {
-        guard index >= 0 && index < queue.count else { return }
-        currentIndex = index
+        guard queueManager.jumpToIndex(index) else { return }
+        shuffleController.syncShuffleIndex(to: index)
         
-        // Sync shuffle index if needed
-        if isShuffleMode {
-            if let idx = shuffleIndices.firstIndex(of: index) {
-                currentShuffleIndex = idx
-            } else {
-                // Re-sync? 
-            }
+        if let song = queue[safe: index] {
+            await playNewSong(song, refreshQueue: false)
         }
-        
-        await playNewSong(queue[index], refreshQueue: false)
     }
     
     func toggleLoopMode() {
-        loopMode = loopMode.next()
+        shuffleController.toggleLoopMode()
         
-        // Handle logic when entering Loop All
-        if loopMode == .all {
-            if let current = currentSong {
-                if !current.isRecommendation {
-                    // We are in the core content (Album, Playlist, or User Selection).
-                    // Remove all auto-generated recommendations to strictly loop the core content.
-                    // User-added songs (addToQueue) are NOT marked isRecommendation, so they are preserved.
-                    queue = queue.filter { !$0.isRecommendation }
-                    
-                    // Reset index to match the filtered queue
-                    if let newIndex = queue.firstIndex(where: { $0.id == current.id }) {
-                        currentIndex = newIndex
-                    }
-                } else {
-                    // We are currently playing a recommendation.
-                    // Keep the current queue (history + recommendations so far).
-                    // checkAndAppendToQueue will guard against adding MORE, effectively creating a closed loop of what we have.
-                }
+        if shuffleController.loopMode == .all {
+            if let current = currentSong, !current.isRecommendation {
+                queueManager.removeRecommendations(keepingSongId: current.id)
             }
-
-        } else if loopMode == .none {
-            // Resume recommendation fetching if needed
-            checkAndAppendToQueue()
+        } else if shuffleController.loopMode == .none {
+            queueManager.checkAndAppendIfNeeded(loopMode: .none, currentSong: currentSong)
         }
     }
     
     // MARK: - User Queue Management
     
-    /// Add song to play immediately after current song
     func playNextSong(_ song: Song) {
-        // Remove if already in userQueue to avoid duplicates, then insert at front
-        userQueue.removeAll { $0.id == song.id }
-        userQueue.insert(song, at: 0)
-        
-        // Update the main queue to reflect userQueue changes
-        rebuildQueueWithUserSongs()
+        queueManager.playNext(song)
     }
     
-    /// Add song to end of queue
-    /// Returns true if added, false if already in queue
     func addToQueue(_ song: Song) -> Bool {
-        if isInQueue(song) {
-            return false
-        }
-        userQueue.append(song)
-        
-        // Update the main queue to reflect userQueue changes
-        rebuildQueueWithUserSongs()
-        return true
+        queueManager.addToQueue(song)
     }
     
-    /// Check if song is already in user queue or main queue
     func isInQueue(_ song: Song) -> Bool {
-        return userQueue.contains { $0.id == song.id } ||
-               queue.dropFirst(currentIndex + 1).contains { $0.id == song.id }
+        queueManager.isInQueue(song)
     }
     
-    /// Rebuild queue with user songs after current playing song
-    private func rebuildQueueWithUserSongs() {
-        guard currentIndex < queue.count else { return }
-        
-        // Get current song and songs before it
-        let songsUpToCurrent = Array(queue.prefix(currentIndex + 1))
-        
-        // Get remaining recommendation songs (excluding userQueue songs)
-        let userQueueIds = Set(userQueue.map { $0.id })
-        let remainingRecommendations = queue.dropFirst(currentIndex + 1).filter { !userQueueIds.contains($0.id) }
-        
-        // Rebuild: [songs up to current] + [userQueue] + [remaining recommendations]
-        queue = songsUpToCurrent + userQueue + Array(remainingRecommendations)
-    }
+    // MARK: - Album/Playlist Playback
     
-    /// Play album/playlist without refreshing queue
-    /// Play album/playlist without refreshing queue
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {
-        queue = songs
-        currentIndex = startIndex
-        isPlayingFromAlbum = true
+        queueManager.setAlbumQueue(songs: songs, startIndex: startIndex)
         
         if shuffle {
-            isShuffleMode = true
-            shuffleIndices = queue.indices.shuffled()
-            
-            // Random start: Do not force startIndex (usually 0) to front.
-            // This ensures "Shuffle" button plays a random song.
-            
-            currentShuffleIndex = 0
-            currentIndex = shuffleIndices[0]
+            let randomIndex = shuffleController.enableShuffleForAlbum(queueSize: songs.count)
+            queueManager.jumpToIndex(randomIndex)
         } else {
-            isShuffleMode = false
-            currentShuffleIndex = 0 // Reset
+            shuffleController.disableShuffle()
         }
         
         if let song = queue[safe: currentIndex] {
@@ -608,88 +478,24 @@ class AudioPlayer {
         }
     }
     
-    // MARK: - Time Observer
-    
-    private func setupTimeObserver() {
-        let interval = CMTime(seconds: 1.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
-                guard let self = self else { return }
-                let seconds = time.seconds.isNaN ? 0 : time.seconds
-                self.currentTime = min(seconds, self.duration) // Cap at duration
-                
-                // Check if song should end (currentTime reached or exceeded API duration)
-                if self.duration > 0 && seconds >= self.duration - 0.5 {
-                    // Song has ended based on API duration
-                    await self.handleSongEnd()
-                }
-            }
-        }
-    }
-    
-    private func handleSongEnd() async {
-        await playNext()
-    }
-    
     // MARK: - Now Playing Info
     
     private func updateNowPlayingInfo() {
         guard let song = currentSong else { return }
-        
-        var nowPlayingInfo: [String: Any] = [
-            MPMediaItemPropertyTitle: song.title,
-            MPMediaItemPropertyArtist: song.artist,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPMediaItemPropertyPlaybackDuration: duration
-        ]
-        
-        // Load artwork asynchronously using ImageCache for consistency
-        if let url = URL(string: song.thumbnailUrl) {
-            Task {
-                // Try cache first, then network
-                if let image = await ImageCache.shared.image(for: url) {
-                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-                } else {
-                    // Fallback to direct fetch and cache
-                    do {
-                        let (data, _) = try await URLSession.shared.data(from: url)
-                        if let image = UIImage(data: data) {
-                            await ImageCache.shared.store(image, for: url)
-                            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-                        }
-                    } catch {
-                        print("Failed to load artwork: \(error)")
-                    }
-                }
-            }
-        }
-        
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        playbackService.updateNowPlayingInfo(
+            song: song,
+            isPlaying: isPlaying,
+            currentTime: currentTime,
+            duration: duration
+        )
     }
-    
-    // MARK: - Cleanup
-    
-    private func cleanupPlayer() {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-            timeObserver = nil
-        }
-        statusObserver?.invalidate()
-        statusObserver = nil
-        player?.pause()
-        player = nil
-        playerItem = nil
-    }
-    
-    deinit {
-        Task { @MainActor in
-            cleanupPlayer()
-        }
+}
+
+// MARK: - Safe Array Subscript
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -702,13 +508,5 @@ extension Double {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
-    }
-}
-
-// MARK: - Safe Array Subscript
-
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }

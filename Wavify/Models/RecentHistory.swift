@@ -32,6 +32,24 @@ final class RecentHistory {
         self.playedAt = .now
     }
     
+    // MARK: - Pagination Query
+    
+    /// Fetch recent history with pagination support
+    static func fetchRecent(
+        limit: Int = 50,
+        offset: Int = 0,
+        in context: ModelContext
+    ) throws -> [RecentHistory] {
+        var descriptor = FetchDescriptor<RecentHistory>(
+            sortBy: [SortDescriptor(\.playedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        descriptor.fetchOffset = offset
+        return try context.fetch(descriptor)
+    }
+    
+    // MARK: - Cleanup
+    
     static func cleanupOldEntries(in context: ModelContext, keepCount: Int = 200) {
         let descriptor = FetchDescriptor<RecentHistory>(
             sortBy: [SortDescriptor(\.playedAt, order: .reverse)]
@@ -45,7 +63,7 @@ final class RecentHistory {
                 }
             }
         } catch {
-            print("Failed to cleanup history: \(error)")
+            Logger.error("Failed to cleanup history", category: .data, error: error)
         }
     }
 }

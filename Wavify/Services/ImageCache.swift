@@ -20,8 +20,9 @@ actor ImageCache {
         
         // Setup disk cache
         if let cacheURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            self.cacheDirectory = cacheURL.appendingPathComponent("WavifyImageCache")
-            try? fileManager.createDirectory(at: self.cacheDirectory!, withIntermediateDirectories: true)
+            let cacheDir = cacheURL.appendingPathComponent("WavifyImageCache")
+            self.cacheDirectory = cacheDir
+            try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
             
             // Clean old files if needed (fire and forget with lower priority)
             Task.detached(priority: .background) { [weak self] in

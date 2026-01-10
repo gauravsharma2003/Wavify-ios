@@ -127,12 +127,14 @@ class HomeViewModel {
         }
         
         do {
-            let home = try await networkManager.getHome()
+            let home = try await ErrorHandler.withRetry {
+                try await self.networkManager.getHome()
+            }
             self.homePage = home
             self.selectedChipId = nil
             isLoading = false
         } catch {
-            print("Failed to load home: \(error)")
+            Logger.error("Failed to load home", category: .network, error: error)
             isLoading = false
         }
     }
@@ -147,9 +149,11 @@ class HomeViewModel {
         selectedChipId = chip.id
         
         do {
-            self.homePage = try await networkManager.loadPage(endpoint: chip.endpoint)
+            self.homePage = try await ErrorHandler.withRetry {
+                try await self.networkManager.loadPage(endpoint: chip.endpoint)
+            }
         } catch {
-            print("Failed to load chip: \(error)")
+            Logger.error("Failed to load chip", category: .network, error: error)
         }
         isLoading = false
     }
