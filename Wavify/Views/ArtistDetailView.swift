@@ -207,7 +207,8 @@ struct ArtistDetailView: View {
                                 browseId: browseId,
                                 params: section.params,
                                 artistName: artistDetail?.name ?? initialName,
-                                audioPlayer: audioPlayer
+                                audioPlayer: audioPlayer,
+                                fallbackItems: section.items  // Use carousel items as fallback
                             )
                         }
                     } label: {
@@ -471,7 +472,7 @@ struct ArtistDetailView: View {
                 )
             }
         } catch {
-            print("Failed to load artist details: \(error)")
+            Logger.networkError("Failed to load artist details", error: error)
         }
         isLoading = false
     }
@@ -532,7 +533,7 @@ struct ArtistDetailView: View {
                         }
                     }
                 } catch {
-                    print("Failed to fetch full top songs for playback: \(error)")
+                    Logger.networkError("Failed to fetch full top songs for playback", error: error)
                 }
             }
             
@@ -585,7 +586,7 @@ struct ArtistDetailView: View {
                         }
                     }
                 } catch {
-                    print("Failed to fetch full top songs for shuffle: \(error)")
+                    Logger.networkError("Failed to fetch full top songs for shuffle", error: error)
                 }
             }
             

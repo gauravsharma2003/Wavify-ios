@@ -57,7 +57,7 @@ struct CategoryDetailView: View {
         do {
             page = try await networkManager.loadPage(endpoint: endpoint)
         } catch {
-            print("Failed to load category: \(error)")
+            Logger.networkError("Failed to load category", error: error)
         }
         isLoading = false
     }

@@ -68,6 +68,85 @@ final class BrowseAPIService {
         return try await browse(browseId: endpoint.browseId, params: endpoint.params)
     }
     
+    /// Get language charts from FEmusic_charts endpoint
+    /// Returns array of (name, playlistId, thumbnailUrl) for each language chart
+    func getLanguageCharts() async throws -> [(name: String, playlistId: String, thumbnailUrl: String)] {
+        let body: [String: Any] = [
+            "browseId": "FEmusic_charts",
+            "context": YouTubeAPIContext.webContext
+        ]
+        
+        let request = try requestManager.createRequest(
+            endpoint: "browse",
+            body: body,
+            headers: YouTubeAPIContext.webHeaders
+        )
+        
+        let data = try await requestManager.execute(request, deduplicationKey: "browse_FEmusic_charts")
+        return try parseLanguageCharts(data)
+    }
+    
+    /// Parse language charts from the "Languages" section of FEmusic_charts response
+    private nonisolated func parseLanguageCharts(_ data: Data) throws -> [(name: String, playlistId: String, thumbnailUrl: String)] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+              let tabs = singleColumn["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabContent = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabContent["content"] as? [String: Any],
+              let sectionList = content["sectionListRenderer"] as? [String: Any],
+              let sectionContents = sectionList["contents"] as? [[String: Any]] else {
+            throw YouTubeMusicError.parseError("Invalid charts response")
+        }
+        
+        var languageCharts: [(name: String, playlistId: String, thumbnailUrl: String)] = []
+        
+        // Find the "Languages" section (typically section index 2 in the response)
+        for section in sectionContents {
+            if let carousel = section["musicCarouselShelfRenderer"] as? [String: Any],
+               let header = carousel["header"] as? [String: Any],
+               let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
+               let titleData = basicHeader["title"] as? [String: Any],
+               let runs = titleData["runs"] as? [[String: Any]],
+               let firstRun = runs.first,
+               let sectionTitle = firstRun["text"] as? String,
+               sectionTitle.lowercased().contains("language") {
+                
+                // Found the Languages section - parse its contents
+                if let carouselContents = carousel["contents"] as? [[String: Any]] {
+                    for item in carouselContents {
+                        if let twoRowItem = item["musicTwoRowItemRenderer"] as? [String: Any],
+                           let itemTitle = twoRowItem["title"] as? [String: Any],
+                           let itemRuns = itemTitle["runs"] as? [[String: Any]],
+                           let firstItemRun = itemRuns.first,
+                           let name = firstItemRun["text"] as? String,
+                           let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any],
+                           let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                           let playlistId = browseEndpoint["browseId"] as? String {
+                            
+                            // Extract thumbnail
+                            var thumbnailUrl = ""
+                            if let thumbRenderer = twoRowItem["thumbnailRenderer"] as? [String: Any],
+                               let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+                               let thumbnail = musicThumb["thumbnail"] as? [String: Any],
+                               let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
+                               let lastThumb = thumbnails.last,
+                               let url = lastThumb["url"] as? String {
+                                thumbnailUrl = url
+                            }
+                            
+                            languageCharts.append((name: name, playlistId: playlistId, thumbnailUrl: thumbnailUrl))
+                        }
+                    }
+                }
+                break // Found Languages section, no need to continue
+            }
+        }
+        
+        return languageCharts
+    }
+    
     // MARK: - Private Methods
     
     private func browse(browseId: String, params: String? = nil, context: [String: Any]? = nil) async throws -> HomePage {

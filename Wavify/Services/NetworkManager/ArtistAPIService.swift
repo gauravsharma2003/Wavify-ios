@@ -388,26 +388,78 @@ final class ArtistAPIService {
               let sectionList = content["sectionListRenderer"] as? [String: Any],
               let sections = sectionList["contents"] as? [[String: Any]],
               let firstSection = sections.first else {
+            print("[ArtistAPIService] parseSectionItemsResponse: Failed to parse singleColumnBrowseResultsRenderer structure")
             // Try parsing as playlist if section list fails
             if let playlistItems = try? parsePlaylistResponseAsItems(data) {
+                print("[ArtistAPIService] Fallback to parsePlaylistResponseAsItems succeeded with \(playlistItems.count) items")
                 return playlistItems
             }
+            print("[ArtistAPIService] parsePlaylistResponseAsItems also failed")
             throw YouTubeMusicError.parseError("Invalid section items response")
         }
+        
+        // Log what renderer types exist in firstSection
+        print("[ArtistAPIService] parseSectionItemsResponse: firstSection keys: \(firstSection.keys.joined(separator: ", "))")
         
         // Check for Grid (Singles, Albums)
         if let gridRenderer = firstSection["gridRenderer"] as? [String: Any],
            let items = gridRenderer["items"] as? [[String: Any]] {
-            return parseGridItems(items)
+            let result = parseGridItems(items)
+            print("[ArtistAPIService] gridRenderer: parsed \(result.count) items")
+            return result
         }
         
         // Check for Music Shelf (List)
         if let musicShelf = firstSection["musicShelfRenderer"] as? [String: Any] {
             if let section = parseMusicShelf(musicShelf) {
+                print("[ArtistAPIService] musicShelfRenderer: parsed \(section.items.count) items")
                 return section.items
             }
         }
         
+        // Check for Music Playlist Shelf (Videos section)
+        if let playlistShelf = firstSection["musicPlaylistShelfRenderer"] as? [String: Any],
+           let items = playlistShelf["contents"] as? [[String: Any]] {
+            let result = parsePlaylistShelfItems(items)
+            print("[ArtistAPIService] musicPlaylistShelfRenderer: parsed \(result.count) items from \(items.count) contents")
+            return result
+        }
+        
+        // Check for Music Carousel Shelf (Videos shown in carousel format)
+        if let carouselShelf = firstSection["musicCarouselShelfRenderer"] as? [String: Any],
+           let items = carouselShelf["contents"] as? [[String: Any]] {
+            let result = parseCarouselItems(items)
+            print("[ArtistAPIService] musicCarouselShelfRenderer: parsed \(result.count) items from \(items.count) contents")
+            return result
+        }
+        
+        // Check for Item Section Renderer (may contain list items or error messages)
+        if let itemSection = firstSection["itemSectionRenderer"] as? [String: Any],
+           let sectionContents = itemSection["contents"] as? [[String: Any]] {
+            print("[ArtistAPIService] itemSectionRenderer: has \(sectionContents.count) contents")
+            var artistItems: [ArtistItem] = []
+            for (index, itemData) in sectionContents.enumerated() {
+                print("[ArtistAPIService] itemSectionRenderer content \(index) keys: \(itemData.keys.joined(separator: ", "))")
+                // Check for video/song list items
+                if let listItem = itemData["musicResponsiveListItemRenderer"] as? [String: Any] {
+                    if let item = parseResponsiveListItem(listItem) {
+                        artistItems.append(item)
+                    }
+                }
+                // Check for messageRenderer (error message)
+                if let messageRenderer = itemData["messageRenderer"] as? [String: Any],
+                   let text = messageRenderer["text"] as? [String: Any],
+                   let runs = text["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let message = firstRun["text"] as? String {
+                    print("[ArtistAPIService] itemSectionRenderer contains error message: \(message)")
+                }
+            }
+            print("[ArtistAPIService] itemSectionRenderer: parsed \(artistItems.count) items")
+            return artistItems
+        }
+        
+        print("[ArtistAPIService] parseSectionItemsResponse: No recognized renderer found, returning empty")
         return []
     }
     
@@ -458,6 +510,200 @@ final class ArtistAPIService {
         }
         
         return artistItems
+    }
+    
+    private nonisolated func parsePlaylistShelfItems(_ items: [[String: Any]]) -> [ArtistItem] {
+        var artistItems: [ArtistItem] = []
+        
+        for itemData in items {
+            if let listItem = itemData["musicResponsiveListItemRenderer"] as? [String: Any] {
+                // Try to get videoId from playlistItemData first
+                var videoId: String?
+                if let playlistItemData = listItem["playlistItemData"] as? [String: Any] {
+                    videoId = playlistItemData["videoId"] as? String
+                }
+                
+                // Fallback: try overlay watchEndpoint
+                if videoId == nil,
+                   let overlay = listItem["overlay"] as? [String: Any],
+                   let overlayRenderer = overlay["musicItemThumbnailOverlayRenderer"] as? [String: Any],
+                   let content = overlayRenderer["content"] as? [String: Any],
+                   let playButton = content["musicPlayButtonRenderer"] as? [String: Any],
+                   let playEndpoint = playButton["playNavigationEndpoint"] as? [String: Any],
+                   let watchEndpoint = playEndpoint["watchEndpoint"] as? [String: Any] {
+                    videoId = watchEndpoint["videoId"] as? String
+                }
+                
+                guard let id = videoId else { continue }
+                
+                // Parse title
+                var title = ""
+                if let flexColumns = listItem["flexColumns"] as? [[String: Any]],
+                   let firstCol = flexColumns.first,
+                   let renderer = firstCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+                   let textData = renderer["text"] as? [String: Any],
+                   let runs = textData["runs"] as? [[String: Any]],
+                   let firstRun = runs.first {
+                    title = firstRun["text"] as? String ?? ""
+                }
+                
+                // Parse subtitle (artist name)
+                var subtitle = ""
+                if let flexColumns = listItem["flexColumns"] as? [[String: Any]], flexColumns.count > 1 {
+                    let secondCol = flexColumns[1]
+                    if let renderer = secondCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+                       let textData = renderer["text"] as? [String: Any],
+                       let runs = textData["runs"] as? [[String: Any]] {
+                        subtitle = runs.compactMap { $0["text"] as? String }.joined()
+                    }
+                }
+                
+                // Parse thumbnail
+                var thumbUrl = ""
+                if let thumbRenderer = listItem["thumbnail"] as? [String: Any],
+                   let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+                   let thumbData = musicThumb["thumbnail"] as? [String: Any],
+                   let thumbnails = thumbData["thumbnails"] as? [[String: Any]],
+                   let lastThumb = thumbnails.last {
+                    thumbUrl = lastThumb["url"] as? String ?? ""
+                }
+                
+                artistItems.append(ArtistItem(
+                    id: id,
+                    title: title,
+                    subtitle: subtitle,
+                    thumbnailUrl: thumbUrl,
+                    isExplicit: false,
+                    videoId: id,
+                    playlistId: nil,
+                    browseId: nil
+                ))
+            }
+        }
+        
+        return artistItems
+    }
+    
+    private nonisolated func parseCarouselItems(_ items: [[String: Any]]) -> [ArtistItem] {
+        var artistItems: [ArtistItem] = []
+        
+        for itemData in items {
+            if let twoRowItem = itemData["musicTwoRowItemRenderer"] as? [String: Any] {
+                // Get video ID from watchEndpoint or browse ID from browseEndpoint
+                var videoId: String?
+                var browseId: String?
+                
+                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any] {
+                    if let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any] {
+                        videoId = watchEndpoint["videoId"] as? String
+                    }
+                    if let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
+                        browseId = browseEndpoint["browseId"] as? String
+                    }
+                }
+                
+                let itemId = videoId ?? browseId ?? UUID().uuidString
+                
+                var itemTitle = ""
+                if let titleData = twoRowItem["title"] as? [String: Any],
+                   let runs = titleData["runs"] as? [[String: Any]],
+                   let firstRun = runs.first {
+                    itemTitle = firstRun["text"] as? String ?? ""
+                }
+                
+                var subtitle = ""
+                if let subtitleData = twoRowItem["subtitle"] as? [String: Any],
+                   let runs = subtitleData["runs"] as? [[String: Any]] {
+                    subtitle = runs.compactMap { $0["text"] as? String }.joined()
+                }
+                
+                var thumbUrl = ""
+                if let thumbRenderer = twoRowItem["thumbnailRenderer"] as? [String: Any],
+                   let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+                   let thumbData = musicThumb["thumbnail"] as? [String: Any],
+                   let thumbnails = thumbData["thumbnails"] as? [[String: Any]],
+                   let lastThumb = thumbnails.last {
+                    thumbUrl = lastThumb["url"] as? String ?? ""
+                }
+                
+                artistItems.append(ArtistItem(
+                    id: itemId,
+                    title: itemTitle,
+                    subtitle: subtitle,
+                    thumbnailUrl: thumbUrl,
+                    isExplicit: false,
+                    videoId: videoId,
+                    playlistId: nil,
+                    browseId: browseId
+                ))
+            }
+        }
+        
+        return artistItems
+    }
+    
+    private nonisolated func parseResponsiveListItem(_ listItem: [String: Any]) -> ArtistItem? {
+        // Try to get videoId from playlistItemData first
+        var videoId: String?
+        if let playlistItemData = listItem["playlistItemData"] as? [String: Any] {
+            videoId = playlistItemData["videoId"] as? String
+        }
+        
+        // Fallback: try overlay watchEndpoint
+        if videoId == nil,
+           let overlay = listItem["overlay"] as? [String: Any],
+           let overlayRenderer = overlay["musicItemThumbnailOverlayRenderer"] as? [String: Any],
+           let content = overlayRenderer["content"] as? [String: Any],
+           let playButton = content["musicPlayButtonRenderer"] as? [String: Any],
+           let playEndpoint = playButton["playNavigationEndpoint"] as? [String: Any],
+           let watchEndpoint = playEndpoint["watchEndpoint"] as? [String: Any] {
+            videoId = watchEndpoint["videoId"] as? String
+        }
+        
+        guard let id = videoId else { return nil }
+        
+        // Parse title
+        var title = ""
+        if let flexColumns = listItem["flexColumns"] as? [[String: Any]],
+           let firstCol = flexColumns.first,
+           let renderer = firstCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+           let textData = renderer["text"] as? [String: Any],
+           let runs = textData["runs"] as? [[String: Any]],
+           let firstRun = runs.first {
+            title = firstRun["text"] as? String ?? ""
+        }
+        
+        // Parse subtitle (artist name)
+        var subtitle = ""
+        if let flexColumns = listItem["flexColumns"] as? [[String: Any]], flexColumns.count > 1 {
+            let secondCol = flexColumns[1]
+            if let renderer = secondCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+               let textData = renderer["text"] as? [String: Any],
+               let runs = textData["runs"] as? [[String: Any]] {
+                subtitle = runs.compactMap { $0["text"] as? String }.joined()
+            }
+        }
+        
+        // Parse thumbnail
+        var thumbUrl = ""
+        if let thumbRenderer = listItem["thumbnail"] as? [String: Any],
+           let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+           let thumbData = musicThumb["thumbnail"] as? [String: Any],
+           let thumbnails = thumbData["thumbnails"] as? [[String: Any]],
+           let lastThumb = thumbnails.last {
+            thumbUrl = lastThumb["url"] as? String ?? ""
+        }
+        
+        return ArtistItem(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            thumbnailUrl: thumbUrl,
+            isExplicit: false,
+            videoId: id,
+            playlistId: nil,
+            browseId: nil
+        )
     }
     
     private nonisolated func parsePlaylistResponseAsItems(_ data: Data) throws -> [ArtistItem] {

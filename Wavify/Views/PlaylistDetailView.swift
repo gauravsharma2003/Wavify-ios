@@ -121,7 +121,7 @@ struct PlaylistDetailView: View {
         do {
             playlistPage = try await networkManager.getPlaylist(id: playlistId)
         } catch {
-            print("Failed to load playlist: \(error)")
+            Logger.networkError("Failed to load playlist", error: error)
         }
         isLoading = false
     }

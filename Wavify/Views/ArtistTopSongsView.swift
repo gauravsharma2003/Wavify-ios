@@ -119,7 +119,7 @@ struct ArtistTopSongsView: View {
             }
             
         } catch {
-            print("Error loading top songs: \(error)")
+            Logger.networkError("Error loading top songs", error: error)
             errorMessage = error.localizedDescription
         
         }

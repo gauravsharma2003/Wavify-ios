@@ -26,7 +26,7 @@ actor BackgroundDataManager {
     /// Increment play count for a song on a background context
     func incrementPlayCount(for song: Song) async {
         guard let container = container else {
-            print("BackgroundDataManager: Container not configured")
+            Logger.warning("Container not configured", category: .data)
             return
         }
         
@@ -64,14 +64,14 @@ actor BackgroundDataManager {
             
             try context.save()
         } catch {
-            print("BackgroundDataManager: Failed to update play count: \(error)")
+            Logger.dataError("Failed to update play count", error: error)
         }
     }
     
     /// Track album play on background context
     func trackAlbumPlay(albumId: String, title: String, artist: String, thumbnailUrl: String) async {
         guard let container = container else {
-            print("BackgroundDataManager: Container not configured")
+            Logger.warning("Container not configured", category: .data)
             return
         }
         
@@ -98,14 +98,14 @@ actor BackgroundDataManager {
             
             try context.save()
         } catch {
-            print("BackgroundDataManager: Failed to track album play: \(error)")
+            Logger.dataError("Failed to track album play", error: error)
         }
     }
     
     /// Track artist play on background context
     func trackArtistPlay(artistId: String, name: String, thumbnailUrl: String) async {
         guard let container = container else {
-            print("BackgroundDataManager: Container not configured")
+            Logger.warning("Container not configured", category: .data)
             return
         }
         
@@ -135,7 +135,7 @@ actor BackgroundDataManager {
             
             try context.save()
         } catch {
-            print("BackgroundDataManager: Failed to track artist play: \(error)")
+            Logger.dataError("Failed to track artist play", error: error)
         }
     }
     
@@ -160,7 +160,7 @@ actor BackgroundDataManager {
                 }
             }
         } catch {
-            print("BackgroundDataManager: Failed to update artist thumbnail: \(error)")
+            Logger.dataError("Failed to update artist thumbnail", error: error)
         }
     }
     
@@ -170,7 +170,7 @@ actor BackgroundDataManager {
     /// Returns true if song is now liked, false if unliked
     func toggleLike(for song: Song) async -> Bool {
         guard let container = container else {
-            print("BackgroundDataManager: Container not configured")
+            Logger.warning("Container not configured", category: .data)
             return false
         }
         
@@ -201,7 +201,7 @@ actor BackgroundDataManager {
                 return true
             }
         } catch {
-            print("BackgroundDataManager: Failed to toggle like: \(error)")
+            Logger.dataError("Failed to toggle like", error: error)
             return false
         }
     }
@@ -209,7 +209,7 @@ actor BackgroundDataManager {
     /// Get all liked song IDs on background context
     func getLikedSongIds() async -> Set<String> {
         guard let container = container else {
-            print("BackgroundDataManager: Container not configured")
+            Logger.warning("Container not configured", category: .data)
             return []
         }
         
@@ -223,7 +223,7 @@ actor BackgroundDataManager {
             let likedSongs = try context.fetch(descriptor)
             return Set(likedSongs.map { $0.videoId })
         } catch {
-            print("BackgroundDataManager: Failed to get liked songs: \(error)")
+            Logger.dataError("Failed to get liked songs", error: error)
             return []
         }
     }

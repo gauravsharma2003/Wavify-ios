@@ -25,6 +25,7 @@ class HomeViewModel {
     var topSongs: [SearchResult] { chartsManager.topSongs }
     var global100Songs: [SearchResult] { chartsManager.global100Songs }
     var us100Songs: [SearchResult] { chartsManager.us100Songs }
+    var languageCharts: [LanguageChart] { chartsManager.languageCharts }
     var hasHistory: Bool = false
     
     private let networkManager = NetworkManager.shared

@@ -246,7 +246,7 @@ class FavouritesManager {
             }
             try context.save()
         } catch {
-            print("Failed to track album play: \(error)")
+            Logger.dataError("Failed to track album play", error: error)
         }
     }
     
@@ -283,7 +283,7 @@ class FavouritesManager {
             }
             try context.save()
         } catch {
-            print("Failed to track artist play: \(error)")
+            Logger.dataError("Failed to track artist play", error: error)
         }
     }
     
@@ -312,7 +312,7 @@ class FavouritesManager {
                 }
             }
         } catch {
-            print("Failed to update artist thumbnail: \(error)")
+            Logger.dataError("Failed to update artist thumbnail", error: error)
         }
     }
     

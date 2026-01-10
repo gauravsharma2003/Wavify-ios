@@ -47,7 +47,7 @@ class PlayCountManager {
             
             try context.save()
         } catch {
-            print("Failed to update play count: \(error)")
+            Logger.dataError("Failed to update play count", error: error)
         }
     }
     
@@ -61,7 +61,7 @@ class PlayCountManager {
             let allSongs = try context.fetch(descriptor)
             return Array(allSongs.prefix(limit))
         } catch {
-            print("Failed to fetch top played songs: \(error)")
+            Logger.dataError("Failed to fetch top played songs", error: error)
             return []
         }
     }
@@ -74,7 +74,7 @@ class PlayCountManager {
             let count = try context.fetchCount(descriptor)
             return count > 0
         } catch {
-            print("Failed to check play history: \(error)")
+            Logger.dataError("Failed to check play history", error: error)
             return false
         }
     }

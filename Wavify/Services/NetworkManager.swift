@@ -74,6 +74,10 @@ class NetworkManager {
         try await browseService.loadPage(endpoint: endpoint)
     }
     
+    func getLanguageCharts() async throws -> [(name: String, playlistId: String, thumbnailUrl: String)] {
+        try await browseService.getLanguageCharts()
+    }
+    
     // MARK: - Album API
     
     func getAlbumDetails(albumId: String) async throws -> AlbumDetail {
@@ -108,7 +112,7 @@ class NetworkManager {
             let location = try JSONDecoder().decode(UserLocation.self, from: data)
             return location
         } catch {
-            print("Location fetch failed: \(error)")
+            Logger.networkError("Location fetch failed", error: error)
             return .fallback
         }
     }

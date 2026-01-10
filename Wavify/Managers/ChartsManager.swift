@@ -10,6 +10,7 @@ class ChartsManager {
     private(set) var topSongs: [SearchResult] = []
     private(set) var global100Songs: [SearchResult] = []
     private(set) var us100Songs: [SearchResult] = []
+    private(set) var languageCharts: [LanguageChart] = []
     
     // Track if we've loaded data at least once
     private(set) var hasLoaded = false
@@ -24,7 +25,7 @@ class ChartsManager {
     
     /// Check if cached data exists
     var hasCachedData: Bool {
-        return !trendingSongs.isEmpty || !global100Songs.isEmpty || !us100Songs.isEmpty
+        return !trendingSongs.isEmpty || !global100Songs.isEmpty || !us100Songs.isEmpty || !languageCharts.isEmpty
     }
     
     /// Check if data needs refresh (older than refresh interval)
@@ -45,8 +46,9 @@ class ChartsManager {
         async let trendingTask = fetchTrendingSongs()
         async let global100Task = fetchPlaylistSongs(playlistId: "PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i")
         async let us100Task = fetchPlaylistSongs(playlistId: "PL4fGSI1pDJn5rIKIW3OMVshdTCVy4a_EL")
+        async let languageChartsTask = fetchLanguageCharts()
         
-        let (trending, global100, us100) = await (trendingTask, global100Task, us100Task)
+        let (trending, global100, us100, langCharts) = await (trendingTask, global100Task, us100Task, languageChartsTask)
         
         // Only update cache if we got valid data (don't clear existing cache on failure)
         if !trending.isEmpty {
@@ -59,9 +61,12 @@ class ChartsManager {
         if !us100.isEmpty {
             self.us100Songs = Array(us100.prefix(30))
         }
+        if !langCharts.isEmpty {
+            self.languageCharts = langCharts
+        }
         
         // Only mark as loaded and update timestamp if we got at least some data
-        if !trending.isEmpty || !global100.isEmpty || !us100.isEmpty {
+        if !trending.isEmpty || !global100.isEmpty || !us100.isEmpty || !langCharts.isEmpty {
             self.hasLoaded = true
             self.lastRefreshTime = Date()
         }
@@ -77,8 +82,9 @@ class ChartsManager {
         async let trendingTask = fetchTrendingSongs()
         async let global100Task = fetchPlaylistSongs(playlistId: "PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i")
         async let us100Task = fetchPlaylistSongs(playlistId: "PL4fGSI1pDJn5rIKIW3OMVshdTCVy4a_EL")
+        async let languageChartsTask = fetchLanguageCharts()
         
-        let (trending, global100, us100) = await (trendingTask, global100Task, us100Task)
+        let (trending, global100, us100, langCharts) = await (trendingTask, global100Task, us100Task, languageChartsTask)
         
         // Only update cache if we got valid data
         var gotData = false
@@ -93,6 +99,10 @@ class ChartsManager {
         }
         if !us100.isEmpty {
             self.us100Songs = Array(us100.prefix(30))
+            gotData = true
+        }
+        if !langCharts.isEmpty {
+            self.languageCharts = langCharts
             gotData = true
         }
         
@@ -117,7 +127,7 @@ class ChartsManager {
             }
             return explorePage.sections.first?.items ?? []
         } catch {
-            print("ChartsManager: Trending fetch failed: \(error)")
+            Logger.error("Trending fetch failed", category: .charts, error: error)
             return []
         }
     }
@@ -138,7 +148,52 @@ class ChartsManager {
                 )
             }
         } catch {
-            print("ChartsManager: Playlist \(playlistId) fetch failed: \(error)")
+            Logger.error("Playlist \(playlistId) fetch failed", category: .charts, error: error)
+            return []
+        }
+    }
+    
+    /// Fetch language charts dynamically from FEmusic_charts API
+    private func fetchLanguageCharts() async -> [LanguageChart] {
+        do {
+            let chartsData = try await networkManager.getLanguageCharts()
+            
+            // Fetch first 3 songs for each language chart concurrently
+            var charts: [LanguageChart] = []
+            
+            await withTaskGroup(of: LanguageChart?.self) { group in
+                for chartInfo in chartsData {
+                    group.addTask {
+                        // Remove VL prefix if present for fetchPlaylistSongs
+                        let playlistId = chartInfo.playlistId.hasPrefix("VL") 
+                            ? String(chartInfo.playlistId.dropFirst(2)) 
+                            : chartInfo.playlistId
+                        
+                        let songs = await self.fetchPlaylistSongs(playlistId: playlistId)
+                        let first3Songs = Array(songs.prefix(3))
+                        
+                        // Use the chart's own thumbnail from API (not first song)
+                        return LanguageChart(
+                            id: chartInfo.playlistId,
+                            name: chartInfo.name,
+                            playlistId: chartInfo.playlistId,
+                            thumbnailUrl: chartInfo.thumbnailUrl,
+                            songs: first3Songs
+                        )
+                    }
+                }
+                
+                for await chart in group {
+                    if let chart = chart, !chart.songs.isEmpty {
+                        charts.append(chart)
+                    }
+                }
+            }
+            
+            // Sort to maintain consistent order
+            return charts.sorted { $0.name < $1.name }
+        } catch {
+            Logger.error("Language charts fetch failed", category: .charts, error: error)
             return []
         }
     }

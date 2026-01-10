@@ -121,7 +121,7 @@ class LyricsService {
             return nil
             
         } catch {
-            print("LrcLib fetch error: \(error)")
+            Logger.error("LrcLib fetch error", category: .lyrics, error: error)
             return nil
         }
     }
@@ -202,7 +202,7 @@ class LyricsService {
             return nil
             
         } catch {
-            print("KuGou fetch error: \(error)")
+            Logger.error("KuGou fetch error", category: .lyrics, error: error)
             return nil
         }
     }

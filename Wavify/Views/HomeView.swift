@@ -93,6 +93,25 @@ struct HomeView: View {
                                     onAddToQueue: handleAddToQueue
                                 )
                             }
+                            
+                            // Language Charts Carousel (for users with history - before trending)
+                            if viewModel.hasHistory && !viewModel.languageCharts.isEmpty {
+                                LanguageChartsCarouselView(
+                                    charts: viewModel.languageCharts,
+                                    audioPlayer: audioPlayer,
+                                    likedSongIds: likedSongIds,
+                                    queueSongIds: audioPlayer.userQueueIds,
+                                    onPlaylistTap: { chart in
+                                        navigationManager.homePath.append(
+                                            NavigationDestination.playlist(chart.playlistId, chart.displayName, chart.thumbnailUrl)
+                                        )
+                                    },
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
+                                )
+                            }
 
                             // Chart Sections (With History - shown after personalized content)
                             if viewModel.hasHistory {
@@ -257,6 +276,25 @@ struct HomeView: View {
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 onSongTap: handleResultTap,
+                onAddToPlaylist: handleAddToPlaylist,
+                onToggleLike: handleToggleLike,
+                onPlayNext: handlePlayNext,
+                onAddToQueue: handleAddToQueue
+            )
+        }
+        
+        // Language Charts Carousel (for new users - after Global Top 100)
+        if !viewModel.hasHistory && !viewModel.languageCharts.isEmpty {
+            LanguageChartsCarouselView(
+                charts: viewModel.languageCharts,
+                audioPlayer: audioPlayer,
+                likedSongIds: likedSongIds,
+                queueSongIds: audioPlayer.userQueueIds,
+                onPlaylistTap: { chart in
+                    navigationManager.homePath.append(
+                        NavigationDestination.playlist(chart.playlistId, chart.displayName, chart.thumbnailUrl)
+                    )
+                },
                 onAddToPlaylist: handleAddToPlaylist,
                 onToggleLike: handleToggleLike,
                 onPlayNext: handlePlayNext,

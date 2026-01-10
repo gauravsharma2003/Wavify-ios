@@ -388,7 +388,7 @@ struct AlbumDetailView: View {
         do {
             albumDetail = try await networkManager.getAlbumDetails(albumId: albumId)
         } catch {
-            print("Failed to load album: \(error)")
+            Logger.networkError("Failed to load album", error: error)
         }
         isLoading = false
     }

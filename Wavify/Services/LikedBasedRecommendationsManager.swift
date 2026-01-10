@@ -114,7 +114,7 @@ class LikedBasedRecommendationsManager {
         do {
             return try context.fetch(descriptor)
         } catch {
-            print("Failed to fetch liked songs: \(error)")
+            Logger.dataError("Failed to fetch liked songs", error: error)
             return []
         }
     }
