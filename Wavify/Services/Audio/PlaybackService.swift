@@ -53,7 +53,7 @@ class PlaybackService {
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetooth])
+            try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
         } catch {
             Logger.error("Failed to setup audio session", category: .playback, error: error)

@@ -43,6 +43,7 @@ struct HomeView: View {
                                     items: viewModel.favouriteItems,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
+                                    namespace: chartHeroAnimation,
                                     onItemTap: handleResultTap,
                                     onAddToPlaylist: handleAddToPlaylist,
                                     onToggleLike: handleToggleLike,

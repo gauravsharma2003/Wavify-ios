@@ -72,20 +72,25 @@ struct ItemCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
                 // Image
-                CachedAsyncImagePhase(url: URL(string: highQualityThumbnailUrl)) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else if phase.error != nil {
-                        Color.gray.opacity(0.3)
-                    } else {
-                        Color.gray.opacity(0.3)
+                ZStack {
+                    if item.type == .album || item.type == .playlist {
+                        Color(white: 0.1) // Stable background
+                    }
+                    CachedAsyncImagePhase(url: URL(string: highQualityThumbnailUrl)) { phase in
+                        if let image = phase.image {
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else if phase.error != nil {
+                            Color.gray.opacity(0.3)
+                        } else {
+                            Color.gray.opacity(0.3)
+                        }
                     }
                 }
                 .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                .matchedTransitionSource(id: item.id, in: namespace)
+                .matchedTransitionSource(id: (item.type == .album || item.type == .playlist) ? item.id : "non_hero_\(item.id)", in: namespace)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
                 // Text
