@@ -260,6 +260,10 @@ class FavouritesManager {
     }
     
     func trackArtistPlay(artistId: String, name: String, thumbnailUrl: String, in context: ModelContext) {
+        // Only store proper artist thumbnails, not song/video thumbnails
+        // Song thumbnails (i.ytimg.com) should not be used for artist images
+        let thumbnailToStore = isArtistThumbnail(thumbnailUrl) ? thumbnailUrl : ""
+        
         let descriptor = FetchDescriptor<ArtistPlayCount>(
             predicate: #Predicate { $0.artistId == artistId }
         )
@@ -269,7 +273,7 @@ class FavouritesManager {
             if let artist = existing.first {
                 artist.incrementPlayCount()
                 // Update thumbnail if we're given a proper artist thumbnail
-                // (previous thumbnail might have been a song thumbnail)
+                // and current thumbnail is empty or was a song thumbnail
                 if isArtistThumbnail(thumbnailUrl) && !isArtistThumbnail(artist.thumbnailUrl) {
                     artist.thumbnailUrl = thumbnailUrl
                 }
@@ -277,7 +281,7 @@ class FavouritesManager {
                 let newArtist = ArtistPlayCount(
                     artistId: artistId,
                     name: name,
-                    thumbnailUrl: thumbnailUrl
+                    thumbnailUrl: thumbnailToStore  // Empty if not a proper artist image
                 )
                 context.insert(newArtist)
             }
@@ -302,8 +306,8 @@ class FavouritesManager {
         do {
             let existing = try context.fetch(descriptor)
             if let artist = existing.first {
-                // Only update if current thumbnail is NOT a proper artist image
-                if !isArtistThumbnail(artist.thumbnailUrl) {
+                // Always update to the fresh thumbnail from the artist page
+                if artist.thumbnailUrl != correctThumbnailUrl {
                     artist.thumbnailUrl = correctThumbnailUrl
                     try context.save()
                     
@@ -317,7 +321,8 @@ class FavouritesManager {
     }
     
     /// Update the cached favourites with the correct thumbnail URL
-    private func refreshCachedFavouritesThumbnail(artistId: String, newThumbnailUrl: String) {
+    /// Called when a background fetch retrieves the correct artist thumbnail
+    func refreshCachedFavouritesThumbnail(artistId: String, newThumbnailUrl: String) {
         // Update in-memory favourites
         if let index = favourites.firstIndex(where: { $0.id == artistId && $0.type == .artist }) {
             let old = favourites[index]

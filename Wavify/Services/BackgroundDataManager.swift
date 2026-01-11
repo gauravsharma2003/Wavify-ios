@@ -103,6 +103,7 @@ actor BackgroundDataManager {
     }
     
     /// Track artist play on background context
+    /// Always fetches the correct artist thumbnail from API (song thumbnails are never reliable)
     func trackArtistPlay(artistId: String, name: String, thumbnailUrl: String) async {
         guard let container = container else {
             Logger.warning("Container not configured", category: .data)
@@ -120,22 +121,89 @@ actor BackgroundDataManager {
             
             if let artistCount = existing.first {
                 artistCount.incrementPlayCount()
-                // Update thumbnail if provided and different
-                if !thumbnailUrl.isEmpty && artistCount.thumbnailUrl != thumbnailUrl {
-                    artistCount.thumbnailUrl = thumbnailUrl
+                
+                // If existing thumbnail is empty, fetch from API
+                if artistCount.thumbnailUrl.isEmpty {
+                    let capturedArtistId = artistId
+                    Task.detached(priority: .background) { [weak self] in
+                        if let correctThumbnail = await self?.fetchArtistThumbnail(artistId: capturedArtistId) {
+                            await self?.updateStoredArtistThumbnail(artistId: capturedArtistId, thumbnailUrl: correctThumbnail)
+                        }
+                    }
                 }
             } else {
+                // New artist - always fetch from API, never trust song thumbnail
                 let newArtistCount = ArtistPlayCount(
                     artistId: artistId,
                     name: name,
-                    thumbnailUrl: thumbnailUrl
+                    thumbnailUrl: ""  // Start empty, fetch proper image from API
                 )
                 context.insert(newArtistCount)
+                
+                // Fetch correct artist thumbnail in background
+                let capturedArtistId = artistId
+                Task.detached(priority: .background) { [weak self] in
+                    if let correctThumbnail = await self?.fetchArtistThumbnail(artistId: capturedArtistId) {
+                        await self?.updateStoredArtistThumbnail(artistId: capturedArtistId, thumbnailUrl: correctThumbnail)
+                    }
+                }
             }
             
             try context.save()
         } catch {
             Logger.dataError("Failed to track artist play", error: error)
+        }
+    }
+    
+    /// Check if a thumbnail URL is a proper artist image (not a song/video thumbnail)
+    private func isProperArtistThumbnail(_ url: String) -> Bool {
+        guard !url.isEmpty else { return false }
+        // Song/video thumbnails use i.ytimg.com
+        // Artist thumbnails use googleusercontent.com or ggpht.com
+        return !url.contains("i.ytimg.com") && 
+               (url.contains("googleusercontent.com") || url.contains("ggpht.com"))
+    }
+    
+    /// Fetch just the artist thumbnail from API
+    /// Returns nil if fetch fails
+    private func fetchArtistThumbnail(artistId: String) async -> String? {
+        do {
+            let artistDetail = try await NetworkManager.shared.getArtistDetails(browseId: artistId)
+            let thumbnail = artistDetail.thumbnailUrl
+            
+            // Verify it's a proper artist thumbnail
+            if isProperArtistThumbnail(thumbnail) {
+                return thumbnail
+            }
+        } catch {
+            Logger.networkError("Failed to fetch artist thumbnail for favourites", error: error)
+        }
+        return nil
+    }
+    
+    /// Update stored artist thumbnail in the database
+    /// Also refreshes the in-memory FavouritesManager cache
+    private func updateStoredArtistThumbnail(artistId: String, thumbnailUrl: String) async {
+        guard let container = container else { return }
+        
+        let context = ModelContext(container)
+        
+        let descriptor = FetchDescriptor<ArtistPlayCount>(
+            predicate: #Predicate { $0.artistId == artistId }
+        )
+        
+        do {
+            if let artistCount = try context.fetch(descriptor).first {
+                artistCount.thumbnailUrl = thumbnailUrl
+                try context.save()
+                
+                // Also update the in-memory favourites cache
+                await MainActor.run {
+                    FavouritesManager.shared.refreshCachedFavouritesThumbnail(artistId: artistId, newThumbnailUrl: thumbnailUrl)
+                }
+            }
+        } catch {
+            Logger.dataError("Failed to update stored artist thumbnail", error: error)
         }
     }
     

@@ -17,7 +17,8 @@ class HomeViewModel {
     var isLoading = false
     var recommendedSongs: [SearchResult] = []
     var keepListeningSongs: [SearchResult] = []
-    var favouriteItems: [SearchResult] = []
+    // Computed property that always returns the latest favourites from FavouritesManager
+    var favouriteItems: [SearchResult] { FavouritesManager.shared.favourites }
     var likedBasedRecommendations: [SearchResult] = []
     
     // Chart sections (computed from ChartsManager cache)
@@ -67,7 +68,8 @@ class HomeViewModel {
                 // Yield between operations to keep UI responsive
                 await Task.yield()
                 
-                self.favouriteItems = self.favouritesManager.refreshFavourites(in: modelContext)
+                // Refresh favourites in FavouritesManager (computed property will pick it up)
+                _ = self.favouritesManager.refreshFavourites(in: modelContext)
                 
                 await Task.yield()
                 
@@ -96,7 +98,7 @@ class HomeViewModel {
         let hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
         if hasHistory {
             keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
-            favouriteItems = favouritesManager.refreshFavourites(in: modelContext)
+            _ = favouritesManager.refreshFavourites(in: modelContext)
             recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
             likedBasedRecommendations = await likedBasedRecommendationsManager.refreshRecommendations(in: modelContext)
         }
@@ -114,7 +116,8 @@ class HomeViewModel {
     }
     
     func loadCachedFavourites() {
-        favouriteItems = favouritesManager.favourites
+        // No-op: favouriteItems is now a computed property from FavouritesManager
+        // FavouritesManager loads cached data on init
     }
     
     func loadCachedLikedBasedRecommendations() {
