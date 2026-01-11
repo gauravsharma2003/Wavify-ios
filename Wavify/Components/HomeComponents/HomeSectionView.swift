@@ -10,6 +10,7 @@ import SwiftUI
 // MARK: - Home Section View
 struct HomeSectionView: View {
     let section: HomeSection
+    let namespace: Namespace.ID
     let onResultTap: (SearchResult) -> Void
     
     var body: some View {
@@ -33,9 +34,13 @@ struct HomeSectionView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 16) {
                     ForEach(section.items) { item in
-                        ItemCard(item: item) {
-                            onResultTap(item)
-                        }
+                        ItemCard(
+                            item: item,
+                            namespace: namespace,
+                            onTap: {
+                                onResultTap(item)
+                            }
+                        )
                     }
                 }
                 .padding(.horizontal)
@@ -47,6 +52,7 @@ struct HomeSectionView: View {
 // MARK: - Item Card (Standard carousel card)
 struct ItemCard: View {
     let item: SearchResult
+    let namespace: Namespace.ID
     let onTap: () -> Void
     
     // Helper to get high quality image
@@ -79,6 +85,7 @@ struct ItemCard: View {
                 }
                 .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .matchedTransitionSource(id: item.id, in: namespace)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
                 // Text

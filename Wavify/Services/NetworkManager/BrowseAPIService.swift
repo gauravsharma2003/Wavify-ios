@@ -86,6 +86,132 @@ final class BrowseAPIService {
         return try parseLanguageCharts(data)
     }
     
+    /// Get playlists from a random category (excluding podcasts) from the explore page
+    /// Returns the category name and an array of playlists from that category
+    func getRandomCategoryPlaylists() async throws -> (categoryName: String, playlists: [CategoryPlaylist]) {
+        let body: [String: Any] = [
+            "browseId": "FEmusic_explore",
+            "context": YouTubeAPIContext.webContext
+        ]
+        
+        let request = try requestManager.createRequest(
+            endpoint: "browse",
+            body: body,
+            headers: YouTubeAPIContext.webHeaders
+        )
+        
+        let data = try await requestManager.execute(request, deduplicationKey: "browse_FEmusic_explore_categories")
+        return try parseRandomCategoryPlaylists(data)
+    }
+    
+    /// Parse random category playlists from explore page
+    private nonisolated func parseRandomCategoryPlaylists(_ data: Data) throws -> (categoryName: String, playlists: [CategoryPlaylist]) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+              let tabs = singleColumn["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabContent = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabContent["content"] as? [String: Any],
+              let sectionList = content["sectionListRenderer"] as? [String: Any],
+              let sectionContents = sectionList["contents"] as? [[String: Any]] else {
+            throw YouTubeMusicError.parseError("Invalid explore response")
+        }
+        
+        // Collect all valid category sections (with playlists/albums, excluding podcasts)
+        var validCategories: [(name: String, playlists: [CategoryPlaylist])] = []
+        
+        for section in sectionContents {
+            if let carousel = section["musicCarouselShelfRenderer"] as? [String: Any],
+               let header = carousel["header"] as? [String: Any],
+               let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
+               let titleData = basicHeader["title"] as? [String: Any],
+               let runs = titleData["runs"] as? [[String: Any]],
+               let firstRun = runs.first,
+               let sectionTitle = firstRun["text"] as? String {
+                
+                let titleLower = sectionTitle.lowercased()
+                
+                // Only skip podcasts - we want variety in content
+                if titleLower.contains("podcast") {
+                    continue
+                }
+                
+                // Parse items from this section
+                if let carouselContents = carousel["contents"] as? [[String: Any]] {
+                    var playlists: [CategoryPlaylist] = []
+                    
+                    for item in carouselContents {
+                        if let twoRowItem = item["musicTwoRowItemRenderer"] as? [String: Any],
+                           let itemTitle = twoRowItem["title"] as? [String: Any],
+                           let itemRuns = itemTitle["runs"] as? [[String: Any]],
+                           let firstItemRun = itemRuns.first,
+                           let name = firstItemRun["text"] as? String,
+                           let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any],
+                           let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                           let browseId = browseEndpoint["browseId"] as? String {
+                            
+                            // Accept playlists (VL, RDCLAK, PL) and albums (MPREb) - skip artists (UC) and channels
+                            let isAlbum = browseId.hasPrefix("MPREb")
+                            let isPlaylistOrAlbum = browseId.hasPrefix("VL") || 
+                                                    browseId.hasPrefix("RDCLAK") || 
+                                                    browseId.contains("PL") ||
+                                                    isAlbum
+                            guard isPlaylistOrAlbum else { continue }
+                            
+                            // Extract subtitle - combine all runs for full subtitle text
+                            var subtitle: String? = nil
+                            if let subtitleData = twoRowItem["subtitle"] as? [String: Any],
+                               let subtitleRuns = subtitleData["runs"] as? [[String: Any]] {
+                                // Combine all subtitle runs to get full text (e.g., "Artist • Album")
+                                let subtitleParts = subtitleRuns.compactMap { $0["text"] as? String }
+                                let fullSubtitle = subtitleParts.joined()
+                                if !fullSubtitle.isEmpty {
+                                    subtitle = fullSubtitle
+                                }
+                            }
+                            
+                            // Extract thumbnail
+                            var thumbnailUrl = ""
+                            if let thumbRenderer = twoRowItem["thumbnailRenderer"] as? [String: Any],
+                               let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any],
+                               let thumbnail = musicThumb["thumbnail"] as? [String: Any],
+                               let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
+                               let lastThumb = thumbnails.last,
+                               let url = lastThumb["url"] as? String {
+                                thumbnailUrl = url
+                            }
+                            
+                            playlists.append(CategoryPlaylist(
+                                id: browseId,
+                                name: name,
+                                thumbnailUrl: thumbnailUrl,
+                                playlistId: browseId,
+                                subtitle: subtitle,
+                                isAlbum: isAlbum
+                            ))
+                        }
+                    }
+                    
+                    // Only add if we have items
+                    if !playlists.isEmpty {
+                        validCategories.append((name: sectionTitle, playlists: playlists))
+                    }
+                }
+            }
+        }
+        
+        // Pick a random category
+        guard !validCategories.isEmpty else {
+            throw YouTubeMusicError.noResults
+        }
+        
+        let randomIndex = Int.random(in: 0..<validCategories.count)
+        let selectedCategory = validCategories[randomIndex]
+        
+        return (categoryName: selectedCategory.name, playlists: selectedCategory.playlists)
+    }
+    
     /// Parse language charts from the "Languages" section of FEmusic_charts response
     private nonisolated func parseLanguageCharts(_ data: Data) throws -> [(name: String, playlistId: String, thumbnailUrl: String)] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

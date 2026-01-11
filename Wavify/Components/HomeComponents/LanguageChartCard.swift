@@ -11,6 +11,7 @@ import SwiftData
 
 struct LanguageChartCard: View {
     let chart: LanguageChart
+    let namespace: Namespace.ID
     let onCardTap: () -> Void
     let onSongTap: (Int) -> Void  // Index of song in playlist
     let onPlayTap: () -> Void
@@ -89,6 +90,7 @@ struct LanguageChartCard: View {
             }
             .frame(width: 100, height: 100)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .matchedTransitionSource(id: chart.playlistId, in: namespace)
             
             // Playlist name and info - vertically centered
             VStack(alignment: .leading, spacing: 4) {
@@ -190,26 +192,26 @@ struct LanguageChartCard: View {
     // MARK: - Action Buttons
     
     private var actionButtons: some View {
-        HStack(spacing: 16) {
-            // Save button (left) - icon only, rounded
+        HStack {
+            Spacer()
+            
+            // Save button - next to Play
             Button(action: {
                 toggleSavePlaylist()
             }) {
                 Image(systemName: isSaved ? "checkmark.circle.fill" : "plus")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(isSaved ? .green : .white)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 44)
             }
             .glassEffect(.regular.interactive(), in: .circle)
             
-            Spacer()
-            
-            // Play button (right) - icon only, rounded
+            // Play button (rightmost)
             Button(action: onPlayTap) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 44)
             }
             .glassEffect(.regular.interactive(), in: .circle)
         }

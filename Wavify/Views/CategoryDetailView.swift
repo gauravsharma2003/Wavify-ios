@@ -11,6 +11,7 @@ import SwiftData
 struct CategoryDetailView: View {
     let title: String
     let endpoint: BrowseEndpoint
+    let namespace: Namespace.ID
     var audioPlayer: AudioPlayer
     
     @Environment(\.dismiss) private var dismiss
@@ -31,7 +32,7 @@ struct CategoryDetailView: View {
                 ScrollView {
                     LazyVStack(spacing: 24) {
                         ForEach(page.sections) { section in
-                            HomeSectionView(section: section) { result in
+                            HomeSectionView(section: section, namespace: namespace) { result in
                                 handleResultTap(result)
                             }
                         }

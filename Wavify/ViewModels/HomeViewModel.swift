@@ -29,12 +29,17 @@ class HomeViewModel {
     var languageCharts: [LanguageChart] { chartsManager.languageCharts }
     var hasHistory: Bool = false
     
+    // Random category section (computed from RandomCategoryManager cache)
+    var randomCategoryName: String { randomCategoryManager.currentCategoryName }
+    var randomCategoryPlaylists: [CategoryPlaylist] { randomCategoryManager.categoryPlaylists }
+    
     private let networkManager = NetworkManager.shared
     private let recommendationsManager = RecommendationsManager.shared
     private let keepListeningManager = KeepListeningManager.shared
     private let favouritesManager = FavouritesManager.shared
     private let chartsManager = ChartsManager.shared
     private let likedBasedRecommendationsManager = LikedBasedRecommendationsManager.shared
+    private let randomCategoryManager = RandomCategoryManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
         // Always show loading on fresh start
@@ -48,9 +53,19 @@ class HomeViewModel {
         
         hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
         
-        // 2. Load charts and home data
-        if !chartsManager.hasCachedData {
-            await chartsManager.refreshInBackground()
+        // 2. Load charts and random category data in parallel
+        let needsChartsRefresh = !chartsManager.hasCachedData
+        
+        await withTaskGroup(of: Void.self) { group in
+            if needsChartsRefresh {
+                group.addTask { @MainActor in
+                    await self.chartsManager.refreshInBackground()
+                }
+            }
+            
+            group.addTask { @MainActor in
+                await self.randomCategoryManager.refreshInBackground()
+            }
         }
         
         await loadHome()
@@ -105,6 +120,9 @@ class HomeViewModel {
         
         // Force refresh charts on pull-to-refresh
         await chartsManager.forceRefresh()
+        
+        // Force refresh random category
+        await randomCategoryManager.forceRefresh()
     }
     
     func loadCachedRecommendations() {

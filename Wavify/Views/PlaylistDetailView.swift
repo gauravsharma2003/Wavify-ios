@@ -62,9 +62,25 @@ struct PlaylistDetailView: View {
                         actionButtons
                         songList
                     } else {
-                        Text("No songs found")
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 40)
+                        // Empty state - graceful full-width display
+                        VStack(spacing: 16) {
+                            Image(systemName: "music.note.list")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.white.opacity(0.4))
+                            
+                            Text("No songs found")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            
+                            Text("This playlist may be empty or unavailable")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                        .padding(.bottom, 200)
+                        .padding(.horizontal, 40)
                     }
                 }
             }

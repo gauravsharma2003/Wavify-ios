@@ -26,6 +26,13 @@ struct ArtistDetailView: View {
     @State private var selectedSongForPlaylist: Song?
     @State private var likedSongIds: Set<String> = []
     
+    // Hero animation namespace for albums
+    @Namespace private var artistHeroAnimation
+    
+    // Cooldown to prevent rapid re-open of same item (prevents animation glitch)
+    @State private var lastClosedItemId: String?
+    @State private var lastClosedTime: Date?
+    
     private let networkManager = NetworkManager.shared
     
     var body: some View {
@@ -371,7 +378,14 @@ struct ArtistDetailView: View {
     }
     
     private func albumCard(_ item: ArtistItem) -> some View {
-        NavigationLink {
+        // Check if this item is in cooldown (recently closed)
+        let isInCooldown: Bool = {
+            guard lastClosedItemId == item.id,
+                  let closedTime = lastClosedTime else { return false }
+            return Date().timeIntervalSince(closedTime) < 0.8 // 800ms cooldown
+        }()
+        
+        return NavigationLink {
             if let browseId = item.browseId {
                 AlbumDetailView(
                     albumId: browseId,
@@ -380,19 +394,29 @@ struct ArtistDetailView: View {
                     initialThumbnail: item.thumbnailUrl,
                     audioPlayer: audioPlayer
                 )
+                .navigationTransition(.zoom(sourceID: item.id, in: artistHeroAnimation))
+                .onDisappear {
+                    // Track when this item's detail view closes
+                    lastClosedItemId = item.id
+                    lastClosedTime = Date()
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        Rectangle().fill(Color.gray.opacity(0.3))
+                ZStack {
+                    Color(white: 0.1) // Stable background
+                    CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            Color.clear // Use clear here as background provides the color
+                        }
                     }
                 }
                 .frame(width: 140, height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
                 
                 Text(item.title)
                     .font(.system(size: 14))
@@ -408,6 +432,7 @@ struct ArtistDetailView: View {
             }
         }
         .buttonStyle(.plain)
+        .allowsHitTesting(!isInCooldown) // Disable taps during cooldown
     }
     
     // Similar Artists: Circular profiles

@@ -20,6 +20,11 @@ struct LibraryView: View {
     @State private var showingCreatePlaylist = false
     @State private var newPlaylistName = ""
     
+    // Hero animation namespace for library
+    @Namespace private var libraryHeroAnimation
+    
+
+    
     enum LibrarySection: String, CaseIterable {
         case playlists = "Playlists"
         case liked = "Liked"
@@ -121,6 +126,7 @@ struct LibraryView: View {
                     CategoryDetailView(
                         title: title,
                         endpoint: endpoint,
+                        namespace: libraryHeroAnimation,
                         audioPlayer: audioPlayer
                     )
                 }

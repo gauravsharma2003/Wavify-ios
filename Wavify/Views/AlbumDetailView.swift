@@ -86,6 +86,9 @@ struct AlbumDetailView: View {
                 } else if isUserCreatedPlaylist && !isLoading {
                     // Empty state for user-created playlists with no songs
                     emptyPlaylistState
+                } else if !isLoading {
+                    // Empty state for remote albums with no songs
+                    remoteEmptyState
                 }
             }
             .padding(.top, 20)
@@ -345,6 +348,29 @@ struct AlbumDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
+    }
+    
+    // MARK: - Remote Album Empty State
+    
+    private var remoteEmptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 48))
+                .foregroundStyle(.white.opacity(0.4))
+            
+            Text("No songs found")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.secondary)
+            
+            Text("This album may be empty or unavailable")
+                .font(.system(size: 14))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
+        .padding(.bottom, 200)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - Actions

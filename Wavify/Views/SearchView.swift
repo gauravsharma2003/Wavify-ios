@@ -21,6 +21,13 @@ struct SearchView: View {
     @State private var selectedSongForPlaylist: Song?
     @State private var likedSongIds: Set<String> = []
     
+    // Hero animation namespace for search
+    @Namespace private var searchHeroAnimation
+    
+    // Cooldown to prevent rapid re-open of same item
+    @State private var lastClosedItemId: String?
+    @State private var lastClosedTime: Date?
+    
     var body: some View {
         NavigationStack(path: $navigationManager.searchPath) {
             ZStack {
@@ -124,6 +131,10 @@ struct SearchView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                    .navigationTransition(.zoom(sourceID: id, in: searchHeroAnimation))
+                    .onDisappear {
+                        NavigationManager.shared.recordClose(id: id)
+                    }
                 case .song(_):
                     EmptyView()
                 case .playlist(let id, let name, let thumbnail):
@@ -133,10 +144,15 @@ struct SearchView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                    .navigationTransition(.zoom(sourceID: id, in: searchHeroAnimation))
+                    .onDisappear {
+                        NavigationManager.shared.recordClose(id: id)
+                    }
                 case .category(let title, let endpoint):
                     CategoryDetailView(
                         title: title,
                         endpoint: endpoint,
+                        namespace: searchHeroAnimation,
                         audioPlayer: audioPlayer
                     )
                 }
@@ -601,6 +617,12 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(albums) { album in
+                    let isInCooldown: Bool = {
+                        guard lastClosedItemId == album.id,
+                              let closedTime = lastClosedTime else { return false }
+                        return Date().timeIntervalSince(closedTime) < 0.8
+                    }()
+                    
                     NavigationLink {
                         AlbumDetailView(
                             albumId: album.id,
@@ -609,27 +631,30 @@ struct SearchView: View {
                             initialThumbnail: album.thumbnailUrl,
                             audioPlayer: audioPlayer
                         )
+                        .navigationTransition(.zoom(sourceID: album.id, in: searchHeroAnimation))
+                        .onDisappear {
+                            lastClosedItemId = album.id
+                            lastClosedTime = Date()
+                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            CachedAsyncImagePhase(url: URL(string: album.thumbnailUrl)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                default:
-                                    Rectangle()
-                                        .fill(Color(white: 0.15))
-                                        .overlay {
-                                            Image(systemName: "music.note.list")
-                                                .font(.system(size: 32))
-                                                .foregroundStyle(.secondary)
-                                        }
+                            ZStack {
+                                Color(white: 0.1) // Stable background
+                                CachedAsyncImagePhase(url: URL(string: album.thumbnailUrl)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    default:
+                                        Color.clear
+                                    }
                                 }
                             }
                             .aspectRatio(1, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            .matchedTransitionSource(id: album.id, in: searchHeroAnimation)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.name)
@@ -645,6 +670,7 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
+                    .allowsHitTesting(!isInCooldown)
                 }
             }
             .padding(.horizontal)
@@ -666,6 +692,12 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(playlists) { playlist in
+                    let isInCooldown: Bool = {
+                        guard lastClosedItemId == playlist.id,
+                              let closedTime = lastClosedTime else { return false }
+                        return Date().timeIntervalSince(closedTime) < 0.8
+                    }()
+                    
                     NavigationLink {
                         PlaylistDetailView(
                             playlistId: playlist.id,
@@ -673,31 +705,31 @@ struct SearchView: View {
                             initialThumbnail: playlist.thumbnailUrl,
                             audioPlayer: audioPlayer
                         )
+                        .navigationTransition(.zoom(sourceID: playlist.id, in: searchHeroAnimation))
+                        .onDisappear {
+                            lastClosedItemId = playlist.id
+                            lastClosedTime = Date()
+                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            Color.clear
-                                .aspectRatio(1, contentMode: .fit)
-                                .overlay {
-                                    CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
-                                        switch phase {
-                                        case .success(let image):
-                                            image
-                                                .resizable()
-                                                .aspectRatio(contentMode: .fill)
-                                        default:
-                                            Rectangle()
-                                                .fill(Color(white: 0.15))
-                                                .overlay {
-                                                    Image(systemName: "music.note.list")
-                                                        .font(.system(size: 32))
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                        }
+                            ZStack {
+                                Color(white: 0.1) // Stable background
+                                CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    default:
+                                        Color.clear
                                     }
                                 }
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            }
+                            .aspectRatio(1, contentMode: .fit)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playlist.name)
@@ -713,6 +745,7 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
+                    .allowsHitTesting(!isInCooldown)
                 }
             }
             .padding(.horizontal)

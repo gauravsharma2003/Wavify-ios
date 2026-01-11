@@ -28,6 +28,24 @@ class NavigationManager {
     var selectedTab = 0
     var showNowPlaying = false
     
+    // Cooldown to prevent rapid re-navigation to same item (prevents zoom transition glitch)
+    private var lastNavigatedId: String?
+    private var lastNavigatedTime: Date?
+    private let cooldownDuration: TimeInterval = 0.8
+    
+    /// Check if an item is in cooldown (was recently navigated away from)
+    func isInCooldown(id: String) -> Bool {
+        guard lastNavigatedId == id,
+              let lastTime = lastNavigatedTime else { return false }
+        return Date().timeIntervalSince(lastTime) < cooldownDuration
+    }
+    
+    /// Record that a destination was closed
+    func recordClose(id: String) {
+        lastNavigatedId = id
+        lastNavigatedTime = Date()
+    }
+    
     func navigateToArtist(id: String, name: String, thumbnail: String) {
         // Dismiss player if open
         showNowPlaying = false
@@ -48,6 +66,9 @@ class NavigationManager {
     }
     
     func navigateToAlbum(id: String, name: String, artist: String, thumbnail: String) {
+        // Skip if in cooldown
+        guard !isInCooldown(id: id) else { return }
+        
         // Dismiss player if open
         showNowPlaying = false
         
@@ -67,6 +88,9 @@ class NavigationManager {
     }
     
     func navigateToPlaylist(id: String, name: String, thumbnail: String) {
+        // Skip if in cooldown
+        guard !isInCooldown(id: id) else { return }
+        
         // Dismiss player if open
         showNowPlaying = false
         

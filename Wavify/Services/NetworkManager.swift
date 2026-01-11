@@ -78,6 +78,10 @@ class NetworkManager {
         try await browseService.getLanguageCharts()
     }
     
+    func getRandomCategoryPlaylists() async throws -> (categoryName: String, playlists: [CategoryPlaylist]) {
+        try await browseService.getRandomCategoryPlaylists()
+    }
+    
     // MARK: - Album API
     
     func getAlbumDetails(albumId: String) async throws -> AlbumDetail {

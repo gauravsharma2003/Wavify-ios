@@ -13,6 +13,7 @@ struct LanguageChartsCarouselView: View {
     var audioPlayer: AudioPlayer
     let likedSongIds: Set<String>
     let queueSongIds: Set<String>
+    let namespace: Namespace.ID
     let onPlaylistTap: (LanguageChart) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
@@ -43,6 +44,7 @@ struct LanguageChartsCarouselView: View {
                     ForEach(charts) { chart in
                         LanguageChartCard(
                             chart: chart,
+                            namespace: namespace,
                             onCardTap: {
                                 onPlaylistTap(chart)
                             },

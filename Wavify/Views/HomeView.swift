@@ -19,6 +19,9 @@ struct HomeView: View {
     @State private var selectedSongForPlaylist: Song?
     @State private var likedSongIds: Set<String> = []
     
+    // Hero animation namespace for chart cards
+    @Namespace private var chartHeroAnimation
+    
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
             ZStack {
@@ -94,22 +97,24 @@ struct HomeView: View {
                                 )
                             }
                             
-                            // Language Charts Carousel (for users with history - before trending)
-                            if viewModel.hasHistory && !viewModel.languageCharts.isEmpty {
-                                LanguageChartsCarouselView(
-                                    charts: viewModel.languageCharts,
+                            // Random Category Playlists (for users with history - before trending)
+                            if viewModel.hasHistory && !viewModel.randomCategoryPlaylists.isEmpty {
+                                RandomCategoryCarouselView(
+                                    categoryName: viewModel.randomCategoryName,
+                                    playlists: viewModel.randomCategoryPlaylists,
                                     audioPlayer: audioPlayer,
-                                    likedSongIds: likedSongIds,
-                                    queueSongIds: audioPlayer.userQueueIds,
-                                    onPlaylistTap: { chart in
-                                        navigationManager.homePath.append(
-                                            NavigationDestination.playlist(chart.playlistId, chart.displayName, chart.thumbnailUrl)
-                                        )
-                                    },
-                                    onAddToPlaylist: handleAddToPlaylist,
-                                    onToggleLike: handleToggleLike,
-                                    onPlayNext: handlePlayNext,
-                                    onAddToQueue: handleAddToQueue
+                                    namespace: chartHeroAnimation,
+                                    onPlaylistTap: { playlist in
+                                        if playlist.isAlbum {
+                                            navigationManager.homePath.append(
+                                                NavigationDestination.album(playlist.playlistId, playlist.name, playlist.subtitle ?? "", playlist.thumbnailUrl)
+                                            )
+                                        } else {
+                                            navigationManager.homePath.append(
+                                                NavigationDestination.playlist(playlist.playlistId, playlist.name, playlist.thumbnailUrl)
+                                            )
+                                        }
+                                    }
                                 )
                             }
 
@@ -121,7 +126,7 @@ struct HomeView: View {
                             // Sections (Home Page from API)
                             if let sections = viewModel.homePage?.sections {
                                 ForEach(sections) { section in
-                                    HomeSectionView(section: section) { result in
+                                    HomeSectionView(section: section, namespace: chartHeroAnimation) { result in
                                         handleResultTap(result)
                                     }
                                 }
@@ -162,6 +167,10 @@ struct HomeView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                    .navigationTransition(.zoom(sourceID: id, in: chartHeroAnimation))
+                    .onDisappear {
+                        NavigationManager.shared.recordClose(id: id)
+                    }
                 case .song(_):
                     EmptyView()
                 case .playlist(let id, let name, let thumbnail):
@@ -171,10 +180,15 @@ struct HomeView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                    .navigationTransition(.zoom(sourceID: id, in: chartHeroAnimation))
+                    .onDisappear {
+                        NavigationManager.shared.recordClose(id: id)
+                    }
                 case .category(let title, let endpoint):
                     CategoryDetailView(
                         title: title,
                         endpoint: endpoint,
+                        namespace: chartHeroAnimation,
                         audioPlayer: audioPlayer
                     )
                 }
@@ -267,6 +281,49 @@ struct HomeView: View {
             )
         }
         
+        // Language Charts Carousel (for users WITH history - between trending and global)
+        if viewModel.hasHistory && !viewModel.languageCharts.isEmpty {
+            LanguageChartsCarouselView(
+                charts: viewModel.languageCharts,
+                audioPlayer: audioPlayer,
+                likedSongIds: likedSongIds,
+                queueSongIds: audioPlayer.userQueueIds,
+                namespace: chartHeroAnimation,
+                onPlaylistTap: { chart in
+                    guard !navigationManager.isInCooldown(id: chart.playlistId) else { return }
+                    navigationManager.homePath.append(
+                        NavigationDestination.playlist(chart.playlistId, chart.displayName, chart.thumbnailUrl)
+                    )
+                },
+                onAddToPlaylist: handleAddToPlaylist,
+                onToggleLike: handleToggleLike,
+                onPlayNext: handlePlayNext,
+                onAddToQueue: handleAddToQueue
+            )
+        }
+        
+        // Random Category Playlists (for users WITHOUT history - between trending and global)
+        if !viewModel.hasHistory && !viewModel.randomCategoryPlaylists.isEmpty {
+            RandomCategoryCarouselView(
+                categoryName: viewModel.randomCategoryName,
+                playlists: viewModel.randomCategoryPlaylists,
+                audioPlayer: audioPlayer,
+                namespace: chartHeroAnimation,
+                onPlaylistTap: { playlist in
+                    guard !navigationManager.isInCooldown(id: playlist.playlistId) else { return }
+                    if playlist.isAlbum {
+                        navigationManager.homePath.append(
+                            NavigationDestination.album(playlist.playlistId, playlist.name, playlist.subtitle ?? "", playlist.thumbnailUrl)
+                        )
+                    } else {
+                        navigationManager.homePath.append(
+                            NavigationDestination.playlist(playlist.playlistId, playlist.name, playlist.thumbnailUrl)
+                        )
+                    }
+                }
+            )
+        }
+        
         // 3. Global Top 100
         if !viewModel.global100Songs.isEmpty {
             RecommendationsGridView(
@@ -290,7 +347,9 @@ struct HomeView: View {
                 audioPlayer: audioPlayer,
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
+                namespace: chartHeroAnimation,
                 onPlaylistTap: { chart in
+                    guard !navigationManager.isInCooldown(id: chart.playlistId) else { return }
                     navigationManager.homePath.append(
                         NavigationDestination.playlist(chart.playlistId, chart.displayName, chart.thumbnailUrl)
                     )
