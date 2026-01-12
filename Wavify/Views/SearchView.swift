@@ -24,9 +24,6 @@ struct SearchView: View {
     // Hero animation namespace for search
     @Namespace private var searchHeroAnimation
     
-    // Cooldown to prevent rapid re-open of same item
-    @State private var lastClosedItemId: String?
-    @State private var lastClosedTime: Date?
     
     var body: some View {
         NavigationStack(path: $navigationManager.searchPath) {
@@ -617,12 +614,6 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(albums) { album in
-                    let isInCooldown: Bool = {
-                        guard lastClosedItemId == album.id,
-                              let closedTime = lastClosedTime else { return false }
-                        return Date().timeIntervalSince(closedTime) < 0.8
-                    }()
-                    
                     NavigationLink {
                         AlbumDetailView(
                             albumId: album.id,
@@ -632,10 +623,6 @@ struct SearchView: View {
                             audioPlayer: audioPlayer
                         )
                         .navigationTransition(.zoom(sourceID: album.id, in: searchHeroAnimation))
-                        .onDisappear {
-                            lastClosedItemId = album.id
-                            lastClosedTime = Date()
-                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
                             ZStack {
@@ -654,6 +641,7 @@ struct SearchView: View {
                             .aspectRatio(1, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            .id(album.id) // Explicit ID to maintain view identity
                             .matchedTransitionSource(id: album.id, in: searchHeroAnimation)
                             
                             VStack(alignment: .leading, spacing: 2) {
@@ -670,7 +658,6 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
-                    .allowsHitTesting(!isInCooldown)
                 }
             }
             .padding(.horizontal)
@@ -692,12 +679,6 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(playlists) { playlist in
-                    let isInCooldown: Bool = {
-                        guard lastClosedItemId == playlist.id,
-                              let closedTime = lastClosedTime else { return false }
-                        return Date().timeIntervalSince(closedTime) < 0.8
-                    }()
-                    
                     NavigationLink {
                         PlaylistDetailView(
                             playlistId: playlist.id,
@@ -706,10 +687,6 @@ struct SearchView: View {
                             audioPlayer: audioPlayer
                         )
                         .navigationTransition(.zoom(sourceID: playlist.id, in: searchHeroAnimation))
-                        .onDisappear {
-                            lastClosedItemId = playlist.id
-                            lastClosedTime = Date()
-                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
                             ZStack {
@@ -729,6 +706,7 @@ struct SearchView: View {
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                            .id(playlist.id) // Explicit ID to maintain view identity
                             .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
                             
                             VStack(alignment: .leading, spacing: 2) {
@@ -745,7 +723,6 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
-                    .allowsHitTesting(!isInCooldown)
                 }
             }
             .padding(.horizontal)

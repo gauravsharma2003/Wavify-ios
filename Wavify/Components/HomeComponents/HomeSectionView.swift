@@ -90,6 +90,7 @@ struct ItemCard: View {
                 }
                 .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .id(item.id) // Explicit ID to maintain view identity across transitions
                 .matchedTransitionSource(id: (item.type == .album || item.type == .playlist) ? item.id : "non_hero_\(item.id)", in: namespace)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
