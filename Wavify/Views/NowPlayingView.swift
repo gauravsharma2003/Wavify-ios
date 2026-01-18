@@ -41,6 +41,12 @@ struct NowPlayingView: View {
     @State private var showActiveSleepSheet = false
     var sleepTimerManager: SleepTimerManager = .shared
     
+    // Equalizer state
+    @State private var showEqualizerSheet = false
+    
+    // AirPlay state
+    @State private var showAirPlayPicker = false
+    
     // Constants for bottom sheet behavior
     private let maxCornerRadius: CGFloat = 40
     
@@ -103,8 +109,17 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showActiveSleepSheet) {
             SleepTimerActiveSheet(sleepTimerManager: sleepTimerManager)
         }
+        .sheet(isPresented: $showEqualizerSheet) {
+            EqualizerSheet()
+        }
         .overlay(alignment: .top) {
             NetworkToastView()
+        }
+        .background {
+            // Hidden AirPlay Picker for programmatic triggering
+            AirPlayRoutePickerView(showPicker: $showAirPlayPicker)
+                .frame(width: 1, height: 1)
+                .opacity(0.001)
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
         .preferredColorScheme(.dark)
@@ -309,7 +324,7 @@ struct NowPlayingView: View {
                             // Controls
                             controlsView
                             
-                            // Additional Controls - reduced top spacing
+                            // Additional Controls - restored spacing
                             HStack(spacing: 30) {
                                 // Sleep Timer Button
                                 Button {
@@ -336,16 +351,20 @@ struct NowPlayingView: View {
                                 }
                                 
                                 // AirPlay Button
-                                AirPlayRoutePickerView()
-                                    .frame(width: 44, height: 44)
-                                    .scaleEffect(1.4) // Make it look consistent with other icons
+                                Button {
+                                    showAirPlayPicker = true
+                                } label: {
+                                    Image(systemName: "airplayaudio")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                }
                                 
                                 // Lyrics Button
                                 Button {
                                     withAnimation(.easeInOut(duration: 0.3)) {
                                         showLyrics.toggle()
                                     }
-                                    // Fetch lyrics if showing and not already fetched for this song
                                     if showLyrics, let song = audioPlayer.currentSong,
                                        song.id != lastLyricsFetchedSongId {
                                         fetchLyrics()
@@ -357,17 +376,68 @@ struct NowPlayingView: View {
                                         .frame(width: 44, height: 44)
                                 }
                                 
-                                // Add to Playlist Button
-                                Button {
-                                    showAddToPlaylist = true
+                                // More Button (Three Dots)
+                                Menu {
+                                    // Add to Playlist
+                                    Button {
+                                        showAddToPlaylist = true
+                                    } label: {
+                                        Label("Add to Playlist", systemImage: "text.badge.plus")
+                                    }
+                                    
+                                    // Equalizer
+                                    Button {
+                                        showEqualizerSheet = true
+                                    } label: {
+                                        Label("Equalizer", systemImage: "slider.horizontal.3")
+                                    }
+                                    
+                                    Divider()
+                                    
+                                    // Go to Artist
+                                    if let song = audioPlayer.currentSong, let artistId = song.artistId {
+                                        Button {
+                                            dismissSheet()
+                                            // Delay navigation to allow sheet dismiss
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                navigationManager.navigateToArtist(
+                                                    id: artistId,
+                                                    name: song.artist,
+                                                    thumbnail: song.thumbnailUrl
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Go to Artist", systemImage: "music.mic")
+                                        }
+                                    }
+                                    
+                                    // Like/Unlike
+                                    Button {
+                                        toggleLike()
+                                    } label: {
+                                        Label(isLiked ? "Unlike Song" : "Like Song", systemImage: isLiked ? "heart.slash" : "heart")
+                                    }
+                                    
+                                    Divider()
+                                    
+                                    // Similar Songs
+                                    Section("Create from similar songs") {
+                                        Button {
+                                            createStation()
+                                        } label: {
+                                            Label("Create Station", systemImage: "radio")
+                                        }
+                                    }
+                                    
                                 } label: {
-                                    Image(systemName: "text.badge.plus")
-                                    .font(.system(size: 22, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 44, height: 44)
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                        .rotationEffect(.degrees(90))
                                 }
                             }
-                            .padding(.top, -16) // Reduce spacing from controls above
+                            .padding(.top, -16)
                         }
                         
                         Spacer()
@@ -1064,6 +1134,77 @@ struct NowPlayingView: View {
                 topController = presented
             }
             topController.present(activityVC, animated: true)
+        }
+    }
+    
+    // MARK: - Similiar Songs Station
+    
+    private func createStation() {
+        guard let currentSong = audioPlayer.currentSong else { return }
+        
+        Task {
+            // Fetch similar songs
+            do {
+                let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
+                
+                guard !similarVideos.isEmpty else { return }
+                
+                // Limit to 49 similar songs (current song + 49 = 50 total)
+                let similarSongsToAdd = Array(similarVideos.prefix(49))
+                
+                // Create Song array with current song first, then similar songs
+                var songsToPlay: [Song] = [currentSong]
+                songsToPlay.append(contentsOf: similarSongsToAdd.map { Song(from: $0) })
+                
+                await MainActor.run {
+                    // Create Local Playlist
+                    let playlistName = "MIX: \(currentSong.title)"
+                    let playlist = LocalPlaylist(name: playlistName, thumbnailUrl: currentSong.thumbnailUrl)
+                    modelContext.insert(playlist)
+                    
+                    // Add current song as first item in playlist
+                    let currentLocalSong = LocalSong(
+                        videoId: currentSong.videoId,
+                        title: currentSong.title,
+                        artist: currentSong.artist,
+                        thumbnailUrl: currentSong.thumbnailUrl,
+                        duration: currentSong.duration,
+                        orderIndex: 0
+                    )
+                    modelContext.insert(currentLocalSong)
+                    playlist.songs.append(currentLocalSong)
+                    
+                    // Create Local Songs for similar tracks
+                    for (index, video) in similarSongsToAdd.enumerated() {
+                        let localSong = LocalSong(
+                            videoId: video.id,
+                            title: video.name,
+                            artist: video.artist,
+                            thumbnailUrl: video.thumbnailUrl,
+                            duration: video.duration,
+                            orderIndex: index + 1  // Start from 1 since current song is 0
+                        )
+                        modelContext.insert(localSong)
+                        playlist.songs.append(localSong)
+                    }
+                    
+                    // Start playback immediately (starting from current song at index 0)
+                    Task {
+                        await audioPlayer.playAlbum(songs: songsToPlay, startIndex: 0)
+                    }
+                    
+                    // Dismiss and Navigate to new playlist
+                    dismissSheet()
+                    
+                    // Small delay to ensure sheet dismisses before navigation push?
+                    // NavigationManager handles transition, but switching tabs + pushing might be better handled if sequential.
+                    // However, `navigateToLocalPlaylist` sets state synchronously.
+                    NavigationManager.shared.navigateToLocalPlaylist(playlist)
+                }
+                
+            } catch {
+                Logger.error("Failed to create station", category: .network, error: error)
+            }
         }
     }
 }

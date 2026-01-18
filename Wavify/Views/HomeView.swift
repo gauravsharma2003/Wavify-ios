@@ -198,6 +198,19 @@ struct HomeView: View {
                         namespace: chartHeroAnimation,
                         audioPlayer: audioPlayer
                     )
+                case .localPlaylist(let pID):
+                     if let playlist = modelContext.model(for: pID) as? LocalPlaylist {
+                         AlbumDetailView(
+                             albumId: nil,
+                             initialName: playlist.name,
+                             initialArtist: "",
+                             initialThumbnail: playlist.thumbnailUrl ?? "",
+                             localPlaylist: playlist,
+                             audioPlayer: audioPlayer
+                         )
+                     } else {
+                         ContentUnavailableView("Playlist Not Found", systemImage: "questionmark.folder")
+                     }
                 }
             }
         }

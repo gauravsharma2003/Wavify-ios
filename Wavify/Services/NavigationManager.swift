@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Observation
+import SwiftData
 
 enum NavigationDestination: Hashable {
     case artist(String, String, String) // id, name, thumbnail
@@ -14,6 +15,7 @@ enum NavigationDestination: Hashable {
     case playlist(String, String, String) // id, name, thumbnail
     case song(Song)
     case category(String, BrowseEndpoint) // title, endpoint
+    case localPlaylist(PersistentIdentifier)
 }
 
 @Observable
@@ -146,5 +148,14 @@ class NavigationManager {
         default:
             homePath.append(destination)
         }
+    }
+    
+    func navigateToLocalPlaylist(_ playlist: LocalPlaylist) {
+        // Switch to Library tab as local playlists live there
+        selectedTab = 2
+        showNowPlaying = false
+        
+        let destination = NavigationDestination.localPlaylist(playlist.persistentModelID)
+        libraryPath.append(destination)
     }
 }

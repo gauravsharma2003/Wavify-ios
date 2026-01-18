@@ -63,6 +63,7 @@ struct NowPlayingAdditionalControls: View {
     var showLyrics: Bool
     var onSleepTimer: () -> Void
     var onShare: () -> Void
+    var onAirPlay: () -> Void
     var onLyricsToggle: () -> Void
     var onAddToPlaylist: () -> Void
     
@@ -89,9 +90,14 @@ struct NowPlayingAdditionalControls: View {
             }
             
             // AirPlay Button
-            AirPlayRoutePickerView()
-                .frame(width: 44, height: 44)
-                .scaleEffect(1.4)
+            Button {
+                onAirPlay()
+            } label: {
+                Image(systemName: "airplayaudio")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+            }
             
             // Lyrics Button
             Button {
