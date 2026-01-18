@@ -614,35 +614,32 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(albums) { album in
-                    NavigationLink {
-                        AlbumDetailView(
-                            albumId: album.id,
-                            initialName: album.name,
-                            initialArtist: album.artist,
-                            initialThumbnail: album.thumbnailUrl,
-                            audioPlayer: audioPlayer
+                    Button {
+                        // Check cooldown at tap time
+                        guard !navigationManager.isInCooldown(id: album.id) else { return }
+                        
+                        navigationManager.navigateToAlbum(
+                            id: album.id,
+                            name: album.name,
+                            artist: album.artist,
+                            thumbnail: album.thumbnailUrl
                         )
-                        .navigationTransition(.zoom(sourceID: album.id, in: searchHeroAnimation))
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            ZStack {
-                                Color(white: 0.1) // Stable background
-                                CachedAsyncImagePhase(url: URL(string: album.thumbnailUrl)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    default:
-                                        Color.clear
-                                    }
+                            CachedAsyncImagePhase(url: URL(string: album.thumbnailUrl)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                default:
+                                    Color.gray.opacity(0.3)
                                 }
                             }
                             .aspectRatio(1, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-                            .id(album.id) // Explicit ID to maintain view identity
                             .matchedTransitionSource(id: album.id, in: searchHeroAnimation)
+                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.name)
@@ -658,6 +655,7 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal)
@@ -679,35 +677,32 @@ struct SearchView: View {
                 spacing: 16
             ) {
                 ForEach(playlists) { playlist in
-                    NavigationLink {
-                        PlaylistDetailView(
-                            playlistId: playlist.id,
-                            initialName: playlist.name,
-                            initialThumbnail: playlist.thumbnailUrl,
-                            audioPlayer: audioPlayer
+                    Button {
+                        // Check cooldown at tap time
+                        guard !navigationManager.isInCooldown(id: playlist.id) else { return }
+                        
+                        navigationManager.navigateToPlaylist(
+                            id: playlist.id,
+                            name: playlist.name,
+                            thumbnail: playlist.thumbnailUrl
                         )
-                        .navigationTransition(.zoom(sourceID: playlist.id, in: searchHeroAnimation))
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            ZStack {
-                                Color(white: 0.1) // Stable background
-                                CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    default:
-                                        Color.clear
-                                    }
+                            CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                default:
+                                    Color.gray.opacity(0.3)
                                 }
                             }
                             .aspectRatio(1, contentMode: .fit)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-                            .id(playlist.id) // Explicit ID to maintain view identity
                             .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
+                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playlist.name)
@@ -723,6 +718,7 @@ struct SearchView: View {
                             .padding(.horizontal, 4)
                         }
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal)

@@ -95,25 +95,17 @@ struct FavouriteBlockCard: View {
         Button(action: onTap) {
             HStack(spacing: 8) {
                 // Thumbnail on the left - circular for artists
-                // Thumbnail on the left - circular for artists
-                ZStack {
-                    if item.type == .album {
-                        Color(white: 0.1) // Stable background for hero animation
-                    }
-                    CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.gray.opacity(0.4)
-                        }
+                CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.gray.opacity(0.4)
                     }
                 }
                 .frame(width: 44, height: 44)
                 .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 5)))
-                .id(item.id) // Explicit ID to maintain view identity across transitions
-                // Use conditional ID to keep view structure stable (prevent "disappearing" glitch)
                 .matchedTransitionSource(id: item.type == .album ? item.id : "non_hero_\(item.id)", in: namespace)
                 
                 // Name on the right, left-aligned

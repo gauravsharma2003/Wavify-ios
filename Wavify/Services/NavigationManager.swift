@@ -31,7 +31,7 @@ class NavigationManager {
     // Cooldown to prevent rapid re-navigation to same item (prevents zoom transition glitch)
     private var lastNavigatedId: String?
     private var lastNavigatedTime: Date?
-    private let cooldownDuration: TimeInterval = 0.5
+    private let cooldownDuration: TimeInterval = 2.0
     
     /// Check if an item is in cooldown (was recently navigated away from)
     func isInCooldown(id: String) -> Bool {

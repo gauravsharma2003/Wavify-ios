@@ -376,33 +376,30 @@ struct ArtistDetailView: View {
     }
     
     private func albumCard(_ item: ArtistItem) -> some View {
-        NavigationLink {
+        Button {
+            // Check cooldown at tap time
+            guard !NavigationManager.shared.isInCooldown(id: item.id) else { return }
+            
             if let browseId = item.browseId {
-                AlbumDetailView(
-                    albumId: browseId,
-                    initialName: item.title,
-                    initialArtist: artistDetail?.name ?? "",
-                    initialThumbnail: item.thumbnailUrl,
-                    audioPlayer: audioPlayer
+                NavigationManager.shared.navigateToAlbum(
+                    id: browseId,
+                    name: item.title,
+                    artist: artistDetail?.name ?? "",
+                    thumbnail: item.thumbnailUrl
                 )
-                .navigationTransition(.zoom(sourceID: item.id, in: artistHeroAnimation))
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                ZStack {
-                    Color(white: 0.1) // Stable background
-                    CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        default:
-                            Color.clear // Use clear here as background provides the color
-                        }
+                CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(item.thumbnailUrl))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        Color.gray.opacity(0.3)
                     }
                 }
                 .frame(width: 140, height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                .id(item.id) // Explicit ID to maintain view identity
                 .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
                 
                 Text(item.title)
