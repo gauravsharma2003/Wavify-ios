@@ -292,9 +292,18 @@ class AudioPlayer {
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
             // Update IDs if needed
+            // Always prefer playbackInfo.artistId (from channelId) as it's the correct artist channel
+            // Cached artistId might be wrong (e.g., album ID instead of artist ID)
             if var updatedSong = currentSong {
-                if (updatedSong.artistId == nil && playbackInfo.artistId != nil) ||
-                   (updatedSong.albumId == nil && playbackInfo.albumId != nil) {
+                let needsArtistIdUpdate = playbackInfo.artistId != nil && (
+                    updatedSong.artistId == nil ||
+                    // Fix cached invalid artistId (album ID starts with MPREb_, artist ID starts with UC)
+                    (updatedSong.artistId?.hasPrefix("MPREb_") == true) ||
+                    (updatedSong.artistId?.hasPrefix("VL") == true)
+                )
+                let needsAlbumIdUpdate = updatedSong.albumId == nil && playbackInfo.albumId != nil
+                
+                if needsArtistIdUpdate || needsAlbumIdUpdate {
                     updatedSong = Song(
                         id: updatedSong.id,
                         title: updatedSong.title,
@@ -302,7 +311,7 @@ class AudioPlayer {
                         thumbnailUrl: updatedSong.thumbnailUrl,
                         duration: updatedSong.duration,
                         isLiked: updatedSong.isLiked,
-                        artistId: updatedSong.artistId ?? playbackInfo.artistId,
+                        artistId: needsArtistIdUpdate ? playbackInfo.artistId : updatedSong.artistId,
                         albumId: updatedSong.albumId ?? playbackInfo.albumId
                     )
                     self.currentSong = updatedSong

@@ -161,12 +161,21 @@ enum ResponseParser {
                 
                 // 2. Check explicitly for known artist run structure (often index 2: Type • Artist)
                 if runs.count > 2, let text = runs[2]["text"] as? String {
-                    if text != "•" {
+                    if text != "•" && text != " • " {
                         var artistId: String? = nil
                         if let navEndpoint = runs[2]["navigationEndpoint"] as? [String: Any],
                            let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
                            let browseId = browseEndpoint["browseId"] as? String {
-                            artistId = browseId
+                            // Only use this ID if it's actually an artist (UC prefix or MUSIC_PAGE_TYPE_ARTIST)
+                            if browseId.hasPrefix("UC") {
+                                artistId = browseId
+                            } else if let configs = browseEndpoint["browseEndpointContextSupportedConfigs"] as? [String: Any],
+                                      let musicConfig = configs["browseEndpointContextMusicConfig"] as? [String: Any],
+                                      let pageType = musicConfig["pageType"] as? String,
+                                      pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+                                artistId = browseId
+                            }
+                            // Skip album IDs (MPREb_), playlist IDs (VL), etc.
                         }
                         return (text, artistId)
                     }
@@ -218,7 +227,21 @@ enum ResponseParser {
                    let navEndpoint = run["navigationEndpoint"] as? [String: Any],
                    let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
                    let browseId = browseEndpoint["browseId"] as? String {
-                    return browseId
+                    
+                    // Check if this is an artist page type
+                    if let configs = browseEndpoint["browseEndpointContextSupportedConfigs"] as? [String: Any],
+                       let musicConfig = configs["browseEndpointContextMusicConfig"] as? [String: Any],
+                       let pageType = musicConfig["pageType"] as? String,
+                       pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+                        return browseId
+                    }
+                    
+                    // Fallback: check if browseId starts with UC (artist channel)
+                    if browseId.hasPrefix("UC") {
+                        return browseId
+                    }
+                    
+                    // Skip album IDs (MPREb_), playlist IDs (VL), etc.
                 }
             }
         }
