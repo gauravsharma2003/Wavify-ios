@@ -38,24 +38,31 @@ enum EqualizerPreset: String, Codable, CaseIterable, Identifiable {
     
     /// Pre-configured gain values for 10-band EQ (in dB, range -12 to +12)
     /// Frequencies: 32Hz, 64Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
+    /// Note: Values kept very conservative (max ±4dB) for clean, distortion-free audio
     var bandGains: [Float] {
         switch self {
         case .flat:
             return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         case .megaBass:
-            return [18, 15, 12, 6, 0, -3, 0, 4, 6, 6]
+            // Deep bass boost, balanced mids and highs
+            return [4, 3.5, 3, 2, 0, 0, 0, 0.5, 1, 1]
         case .pop:
-            return [6, 5, 3, 0, -1, 0, 2, 4, 6, 6]
+            // V-shaped: gentle bass and treble lift, slight mid scoop
+            return [2, 1.5, 1, 0, -0.5, -0.5, 0, 1.5, 2, 2]
         case .jazz:
-            return [4, 3, 2, 1, 0, 2, 3, 4, 3, 2]
+            // Warm and smooth with slight sparkle
+            return [1.5, 1.5, 1, 0.5, 0, 0.5, 1, 1.5, 1, 0.5]
         case .rock:
-            return [5, 4, 3, 2, 0, 3, 4, 3, 2, 1]
+            // Punchy with forward presence
+            return [3, 2.5, 2, 1, 0, 0.5, 1.5, 1.5, 1, 0.5]
         case .classical:
-            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            // Natural with subtle high-end air
+            return [0, 0, 0, 0, 0, 0, 0, 0.5, 1, 1]
         case .hiphop:
-            return [6, 5, 3, 1, 0, 0, 1, 1, 2, 3]
+            // Deep bass with clear vocals
+            return [4, 3, 2, 0.5, 0, 0, 0.5, 1, 1.5, 1.5]
         case .custom:
-            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] // Will use custom values
+            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
     }
 }

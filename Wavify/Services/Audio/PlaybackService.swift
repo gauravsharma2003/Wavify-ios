@@ -2,14 +2,13 @@
 //  PlaybackService.swift
 //  Wavify
 //
-//  Core playback infrastructure: AVAudioEngine with EQ support, audio session, remote commands, time observer
+//  Core playback infrastructure: AVPlayer with MTAudioProcessingTap EQ support
 //
 
 import Foundation
 import AVFoundation
 import MediaPlayer
 import Combine
-import Accelerate
 
 /// Delegate protocol for playback events
 @MainActor
@@ -20,37 +19,25 @@ protocol PlaybackServiceDelegate: AnyObject {
     func playbackService(_ service: PlaybackService, didFail error: Error?)
 }
 
-/// Core playback service handling AVAudioEngine with EQ support
+/// Core playback service handling AVPlayer with real-time EQ via MTAudioProcessingTap
 @MainActor
 class PlaybackService {
     // MARK: - Properties
     
     weak var delegate: PlaybackServiceDelegate?
     
-    // Legacy AVPlayer for streaming (AVAudioEngine requires local files)
+    // AVPlayer for streaming
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
     private var timeObserver: Any?
     private var statusObserver: NSKeyValueObservation?
     
-    // Audio Engine for EQ processing
-    private var audioEngine: AVAudioEngine?
-    private var playerNode: AVAudioPlayerNode?
-    private var equalizerNode: AVAudioUnitEQ?
-    
-    // EQ subscription
-    private var equalizerCancellable: AnyCancellable?
+    // Audio processing tap for EQ
+    private let audioTapProcessor = AudioTapProcessor()
     
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
-    
-    // Adaptive Bass
-    private var isAdaptiveBassEnabled = false
-    private var adaptiveBassTimer: Timer?
-    private var currentBassEnergy: Float = 0
-    private var currentVolume: Float = 0.5 // Default
-    private var smoothedBassGain: Float = 0
     
     // Callbacks for coordinator
     var onPlayPauseChanged: ((Bool) -> Void)?
@@ -63,8 +50,6 @@ class PlaybackService {
     
     init() {
         setupAudioSession()
-        setupAudioEngine()
-        subscribeToEqualizerChanges()
     }
     
     // MARK: - Audio Session
@@ -79,181 +64,9 @@ class PlaybackService {
         }
     }
     
-    // MARK: - Audio Engine Setup
-    
-    private func setupAudioEngine() {
-        audioEngine = AVAudioEngine()
-        playerNode = AVAudioPlayerNode()
-        
-        // Create 10-band EQ
-        equalizerNode = AVAudioUnitEQ(numberOfBands: 10)
-        
-        guard let engine = audioEngine,
-              let playerNode = playerNode,
-              let eq = equalizerNode else {
-            Logger.error("Failed to initialize audio engine components", category: .playback)
-            return
-        }
-        
-        // Configure EQ bands
-        configureBands(eq: eq)
-        
-        // Attach nodes to engine
-        engine.attach(playerNode)
-        engine.attach(eq)
-        
-        // Connect: playerNode -> EQ -> mainMixer -> output
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
-        engine.connect(playerNode, to: eq, format: format)
-        engine.connect(eq, to: engine.mainMixerNode, format: format)
-        
-        engine.connect(eq, to: engine.mainMixerNode, format: format)
-        
-        // Install tap for analysis
-        installAudioTap(on: engine.mainMixerNode)
-        
-        Logger.log("Audio engine with EQ initialized", category: .playback)
-    }
-    
-    private func configureBands(eq: AVAudioUnitEQ) {
-        // Standard 10-band frequencies
-        let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        
-        for (index, freq) in frequencies.enumerated() {
-            let band = eq.bands[index]
-            band.filterType = .parametric
-            band.frequency = freq
-            band.bandwidth = 1.0 // octave
-            band.gain = 0 // flat by default
-            band.bypass = false
-        }
-    }
-    
-    // MARK: - Equalizer
-    
-    private func subscribeToEqualizerChanges() {
-        equalizerCancellable = EqualizerManager.shared.settingsDidChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] settings in
-                Task { @MainActor in
-                    self?.applyEqualizerSettings(settings)
-                }
-            }
-        
-        // Apply initial settings
-        applyEqualizerSettings(EqualizerManager.shared.settings)
-    }
-    
-    /// Apply equalizer settings to the EQ node
-    func applyEqualizerSettings(_ settings: EqualizerSettings) {
-        guard let eq = equalizerNode else { return }
-        
-        for (index, band) in settings.bands.enumerated() where index < eq.bands.count {
-            eq.bands[index].gain = settings.isEnabled ? band.gain : 0
-            eq.bands[index].bypass = !settings.isEnabled
-        }
-        
-        Logger.log("Applied EQ settings: \(settings.selectedPreset.rawValue), enabled: \(settings.isEnabled)", category: .playback)
-        
-        // Toggle Adaptive Bass for Mega Bass preset
-        if settings.isEnabled && settings.selectedPreset == .megaBass {
-            startAdaptiveBass()
-        } else {
-            stopAdaptiveBass()
-        }
-    }
-    
-    // MARK: - Adaptive Bass
-    
-    private func installAudioTap(on mixer: AVAudioMixerNode) {
-        let format = mixer.outputFormat(forBus: 0)
-        mixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.analyzeAudioBuffer(buffer)
-        }
-    }
-    
-    private func analyzeAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-        let channelPointer = channelData[0] // Analyze first channel
-        let frameLength = Int(buffer.frameLength)
-        
-        // Simple approximation of bass energy:
-        // 1. Low-pass filter (cutoff ~250Hz) - Simplified simple moving average for performance
-        // 2. RMS calculation
-        
-        var bassEnergy: Float = 0
-        if frameLength > 0 {
-            // Using vDSP for RMS gives total energy. For bass, we strictly should filter.
-            // But doing a full filter in tap callback might be heavy.
-            // Let's use a stride to undersample or just full RMS if performance allows.
-            // For true adaptive bass, we need frequency content.
-            // User suggested: "Estimate from RMS levels of low bands"
-            // We'll trust that the overall energy reflects bass in bass-heavy tracks well enough for an MVP,
-            // OR use a very simple IIR filter.
-            
-            // Simple 1-pole Low Pass Filter: y[n] = y[n-1] + alpha * (x[n] - y[n-1])
-            // alpha approx 0.1 for low freq
-            
-            var rms: Float = 0
-            vDSP_rmsqv(channelPointer, 1, &rms, vDSP_Length(frameLength))
-            bassEnergy = rms
-        }
-        
-        // Update thread-safe property
-        DispatchQueue.main.async { [weak self] in
-            self?.currentBassEnergy = bassEnergy
-        }
-    }
-    
-    private func startAdaptiveBass() {
-        guard !isAdaptiveBassEnabled else { return }
-        isAdaptiveBassEnabled = true
-        
-        // 30fps update
-        adaptiveBassTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
-            self?.updateAdaptiveBass()
-        }
-    }
-    
-    private func stopAdaptiveBass() {
-        isAdaptiveBassEnabled = false
-        adaptiveBassTimer?.invalidate()
-        adaptiveBassTimer = nil
-        
-        // Reset gains handled by applyEqualizerSettings re-run
-    }
-    
-    private func updateAdaptiveBass() {
-        guard isAdaptiveBassEnabled, let eq = equalizerNode else { return }
-        
-        // Fetch system volume (approximation)
-        let volume = AVAudioSession.sharedInstance().outputVolume
-        
-        // Calculate target gain
-        let targetGain = adaptiveBassGain(volume: volume, bassEnergy: currentBassEnergy)
-        
-        // Smooth transition
-        smoothedBassGain = smoothedBassGain * 0.9 + targetGain * 0.1
-        
-        // Apply to low bands
-        eq.bands[0].gain = smoothedBassGain        // 32 Hz
-        eq.bands[1].gain = smoothedBassGain * 0.8  // 64 Hz
-        eq.bands[2].gain = smoothedBassGain * 0.5  // 125 Hz
-    }
-    
-    private func adaptiveBassGain(volume: Float, bassEnergy: Float) -> Float {
-        // User provided formula
-        let volumeFactor = max(0.4, 1.2 - volume)
-        let energyFactor = max(0.3, 1.0 - bassEnergy * 2) // Boost sensitivity
-        
-        return min(18, 12 * volumeFactor * energyFactor)
-    }
-    
     // MARK: - Playback Control
     
     /// Load and prepare a URL for playback
-    /// Note: We use AVPlayer for streaming content as AVAudioEngine requires local files
-    /// The EQ is applied via AVPlayer's audio mix when possible
     func load(url: URL, expectedDuration: Double) {
         cleanup()
         
@@ -263,8 +76,10 @@ class PlaybackService {
         playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
         
-        // Apply EQ via audio tap if possible
-        applyAudioTapForEQ()
+        // Attach EQ processing tap
+        if let item = playerItem {
+            audioTapProcessor.attach(to: item)
+        }
         
         // Observe player status
         statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -294,38 +109,6 @@ class PlaybackService {
         setupTimeObserver()
     }
     
-    /// Apply audio processing via MTAudioProcessingTap
-    private func applyAudioTapForEQ() {
-        guard let playerItem = playerItem,
-              let eq = equalizerNode else { return }
-        
-        // Get the audio tracks
-        let asset = playerItem.asset
-        Task {
-            do {
-                let tracks = try await asset.loadTracks(withMediaType: .audio)
-                guard let audioTrack = tracks.first else { return }
-                
-                await MainActor.run {
-                    // Create audio mix with custom processing
-                    let audioMix = AVMutableAudioMix()
-                    let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
-                    
-                    // Note: Full EQ processing via MTAudioProcessingTap requires more complex setup
-                    // For now, we apply EQ settings that affect the overall audio output
-                    // The EQ node is attached to the audio engine which processes all audio
-                    
-                    audioMix.inputParameters = [inputParams]
-                    playerItem.audioMix = audioMix
-                    
-                    Logger.log("Audio mix configured for EQ", category: .playback)
-                }
-            } catch {
-                Logger.error("Failed to load audio tracks", category: .playback, error: error)
-            }
-        }
-    }
-    
     func play() {
         player?.play()
         isPlaying = true
@@ -350,6 +133,9 @@ class PlaybackService {
         let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
         player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = time
+        
+        // Reset EQ filter states to prevent artifacts after seek
+        audioTapProcessor.resetFilters()
     }
     
     func seekToStart() {
@@ -427,23 +213,17 @@ class PlaybackService {
         statusObserver = nil
         player?.pause()
         player = nil
+        
+        // Detach EQ tap
+        audioTapProcessor.detach()
+        
         playerItem = nil
         currentTime = 0
-    }
-    
-    private func cleanupAudioEngine() {
-        audioEngine?.stop()
-        playerNode?.stop()
-        audioEngine = nil
-        playerNode = nil
-        equalizerNode = nil
-        equalizerCancellable?.cancel()
     }
     
     deinit {
         Task { @MainActor in
             cleanup()
-            cleanupAudioEngine()
         }
     }
 }
