@@ -29,7 +29,8 @@ struct ArtistDetailView: View {
     // Hero animation namespace for albums
     @Namespace private var artistHeroAnimation
     
-
+    // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
+    @State private var albumRefreshId = UUID()
     
     private let networkManager = NetworkManager.shared
     
@@ -376,17 +377,20 @@ struct ArtistDetailView: View {
     }
     
     private func albumCard(_ item: ArtistItem) -> some View {
-        Button {
-            // Check cooldown at tap time
-            guard !NavigationManager.shared.isInCooldown(id: item.id) else { return }
-            
+        NavigationLink {
             if let browseId = item.browseId {
-                NavigationManager.shared.navigateToAlbum(
-                    id: browseId,
-                    name: item.title,
-                    artist: artistDetail?.name ?? "",
-                    thumbnail: item.thumbnailUrl
+                AlbumDetailView(
+                    albumId: browseId,
+                    initialName: item.title,
+                    initialArtist: artistDetail?.name ?? "",
+                    initialThumbnail: item.thumbnailUrl,
+                    audioPlayer: audioPlayer
                 )
+                .navigationTransition(.zoom(sourceID: item.id, in: artistHeroAnimation))
+                .onDisappear {
+                    // Force refresh when returning to restore any stuck invisible state
+                    albumRefreshId = UUID()
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -400,6 +404,7 @@ struct ArtistDetailView: View {
                 }
                 .frame(width: 140, height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .id(albumRefreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
                 
                 Text(item.title)

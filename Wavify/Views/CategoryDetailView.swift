@@ -18,6 +18,9 @@ struct CategoryDetailView: View {
     @State private var page: HomePage?
     @State private var isLoading = true
     
+    // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
+    @State private var refreshId = UUID()
+    
     private let networkManager = NetworkManager.shared
     
     var body: some View {
@@ -32,7 +35,7 @@ struct CategoryDetailView: View {
                 ScrollView {
                     LazyVStack(spacing: 24) {
                         ForEach(page.sections) { section in
-                            HomeSectionView(section: section, namespace: namespace) { result in
+                            HomeSectionView(section: section, namespace: namespace, refreshId: refreshId) { result in
                                 handleResultTap(result)
                             }
                         }

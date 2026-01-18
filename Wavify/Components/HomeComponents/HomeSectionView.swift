@@ -11,6 +11,7 @@ import SwiftUI
 struct HomeSectionView: View {
     let section: HomeSection
     let namespace: Namespace.ID
+    let refreshId: UUID // Force refresh after transition
     let onResultTap: (SearchResult) -> Void
     
     var body: some View {
@@ -37,6 +38,7 @@ struct HomeSectionView: View {
                         ItemCard(
                             item: item,
                             namespace: namespace,
+                            refreshId: refreshId,
                             onTap: {
                                 onResultTap(item)
                             }
@@ -53,6 +55,7 @@ struct HomeSectionView: View {
 struct ItemCard: View {
     let item: SearchResult
     let namespace: Namespace.ID
+    let refreshId: UUID // Force refresh after transition
     let onTap: () -> Void
     
     // Helper to get high quality image
@@ -85,6 +88,7 @@ struct ItemCard: View {
                 }
                 .frame(width: 160, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .id(refreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: (item.type == .album || item.type == .playlist) ? item.id : "non_hero_\(item.id)", in: namespace)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 

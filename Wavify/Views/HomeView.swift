@@ -22,6 +22,9 @@ struct HomeView: View {
     // Hero animation namespace for chart cards
     @Namespace private var chartHeroAnimation
     
+    // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
+    @State private var heroRefreshId = UUID()
+    
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
             ZStack {
@@ -44,6 +47,7 @@ struct HomeView: View {
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
                                     namespace: chartHeroAnimation,
+                                    refreshId: heroRefreshId,
                                     onItemTap: handleResultTap,
                                     onAddToPlaylist: handleAddToPlaylist,
                                     onToggleLike: handleToggleLike,
@@ -127,7 +131,7 @@ struct HomeView: View {
                             // Sections (Home Page from API)
                             if let sections = viewModel.homePage?.sections {
                                 ForEach(sections) { section in
-                                    HomeSectionView(section: section, namespace: chartHeroAnimation) { result in
+                                    HomeSectionView(section: section, namespace: chartHeroAnimation, refreshId: heroRefreshId) { result in
                                         handleResultTap(result)
                                     }
                                 }
@@ -171,6 +175,7 @@ struct HomeView: View {
                     .navigationTransition(.zoom(sourceID: id, in: chartHeroAnimation))
                     .onDisappear {
                         NavigationManager.shared.recordClose(id: id)
+                        heroRefreshId = UUID() // Force refresh source images
                     }
                 case .song(_):
                     EmptyView()
@@ -184,6 +189,7 @@ struct HomeView: View {
                     .navigationTransition(.zoom(sourceID: id, in: chartHeroAnimation))
                     .onDisappear {
                         NavigationManager.shared.recordClose(id: id)
+                        heroRefreshId = UUID() // Force refresh source images
                     }
                 case .category(let title, let endpoint):
                     CategoryDetailView(

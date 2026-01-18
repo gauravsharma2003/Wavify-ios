@@ -14,6 +14,7 @@ struct YourFavouritesGridView: View {
     let likedSongIds: Set<String>
     let queueSongIds: Set<String>
     let namespace: Namespace.ID // Added for hero animations
+    let refreshId: UUID // Force refresh after transition
     let onItemTap: (SearchResult) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
@@ -50,6 +51,7 @@ struct YourFavouritesGridView: View {
                         isLiked: likedSongIds.contains(item.id),
                         isInQueue: queueSongIds.contains(item.id),
                         namespace: namespace, // Pass namespace
+                        refreshId: refreshId, // Pass refreshId for force refresh
                         onTap: { onItemTap(item) },
                         onAddToPlaylist: { onAddToPlaylist(item) },
                         onToggleLike: { onToggleLike(item) },
@@ -69,6 +71,7 @@ struct FavouriteBlockCard: View {
     let isLiked: Bool
     let isInQueue: Bool
     let namespace: Namespace.ID // Added
+    let refreshId: UUID // Force refresh after transition
     let onTap: () -> Void
     var onAddToPlaylist: (() -> Void)? = nil
     var onToggleLike: (() -> Void)? = nil
@@ -106,6 +109,7 @@ struct FavouriteBlockCard: View {
                 }
                 .frame(width: 44, height: 44)
                 .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 5)))
+                .id(refreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: item.type == .album ? item.id : "non_hero_\(item.id)", in: namespace)
                 
                 // Name on the right, left-aligned

@@ -24,7 +24,8 @@ struct SearchView: View {
     // Hero animation namespace for search
     @Namespace private var searchHeroAnimation
     
-    
+    // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
+    @State private var searchRefreshId = UUID()    
     var body: some View {
         NavigationStack(path: $navigationManager.searchPath) {
             ZStack {
@@ -131,6 +132,7 @@ struct SearchView: View {
                     .navigationTransition(.zoom(sourceID: id, in: searchHeroAnimation))
                     .onDisappear {
                         NavigationManager.shared.recordClose(id: id)
+                        searchRefreshId = UUID() // Force refresh source images
                     }
                 case .song(_):
                     EmptyView()
@@ -144,6 +146,7 @@ struct SearchView: View {
                     .navigationTransition(.zoom(sourceID: id, in: searchHeroAnimation))
                     .onDisappear {
                         NavigationManager.shared.recordClose(id: id)
+                        searchRefreshId = UUID() // Force refresh source images
                     }
                 case .category(let title, let endpoint):
                     CategoryDetailView(
@@ -638,6 +641,7 @@ struct SearchView: View {
                             }
                             .aspectRatio(1, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .id(searchRefreshId) // Force recreate when returning from detail
                             .matchedTransitionSource(id: album.id, in: searchHeroAnimation)
                             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                             
@@ -701,6 +705,7 @@ struct SearchView: View {
                             .aspectRatio(1, contentMode: .fit)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .id(searchRefreshId) // Force recreate when returning from detail
                             .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
                             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                             
