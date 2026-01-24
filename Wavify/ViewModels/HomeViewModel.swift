@@ -103,26 +103,45 @@ class HomeViewModel {
     }
     
     func refresh(modelContext: ModelContext) async {
-        if let selectedChipId = selectedChipId,
-           let chip = homePage?.chips.first(where: { $0.id == selectedChipId }) {
-            await selectChip(chip)
-        } else {
-            await loadHome()
-        }
-        
+        // Local operations first (instant)
         let hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
         if hasHistory {
             keepListeningSongs = keepListeningManager.refreshSongs(in: modelContext)
             _ = favouritesManager.refreshFavourites(in: modelContext)
-            recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
-            likedBasedRecommendations = await likedBasedRecommendationsManager.refreshRecommendations(in: modelContext)
         }
-        
-        // Force refresh charts on pull-to-refresh
-        await chartsManager.forceRefresh()
-        
-        // Force refresh random category
-        await randomCategoryManager.forceRefresh()
+
+        // All network operations in PARALLEL for faster refresh
+        await withTaskGroup(of: Void.self) { group in
+            // 1. Load home page or selected chip
+            group.addTask { @MainActor in
+                if let selectedChipId = self.selectedChipId,
+                   let chip = self.homePage?.chips.first(where: { $0.id == selectedChipId }) {
+                    await self.selectChip(chip)
+                } else {
+                    await self.loadHome()
+                }
+            }
+
+            // 2. Refresh recommendations (if user has history)
+            if hasHistory {
+                group.addTask { @MainActor in
+                    self.recommendedSongs = await self.recommendationsManager.refreshRecommendations(in: modelContext)
+                }
+                group.addTask { @MainActor in
+                    self.likedBasedRecommendations = await self.likedBasedRecommendationsManager.refreshRecommendations(in: modelContext)
+                }
+            }
+
+            // 3. Force refresh charts
+            group.addTask { @MainActor in
+                await self.chartsManager.forceRefresh()
+            }
+
+            // 4. Force refresh random category
+            group.addTask { @MainActor in
+                await self.randomCategoryManager.forceRefresh()
+            }
+        }
     }
     
     func loadCachedRecommendations() {
