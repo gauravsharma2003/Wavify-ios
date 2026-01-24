@@ -54,48 +54,189 @@ struct WavifyApp: App {
             .task {
                 // Configure background data manager with the shared container
                 await BackgroundDataManager.shared.configure(with: sharedModelContainer)
+                
+                // Start listening for widget commands (Darwin notifications)
+                WidgetCommandHandler.shared.startListening()
+                
+                // Listen for app going to background to update widget state
+                setupAppLifecycleObservers()
+                
+                // Check for pending widget favorite tap
+                checkPendingWidgetFavorite()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                // Check again when app becomes active (in case it was already running)
+                checkPendingWidgetFavorite()
             }
         }
         .modelContainer(sharedModelContainer)
     }
     
     private func handleDeepLink(_ url: URL) {
-        // Supports both:
+        // Supports:
+        // - Song playback: wavify://song/xyz123
+        // - Widget controls: wavify://control/toggle, wavify://control/next, wavify://control/previous
+        // - Resume: wavify://play (resume last song)
         // - Universal Links: https://gauravsharma2003.github.io/wavifyapp/song/xyz123
-        // - Custom URL Scheme: wavify://song/xyz123
         
-        var videoId: String?
+        guard url.scheme == "wavify" else {
+            handleUniversalLink(url)
+            return
+        }
         
-        if url.scheme == "wavify" {
-            // Custom URL scheme: wavify://song/xyz123
-            // host is "song", path is "/xyz123" or path components directly
-            if url.host == "song" {
-                // wavify://song/xyz123 → host = "song", path = "/xyz123"
-                videoId = url.pathComponents.last
-            } else if let pathComponents = url.host.map({ [$0] + url.pathComponents.dropFirst() }),
-                      let songIndex = pathComponents.firstIndex(of: "song"),
-                      pathComponents.indices.contains(songIndex + 1) {
-                videoId = pathComponents[songIndex + 1]
+        let host = url.host ?? ""
+        
+        switch host {
+        case "control":
+            handleWidgetControl(url)
+        case "play":
+            handleResumePlayback()
+        case "song":
+            // wavify://song/xyz123 → host = "song", path = "/xyz123"
+            if let videoId = url.pathComponents.last, !videoId.isEmpty {
+                Task {
+                    await AudioPlayer.shared.loadAndPlay(videoId: videoId)
+                }
             }
-        } else {
-            // Universal Links: https://...
-            guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+        case "artist":
+            // wavify://artist/xyz123 → navigate to artist page
+            if let artistId = url.pathComponents.last, !artistId.isEmpty {
+                NavigationManager.shared.navigateToArtist(id: artistId, name: "", thumbnail: "")
+            }
+        default:
+            // Try parsing as generic path
+            if let pathComponents = url.host.map({ [$0] + url.pathComponents.dropFirst() }),
+               let songIndex = pathComponents.firstIndex(of: "song"),
+               pathComponents.indices.contains(songIndex + 1) {
+                let videoId = pathComponents[songIndex + 1]
+                Task {
+                    await AudioPlayer.shared.loadAndPlay(videoId: videoId)
+                }
+            }
+        }
+    }
+    
+    /// Handle widget control commands
+    private func handleWidgetControl(_ url: URL) {
+        let command = url.pathComponents.last ?? ""
+        
+        Task { @MainActor in
+            let player = AudioPlayer.shared
+            
+            switch command {
+            case "toggle":
+                if player.currentSong != nil {
+                    player.togglePlayPause()
+                } else {
+                    // No current song, try to resume last played
+                    handleResumePlayback()
+                }
+            case "next":
+                await player.playNext()
+            case "previous":
+                await player.playPrevious()
+            case "play":
+                if player.currentSong != nil {
+                    player.play()
+                } else {
+                    handleResumePlayback()
+                }
+            case "pause":
+                player.pause()
+            default:
+                break
+            }
+        }
+    }
+    
+    /// Resume playback of last played song
+    private func handleResumePlayback() {
+        Task { @MainActor in
+            // Check if already have a song loaded
+            if AudioPlayer.shared.currentSong != nil {
+                AudioPlayer.shared.play()
                 return
             }
             
-            let pathComponents = components.path.split(separator: "/").map(String.init)
-            
-            if let songIndex = pathComponents.firstIndex(of: "song"),
-               pathComponents.indices.contains(songIndex + 1) {
-                videoId = pathComponents[songIndex + 1]
+            // Try to load last played song from widget shared data
+            if let lastSong = LastPlayedSongManager.shared.loadSharedData() {
+                await AudioPlayer.shared.loadAndPlay(videoId: lastSong.videoId)
             }
         }
+    }
+    
+    /// Handle universal links (https://...)
+    private func handleUniversalLink(_ url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+            return
+        }
         
-        guard let videoId = videoId, !videoId.isEmpty else { return }
+        let pathComponents = components.path.split(separator: "/").map(String.init)
         
-        Task {
-            await AudioPlayer.shared.loadAndPlay(videoId: videoId)
+        if let songIndex = pathComponents.firstIndex(of: "song"),
+           pathComponents.indices.contains(songIndex + 1) {
+            let videoId = pathComponents[songIndex + 1]
+            Task {
+                await AudioPlayer.shared.loadAndPlay(videoId: videoId)
+            }
+        }
+    }
+    
+    /// Setup observers for app lifecycle to update widget state
+    private func setupAppLifecycleObservers() {
+        // Update widget when app is about to terminate
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Set play state to paused in widget when app terminates
+            LastPlayedSongManager.shared.updatePlayState(isPlaying: false)
+        }
+        
+        // Also update when app enters background (user force quits often happens after this)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // If not playing audio, set widget to paused state
+            if !AudioPlayer.shared.isPlaying {
+                LastPlayedSongManager.shared.updatePlayState(isPlaying: false)
+            }
+        }
+    }
+    
+    /// Check for pending widget favorite tap and handle it
+    private func checkPendingWidgetFavorite() {
+        guard let defaults = UserDefaults(suiteName: "group.com.gaurav.Wavify"),
+              let itemId = defaults.string(forKey: "pendingFavoriteId"),
+              let itemType = defaults.string(forKey: "pendingFavoriteType"),
+              !itemId.isEmpty else {
+            return
+        }
+        
+        // Clear the pending values
+        defaults.removeObject(forKey: "pendingFavoriteId")
+        defaults.removeObject(forKey: "pendingFavoriteType")
+        defaults.synchronize()
+        
+        Logger.debug("Handling widget favorite tap: \(itemType) - \(itemId)", category: .playback)
+        
+        Task { @MainActor in
+            if itemType == "artist" {
+                // Navigate to artist page
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("NavigateToArtist"),
+                    object: nil,
+                    userInfo: ["artistId": itemId]
+                )
+            } else {
+                // Play the song
+                await AudioPlayer.shared.loadAndPlay(videoId: itemId)
+            }
         }
     }
 
 }
+

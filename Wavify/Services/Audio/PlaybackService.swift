@@ -39,6 +39,22 @@ class PlaybackService {
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
     
+    // Retry mechanism
+    private var retryCount = 0
+    private let maxRetries = 3
+    private var currentLoadParameters: (url: URL, expectedDuration: Double, autoPlay: Bool, seekTo: Double?)?
+    
+    /// Callback to request fresh URL for retry (called when URL might have expired)
+    var onRetryNeeded: ((_ completion: @escaping (URL?) -> Void) -> Void)?
+    
+    /// Whether audio is currently loaded and ready for playback
+    var isAudioLoaded: Bool {
+        player != nil && playerItem?.status == .readyToPlay
+    }
+    
+    /// Pending seek position to apply when player is ready (for session resume)
+    private var pendingSeekTime: Double?
+    
     // Callbacks for coordinator
     var onPlayPauseChanged: ((Bool) -> Void)?
     var onTimeUpdated: ((Double) -> Void)?
@@ -67,19 +83,29 @@ class PlaybackService {
     // MARK: - Playback Control
     
     /// Load and prepare a URL for playback
-    func load(url: URL, expectedDuration: Double) {
+    /// - Parameters:
+    ///   - url: The URL to load
+    ///   - expectedDuration: The expected duration in seconds
+    ///   - autoPlay: Whether to start playing automatically when ready (default: true)
+    ///   - seekTo: Optional position to seek to when ready before playing
+    func load(url: URL, expectedDuration: Double, autoPlay: Bool = true, seekTo: Double? = nil) {
+        // Ensure audio session is active before loading
+        setupAudioSession()
+        
         cleanup()
+        
+        // Reset retry count for new load
+        retryCount = 0
+        currentLoadParameters = (url, expectedDuration, autoPlay, seekTo)
         
         // Set duration from API before player reports
         duration = expectedDuration
+        pendingSeekTime = seekTo
         
         playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
         
-        // Attach EQ processing tap
-        if let item = playerItem {
-            audioTapProcessor.attach(to: item)
-        }
+
         
         // Observe player status
         statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -90,15 +116,163 @@ class PlaybackService {
                 case .readyToPlay:
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
-                    self.player?.play()
-                    self.isPlaying = true
-                    self.onPlayPauseChanged?(true)
+                    
+                    // Apply pending seek before playing
+                    if let seekTime = self.pendingSeekTime, seekTime > 0 {
+                        let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
+                        await self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                        self.currentTime = seekTime
+                        self.pendingSeekTime = nil
+                    }
+                    
+                    if autoPlay {
+                        self.player?.play()
+                        self.isPlaying = true
+                        self.onPlayPauseChanged?(true)
+                    }
+                    
+                    // Attach EQ tap now that asset is ready
+                    self.audioTapProcessor.attach(to: item)
                     
                 case .failed:
                     let error = item.error
-                    Logger.error("Player failed", category: .playback, error: error)
-                    self.onFailed?(error)
-                    self.delegate?.playbackService(self, didFail: error)
+                    Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1))", category: .playback)
+                    
+                    // Attempt retry if we haven't exceeded max retries
+                    if self.retryCount < self.maxRetries {
+                        self.retryCount += 1
+                        let delay = pow(2.0, Double(self.retryCount - 1)) * 0.5 // 0.5s, 1s, 2s
+                        
+                        Logger.log("Retrying playback in \(delay)s...", category: .playback)
+                        
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        
+                        // Try to get fresh URL first (handles expired URL case)
+                        if let onRetryNeeded = self.onRetryNeeded {
+                            onRetryNeeded { [weak self] freshUrl in
+                                guard let self = self else { return }
+                                Task { @MainActor in
+                                    if let freshUrl = freshUrl,
+                                       let params = self.currentLoadParameters {
+                                        // Update stored parameters with fresh URL
+                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo)
+                                        self.retryLoad(url: freshUrl)
+                                    } else if let params = self.currentLoadParameters {
+                                        // Fall back to original URL
+                                        self.retryLoad(url: params.url)
+                                    }
+                                }
+                            }
+                        } else if let params = self.currentLoadParameters {
+                            // No fresh URL callback, retry with original URL
+                            self.retryLoad(url: params.url)
+                        }
+                    } else {
+                        // Max retries exceeded, report failure
+                        Logger.error("Player failed after \(self.maxRetries) retries", category: .playback, error: error)
+                        self.onFailed?(error)
+                        self.delegate?.playbackService(self, didFail: error)
+                    }
+                    
+                default:
+                    break
+                }
+            }
+        }
+        
+        setupTimeObserver()
+    }
+    
+    /// Internal retry helper - loads with fresh URL while preserving retry count
+    private func retryLoad(url: URL) {
+        guard let params = currentLoadParameters else { return }
+        
+        // Clean up existing player but don't reset retry count
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        statusObserver?.invalidate()
+        statusObserver = nil
+        player?.pause()
+        player = nil
+        audioTapProcessor.detach()
+        playerItem = nil
+        
+        // Set duration and pending seek from stored parameters
+        duration = params.expectedDuration
+        pendingSeekTime = params.seekTo
+        
+        
+        playerItem = AVPlayerItem(url: url)
+        player = AVPlayer(playerItem: playerItem)
+        
+        // Attach EQ will happen in readyToPlay
+        
+        let autoPlay = params.autoPlay
+        
+        // Observe player status
+        statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                
+                switch item.status {
+                case .readyToPlay:
+                    Logger.log("Playback retry successful", category: .playback)
+                    
+                    // Attach EQ tap now that asset is ready
+                    self.audioTapProcessor.attach(to: item)
+
+                    self.onReady?(self.duration)
+                    self.delegate?.playbackService(self, didBecomeReady: self.duration)
+                    
+                    // Apply pending seek before playing
+                    if let seekTime = self.pendingSeekTime, seekTime > 0 {
+                        let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
+                        await self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                        self.currentTime = seekTime
+                        self.pendingSeekTime = nil
+                    }
+                    
+                    if autoPlay {
+                        self.player?.play()
+                        self.isPlaying = true
+                        self.onPlayPauseChanged?(true)
+                    }
+                    
+                case .failed:
+                    let error = item.error
+                    Logger.warning("Retry failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1))", category: .playback)
+                    
+                    if self.retryCount < self.maxRetries {
+                        self.retryCount += 1
+                        let delay = pow(2.0, Double(self.retryCount - 1)) * 0.5
+                        
+                        Logger.log("Retrying playback in \(delay)s...", category: .playback)
+                        
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        
+                        if let onRetryNeeded = self.onRetryNeeded {
+                            onRetryNeeded { [weak self] freshUrl in
+                                guard let self = self else { return }
+                                Task { @MainActor in
+                                    if let freshUrl = freshUrl,
+                                       let params = self.currentLoadParameters {
+                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo)
+                                        self.retryLoad(url: freshUrl)
+                                    } else if let params = self.currentLoadParameters {
+                                        self.retryLoad(url: params.url)
+                                    }
+                                }
+                            }
+                        } else if let params = self.currentLoadParameters {
+                            self.retryLoad(url: params.url)
+                        }
+                    } else {
+                        Logger.error("Player failed after \(self.maxRetries) retries. Error: \(error?.localizedDescription ?? "unknown")", category: .playback, error: error)
+                        self.onFailed?(error)
+                        self.delegate?.playbackService(self, didFail: error)
+                    }
                     
                 default:
                     break
@@ -147,7 +321,7 @@ class PlaybackService {
     private func setupTimeObserver() {
         let interval = CMTime(seconds: 1.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let seconds = time.seconds.isNaN ? 0 : time.seconds
                 self.currentTime = min(seconds, self.duration)

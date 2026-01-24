@@ -103,6 +103,7 @@ class AudioPlayer {
         setupPlaybackService()
         setupRemoteCommandCenter()
         setupNotifications()
+        restoreLastSession()
     }
     
     private func setupPlaybackService() {
@@ -113,6 +114,10 @@ class AudioPlayer {
         
         playbackService.onTimeUpdated = { [weak self] time in
             self?.currentTime = time
+            // Periodically save position (every 5 seconds)
+            if Int(time) % 5 == 0 {
+                self?.saveCurrentPosition()
+            }
         }
         
         playbackService.onSongEnded = { [weak self] in
@@ -128,6 +133,31 @@ class AudioPlayer {
         
         playbackService.onFailed = { [weak self] _ in
             self?.isLoading = false
+        }
+        
+        // Retry callback - fetch fresh URL when playback fails (handles expired URLs)
+        playbackService.onRetryNeeded = { [weak self] completion in
+            guard let self = self, let song = self.currentSong else {
+                completion(nil)
+                return
+            }
+            
+            Task { @MainActor in
+                do {
+                    Logger.log("Requesting fresh URL for retry: \(song.title)", category: .playback)
+                    let playbackInfo = try await self.networkManager.getPlaybackInfo(videoId: song.videoId)
+                    if let freshUrl = URL(string: playbackInfo.audioUrl) {
+                        Logger.log("Got fresh URL: \(freshUrl.absoluteString.prefix(50))...", category: .playback)
+                        completion(freshUrl)
+                    } else {
+                        Logger.warning("Fresh URL invalid", category: .playback)
+                        completion(nil)
+                    }
+                } catch {
+                    Logger.warning("Failed to get fresh URL for retry: \(error.localizedDescription)", category: .playback)
+                    completion(nil)
+                }
+            }
         }
     }
     
@@ -331,6 +361,11 @@ class AudioPlayer {
             
             updateNowPlayingInfo()
             
+            // Save to widget shared data with duration
+            if let song = currentSong {
+                LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: duration)
+            }
+            
         } catch {
             isLoading = false
             Logger.error("Failed to load playback info", category: .playback, error: error)
@@ -338,15 +373,27 @@ class AudioPlayer {
     }
     
     func play() {
+        // Check if we have a song but no audio loaded (restored session)
+        if currentSong != nil && !playbackService.isAudioLoaded {
+            // Need to load the song first
+            Task {
+                await resumeRestoredSession()
+            }
+            return
+        }
+        
         playbackService.play()
         isPlaying = true
         updateNowPlayingInfo()
+        LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
     }
     
     func pause() {
         playbackService.pause()
         isPlaying = false
         updateNowPlayingInfo()
+        // Save position when pausing for resume later
+        LastPlayedSongManager.shared.updatePlaybackState(isPlaying: false, currentTime: currentTime)
     }
     
     func togglePlayPause() {
@@ -497,6 +544,79 @@ class AudioPlayer {
             currentTime: currentTime,
             duration: duration
         )
+    }
+    
+    // MARK: - Session Persistence
+    
+    /// Restore the last played song on app launch (shows in mini player)
+    private func restoreLastSession() {
+        guard let lastSession = LastPlayedSongManager.shared.loadSharedData() else { return }
+        
+        // Restore the song to show in mini player (but don't play)
+        let restoredSong = lastSession.toSong()
+        currentSong = restoredSong
+        currentTime = lastSession.currentTime
+        duration = lastSession.totalDuration
+        isPlaying = false // Don't auto-play, just restore state
+        
+        // Update the now playing info so lock screen/control center shows correct info
+        updateNowPlayingInfo()
+    }
+    
+    /// Resume playback of the restored session (called when user taps play on mini player)
+    func resumeRestoredSession() async {
+        guard let song = currentSong else { return }
+        
+        // Get the saved position before loading
+        let savedPosition = LastPlayedSongManager.shared.loadSharedData()?.currentTime ?? 0
+        
+        // If we have a restored song but no audio loaded, load it with seek position
+        if !playbackService.isAudioLoaded {
+            await loadAndPlayWithSeek(song: song, seekTo: savedPosition)
+        } else {
+            play()
+        }
+    }
+    
+    /// Load and play a song, seeking to a specific position before playback starts
+    private func loadAndPlayWithSeek(song: Song, seekTo: Double) async {
+        isLoading = true
+        currentSong = song
+        
+        do {
+            let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
+            
+            guard let url = URL(string: playbackInfo.audioUrl) else {
+                isLoading = false
+                return
+            }
+            
+            let apiDuration = Double(playbackInfo.duration) ?? 0
+            
+            // Load audio with seek position
+            playbackService.load(url: url, expectedDuration: apiDuration, autoPlay: true, seekTo: seekTo)
+            duration = apiDuration
+            
+            updateNowPlayingInfo()
+            
+            // Fetch related songs for the queue (so next/prev work)
+            await queueManager.loadRelatedSongs(videoId: song.videoId, replaceQueue: true, currentSong: song)
+            
+            // Save to widget shared data
+            if let song = currentSong {
+                LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: seekTo, totalDuration: duration)
+            }
+            
+        } catch {
+            isLoading = false
+            Logger.error("Failed to load playback info for resume", category: .playback, error: error)
+        }
+    }
+    
+    /// Save current playback position (called periodically and on pause)
+    private func saveCurrentPosition() {
+        guard let song = currentSong else { return }
+        LastPlayedSongManager.shared.updateCurrentTime(currentTime)
     }
 }
 

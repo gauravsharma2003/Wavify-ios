@@ -8,9 +8,21 @@
 
 /* Begin PBXBuildFile section */
 		DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */; };
+		DA7930992F1E05A100CE1CFB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930982F1E05A100CE1CFB /* WidgetKit.framework */; };
+		DA79309B2F1E05A100CE1CFB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA79309A2F1E05A100CE1CFB /* SwiftUI.framework */; };
+		DA7930AC2F1E05A300CE1CFB /* widgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA7930972F1E05A100CE1CFB /* widgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DA7930B32F1E103D00CE1CFB /* GroupActivities.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */; };
+		DA7930B42F1E105200CE1CFB /* GroupActivities.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		DA7930AA2F1E05A300CE1CFB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DAC714D22F03FCB200B08888 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DA7930962F1E05A100CE1CFB;
+			remoteInfo = widgetExtension;
+		};
 		DAC714E82F03FCB400B08888 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DAC714D22F03FCB200B08888 /* Project object */;
@@ -27,8 +39,27 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		DA7930B12F1E05A300CE1CFB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DA7930AC2F1E05A300CE1CFB /* widgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		DA038AC32F1FEB0C004EE11B /* widgetExtensionDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = widgetExtensionDebug.entitlements; sourceTree = "<group>"; };
 		DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTasks.framework; path = System/Library/Frameworks/BackgroundTasks.framework; sourceTree = SDKROOT; };
+		DA7930972F1E05A100CE1CFB /* widgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = widgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA7930982F1E05A100CE1CFB /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		DA79309A2F1E05A100CE1CFB /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GroupActivities.framework; path = System/Library/Frameworks/GroupActivities.framework; sourceTree = SDKROOT; };
 		DAC714DA2F03FCB200B08888 /* Wavify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wavify.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAC714E72F03FCB400B08888 /* WavifyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WavifyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAC714F12F03FCB400B08888 /* WavifyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WavifyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -42,9 +73,24 @@
 			);
 			target = DAC714D92F03FCB200B08888 /* Wavify */;
 		};
+		DA7930B02F1E05A300CE1CFB /* Exceptions for "widget" folder in "widgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DA7930962F1E05A100CE1CFB /* widgetExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		DA79309C2F1E05A100CE1CFB /* widget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DA7930B02F1E05A300CE1CFB /* Exceptions for "widget" folder in "widgetExtension" target */,
+			);
+			path = widget;
+			sourceTree = "<group>";
+		};
 		DAC714DC2F03FCB200B08888 /* Wavify */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -66,11 +112,22 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		DA7930942F1E05A100CE1CFB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA79309B2F1E05A100CE1CFB /* SwiftUI.framework in Frameworks */,
+				DA7930992F1E05A100CE1CFB /* WidgetKit.framework in Frameworks */,
+				DA7930B32F1E103D00CE1CFB /* GroupActivities.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DAC714D72F03FCB200B08888 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */,
+				DA7930B42F1E105200CE1CFB /* GroupActivities.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,7 +151,10 @@
 		DA4DCE192F06FBED00721B11 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */,
 				DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */,
+				DA7930982F1E05A100CE1CFB /* WidgetKit.framework */,
+				DA79309A2F1E05A100CE1CFB /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -102,9 +162,11 @@
 		DAC714D12F03FCB200B08888 = {
 			isa = PBXGroup;
 			children = (
+				DA038AC32F1FEB0C004EE11B /* widgetExtensionDebug.entitlements */,
 				DAC714DC2F03FCB200B08888 /* Wavify */,
 				DAC714EA2F03FCB400B08888 /* WavifyTests */,
 				DAC714F42F03FCB400B08888 /* WavifyUITests */,
+				DA79309C2F1E05A100CE1CFB /* widget */,
 				DA4DCE192F06FBED00721B11 /* Frameworks */,
 				DAC714DB2F03FCB200B08888 /* Products */,
 			);
@@ -116,6 +178,7 @@
 				DAC714DA2F03FCB200B08888 /* Wavify.app */,
 				DAC714E72F03FCB400B08888 /* WavifyTests.xctest */,
 				DAC714F12F03FCB400B08888 /* WavifyUITests.xctest */,
+				DA7930972F1E05A100CE1CFB /* widgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -123,6 +186,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		DA7930962F1E05A100CE1CFB /* widgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DA7930AD2F1E05A300CE1CFB /* Build configuration list for PBXNativeTarget "widgetExtension" */;
+			buildPhases = (
+				DA7930932F1E05A100CE1CFB /* Sources */,
+				DA7930942F1E05A100CE1CFB /* Frameworks */,
+				DA7930952F1E05A100CE1CFB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DA79309C2F1E05A100CE1CFB /* widget */,
+			);
+			name = widgetExtension;
+			packageProductDependencies = (
+			);
+			productName = widgetExtension;
+			productReference = DA7930972F1E05A100CE1CFB /* widgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		DAC714D92F03FCB200B08888 /* Wavify */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DAC714FB2F03FCB400B08888 /* Build configuration list for PBXNativeTarget "Wavify" */;
@@ -130,10 +215,12 @@
 				DAC714D62F03FCB200B08888 /* Sources */,
 				DAC714D72F03FCB200B08888 /* Frameworks */,
 				DAC714D82F03FCB200B08888 /* Resources */,
+				DA7930B12F1E05A300CE1CFB /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				DA7930AB2F1E05A300CE1CFB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DAC714DC2F03FCB200B08888 /* Wavify */,
@@ -201,6 +288,9 @@
 				LastSwiftUpdateCheck = 2610;
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
+					DA7930962F1E05A100CE1CFB = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
 					DAC714D92F03FCB200B08888 = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
@@ -231,11 +321,19 @@
 				DAC714D92F03FCB200B08888 /* Wavify */,
 				DAC714E62F03FCB400B08888 /* WavifyTests */,
 				DAC714F02F03FCB400B08888 /* WavifyUITests */,
+				DA7930962F1E05A100CE1CFB /* widgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		DA7930952F1E05A100CE1CFB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DAC714D82F03FCB200B08888 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -260,6 +358,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		DA7930932F1E05A100CE1CFB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DAC714D62F03FCB200B08888 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -284,6 +389,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		DA7930AB2F1E05A300CE1CFB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DA7930962F1E05A100CE1CFB /* widgetExtension */;
+			targetProxy = DA7930AA2F1E05A300CE1CFB /* PBXContainerItemProxy */;
+		};
 		DAC714E92F03FCB400B08888 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DAC714D92F03FCB200B08888 /* Wavify */;
@@ -297,6 +407,68 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		DA7930AE2F1E05A300CE1CFB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = widget/widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4HXQRL8SHT;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = widget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = widget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gaurav.Wavify.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DA7930AF2F1E05A300CE1CFB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = widget/widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4HXQRL8SHT;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = widget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = widget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gaurav.Wavify.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		DAC714F92F03FCB400B08888 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -570,6 +742,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		DA7930AD2F1E05A300CE1CFB /* Build configuration list for PBXNativeTarget "widgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA7930AE2F1E05A300CE1CFB /* Debug */,
+				DA7930AF2F1E05A300CE1CFB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		DAC714D52F03FCB200B08888 /* Build configuration list for PBXProject "Wavify" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

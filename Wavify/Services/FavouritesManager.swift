@@ -7,6 +7,8 @@
 
 import Foundation
 import SwiftData
+import WidgetKit
+import UIKit
 
 /// Cached favourite item for persistence
 struct CachedFavouriteItem: Codable {
@@ -67,6 +69,9 @@ class FavouritesManager {
             return
         }
         favourites = cached.map { $0.toSearchResult() }
+        
+        // Sync to widget - important for existing data
+        saveToWidgetCache(favourites)
     }
     
     /// Refresh favourites from database (for app launch and pull-to-refresh)
@@ -358,5 +363,109 @@ class FavouritesManager {
         if let data = try? JSONEncoder().encode(cached) {
             UserDefaults.standard.set(data, forKey: cacheKey)
         }
+        
+        // Also save top 4 to App Groups for widget access
+        saveToWidgetCache(results)
     }
+    
+    /// Save top 4 favorites to App Groups for widget display
+    private func saveToWidgetCache(_ results: [SearchResult]) {
+        guard let sharedDefaults = UserDefaults(suiteName: "group.com.gaurav.Wavify") else { return }
+        
+        // Get first artist and first 3 songs
+        var widgetFavorites: [WidgetFavoriteItem] = []
+        
+        // Find first artist
+        if let artist = results.first(where: { $0.type == .artist }) {
+            widgetFavorites.append(WidgetFavoriteItem(
+                id: artist.id,
+                name: artist.name,
+                thumbnailUrl: artist.thumbnailUrl,
+                type: "artist"
+            ))
+        }
+        
+        // Find first 3 songs (could be .song or .video type)
+        let songs = results.filter { $0.type == .video || $0.type == .song }.prefix(3)
+
+        
+        for song in songs {
+            widgetFavorites.append(WidgetFavoriteItem(
+                id: song.id,
+                name: song.name,
+                thumbnailUrl: song.thumbnailUrl,
+                type: "song"
+            ))
+        }
+        
+        // Save to App Groups
+        if let data = try? JSONEncoder().encode(widgetFavorites) {
+            sharedDefaults.set(data, forKey: "widgetFavorites")
+            sharedDefaults.synchronize()
+            
+
+            
+            // Cache thumbnail images for widget
+            cacheFavoriteThumbnails(widgetFavorites, to: sharedDefaults)
+            
+            // Reload widget timeline to pick up new data
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+    
+    /// Cache thumbnail images to App Groups for offline widget display
+    private func cacheFavoriteThumbnails(_ favorites: [WidgetFavoriteItem], to defaults: UserDefaults) {
+        Task {
+            for (index, favorite) in favorites.enumerated() {
+                guard let url = URL(string: favorite.thumbnailUrl) else { continue }
+                
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: url)
+                    let key = "favoriteThumbnail_\(index)"
+                    
+                    // Downscale image to avoid widget archival size limits
+                    if let originalImage = UIImage(data: data),
+                       let resizedImage = Self.resizeImage(originalImage, maxSize: 150),
+                       let resizedData = resizedImage.jpegData(compressionQuality: 0.7) {
+                        defaults.set(resizedData, forKey: key)
+                    } else {
+                        defaults.set(data, forKey: key)
+                    }
+                    
+
+                } catch {
+                    Logger.error("Failed to cache thumbnail for \(favorite.name)", category: .playback, error: error)
+                }
+            }
+            defaults.synchronize()
+            
+            // Reload widget after images are cached
+            await MainActor.run {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
+    }
+    
+    /// Resize image to fit within maxSize while maintaining aspect ratio
+    private static func resizeImage(_ image: UIImage, maxSize: CGFloat) -> UIImage? {
+        let size = image.size
+        let ratio = min(maxSize / size.width, maxSize / size.height)
+        
+        guard ratio < 1 else { return image }
+        
+        let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+}
+
+// MARK: - Widget Favorite Item
+
+struct WidgetFavoriteItem: Codable {
+    let id: String
+    let name: String
+    let thumbnailUrl: String
+    let type: String // "artist" or "song"
 }

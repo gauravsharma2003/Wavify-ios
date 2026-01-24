@@ -190,7 +190,7 @@ final class AudioTapProcessor {
         // Pass both coefficients and gains for auto-compensation
         context.eqProcessor.updateCoefficients(coefficients, gains: gains)
         
-        Logger.log("EQ updated: \(settings.selectedPreset.rawValue), enabled: \(settings.isEnabled)", category: .playback)
+
     }
     
     // MARK: - Private Methods
@@ -248,6 +248,6 @@ final class AudioTapProcessor {
         // Apply initial EQ settings
         updateSettings(EqualizerManager.shared.settings)
         
-        Logger.log("MTAudioProcessingTap attached successfully", category: .playback)
+
     }
 }

@@ -68,6 +68,12 @@ struct MainTabView: View {
                 saveToHistory()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToArtist"))) { notification in
+            if let artistId = notification.userInfo?["artistId"] as? String {
+                // Navigate to artist page
+                navigationManager.navigateToArtist(id: artistId, name: "", thumbnail: "")
+            }
+        }
     }
     
     // MARK: - History Tracking

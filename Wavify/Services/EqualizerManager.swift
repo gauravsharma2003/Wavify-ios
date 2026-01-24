@@ -73,13 +73,11 @@ class EqualizerManager {
     
     private func loadSettings() {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
-            Logger.log("No saved equalizer settings, using defaults", category: .playback)
             return
         }
         
         do {
             settings = try JSONDecoder().decode(EqualizerSettings.self, from: data)
-            Logger.log("Loaded equalizer settings: \(settings.selectedPreset.rawValue)", category: .playback)
         } catch {
             Logger.error("Failed to decode equalizer settings", category: .playback, error: error)
             settings = .default
@@ -90,7 +88,6 @@ class EqualizerManager {
         do {
             let data = try JSONEncoder().encode(settings)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            Logger.log("Saved equalizer settings: \(settings.selectedPreset.rawValue)", category: .playback)
         } catch {
             Logger.error("Failed to encode equalizer settings", category: .playback, error: error)
         }
