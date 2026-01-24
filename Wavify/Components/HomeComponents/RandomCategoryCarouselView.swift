@@ -13,6 +13,7 @@ struct RandomCategoryCarouselView: View {
     let playlists: [CategoryPlaylist]
     var audioPlayer: AudioPlayer
     let namespace: Namespace.ID
+    var scrollResetId: UUID = UUID() // Reset scroll position when this changes
     let onPlaylistTap: (CategoryPlaylist) -> Void
     
     private let cardWidth: CGFloat = UIScreen.main.bounds.width * 0.85
@@ -54,6 +55,7 @@ struct RandomCategoryCarouselView: View {
                 .padding(.horizontal, (UIScreen.main.bounds.width - cardWidth) / 2)
             }
             .scrollTargetBehavior(.viewAligned)
+            .id(scrollResetId) // Reset scroll position on refresh
         }
     }
     

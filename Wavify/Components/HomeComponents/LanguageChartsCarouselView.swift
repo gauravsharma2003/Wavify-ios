@@ -14,6 +14,7 @@ struct LanguageChartsCarouselView: View {
     let likedSongIds: Set<String>
     let queueSongIds: Set<String>
     let namespace: Namespace.ID
+    var scrollResetId: UUID = UUID() // Reset scroll position when this changes
     let onPlaylistTap: (LanguageChart) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
@@ -67,6 +68,7 @@ struct LanguageChartsCarouselView: View {
                 .padding(.horizontal, (UIScreen.main.bounds.width - cardWidth) / 2)
             }
             .scrollTargetBehavior(.viewAligned)
+            .id(scrollResetId) // Reset scroll position on refresh
         }
     }
     

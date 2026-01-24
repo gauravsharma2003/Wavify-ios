@@ -24,6 +24,9 @@ struct HomeView: View {
     
     // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
     @State private var heroRefreshId = UUID()
+
+    // Scroll reset ID - changes on refresh to reset all horizontal scroll positions
+    @State private var scrollResetId = UUID()
     
     var body: some View {
         NavigationStack(path: $navigationManager.homePath) {
@@ -69,6 +72,7 @@ struct HomeView: View {
                                     songs: viewModel.recommendedSongs,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
+                                    scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap,
                                     onAddToPlaylist: handleAddToPlaylist,
                                     onToggleLike: handleToggleLike,
@@ -82,6 +86,7 @@ struct HomeView: View {
                                 KeepListeningGridView(
                                     title: "Keep Listening",
                                     songs: viewModel.keepListeningSongs,
+                                    scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap
                                 )
                             }
@@ -94,6 +99,7 @@ struct HomeView: View {
                                     songs: viewModel.likedBasedRecommendations,
                                     likedSongIds: likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
+                                    scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap,
                                     onAddToPlaylist: handleAddToPlaylist,
                                     onToggleLike: handleToggleLike,
@@ -109,6 +115,7 @@ struct HomeView: View {
                                     playlists: viewModel.randomCategoryPlaylists,
                                     audioPlayer: audioPlayer,
                                     namespace: chartHeroAnimation,
+                                    scrollResetId: scrollResetId,
                                     onPlaylistTap: { playlist in
                                         if playlist.isAlbum {
                                             navigationManager.homePath.append(
@@ -142,6 +149,7 @@ struct HomeView: View {
                     }
                     .refreshable {
                         await viewModel.refresh(modelContext: modelContext)
+                        scrollResetId = UUID() // Reset all scroll positions
                     }
                 }
             }
@@ -280,6 +288,7 @@ struct HomeView: View {
                 songs: viewModel.trendingSongs,
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
+                scrollResetId: scrollResetId,
                 onSongTap: handleResultTap,
                 onAddToPlaylist: handleAddToPlaylist,
                 onToggleLike: handleToggleLike,
@@ -293,6 +302,7 @@ struct HomeView: View {
             KeepListeningGridView(
                 title: "Top Songs",
                 songs: viewModel.topSongs,
+                scrollResetId: scrollResetId,
                 onSongTap: handleResultTap
             )
         }
@@ -305,6 +315,7 @@ struct HomeView: View {
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 namespace: chartHeroAnimation,
+                scrollResetId: scrollResetId,
                 onPlaylistTap: { chart in
                     guard !navigationManager.isInCooldown(id: chart.playlistId) else { return }
                     navigationManager.homePath.append(
@@ -325,6 +336,7 @@ struct HomeView: View {
                 playlists: viewModel.randomCategoryPlaylists,
                 audioPlayer: audioPlayer,
                 namespace: chartHeroAnimation,
+                scrollResetId: scrollResetId,
                 onPlaylistTap: { playlist in
                     guard !navigationManager.isInCooldown(id: playlist.playlistId) else { return }
                     if playlist.isAlbum {
@@ -348,6 +360,7 @@ struct HomeView: View {
                 songs: viewModel.global100Songs,
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
+                scrollResetId: scrollResetId,
                 onSongTap: handleResultTap,
                 onAddToPlaylist: handleAddToPlaylist,
                 onToggleLike: handleToggleLike,
@@ -364,6 +377,7 @@ struct HomeView: View {
                 likedSongIds: likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 namespace: chartHeroAnimation,
+                scrollResetId: scrollResetId,
                 onPlaylistTap: { chart in
                     guard !navigationManager.isInCooldown(id: chart.playlistId) else { return }
                     navigationManager.homePath.append(
@@ -382,6 +396,7 @@ struct HomeView: View {
             KeepListeningGridView(
                 title: "US Top 100",
                 songs: viewModel.us100Songs,
+                scrollResetId: scrollResetId,
                 onSongTap: handleResultTap
             )
         }

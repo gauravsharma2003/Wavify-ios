@@ -12,6 +12,7 @@ import SwiftUI
 struct KeepListeningGridView: View {
     var title: String = "Keep Listening"
     let songs: [SearchResult]
+    var scrollResetId: UUID = UUID() // Reset scroll position when this changes
     let onSongTap: (SearchResult) -> Void
     
     // Grid configuration: 2 fixed rows
@@ -40,6 +41,7 @@ struct KeepListeningGridView: View {
                 }
                 .padding(.horizontal)
             }
+            .id(scrollResetId) // Reset scroll position on refresh
         }
     }
 }

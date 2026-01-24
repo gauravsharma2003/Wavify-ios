@@ -15,6 +15,7 @@ struct RecommendationsGridView: View {
     let songs: [SearchResult]
     let likedSongIds: Set<String>
     let queueSongIds: Set<String>
+    var scrollResetId: UUID = UUID() // Reset scroll position when this changes
     let onSongTap: (SearchResult) -> Void
     let onAddToPlaylist: (SearchResult) -> Void
     let onToggleLike: (SearchResult) -> Void
@@ -72,6 +73,7 @@ struct RecommendationsGridView: View {
                 }
                 .padding(.horizontal)
             }
+            .id(scrollResetId) // Reset scroll position on refresh
         }
     }
 }
