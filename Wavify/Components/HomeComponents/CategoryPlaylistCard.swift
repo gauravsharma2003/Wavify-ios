@@ -71,29 +71,37 @@ struct CategoryPlaylistCard: View {
                 
                 Spacer(minLength: 4)
                 
-                // Bottom row: Buttons aligned to right
-                HStack {
-                    Spacer()
-                    
-                    // Save button
+                // Bottom row: Full-width buttons with text
+                HStack(spacing: 12) {
+                    // Save button - full width with text
                     Button(action: {
                         toggleSavePlaylist()
                     }) {
-                        Image(systemName: isSaved ? "checkmark.circle.fill" : "plus")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(isSaved ? .green : .white)
-                            .frame(width: 44, height: 44)
+                        HStack(spacing: 8) {
+                            Image(systemName: isSaved ? "checkmark.circle.fill" : "plus")
+                                .font(.system(size: 16, weight: .medium))
+                            Text(isSaved ? "Saved" : "Save")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(isSaved ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
                     }
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    
-                    // Play button (rightmost)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+
+                    // Play button - full width with text
                     Button(action: onPlayTap) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("Play")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
                     }
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .glassEffect(.regular.interactive(), in: .capsule)
                 }
             }
             .padding(16)
