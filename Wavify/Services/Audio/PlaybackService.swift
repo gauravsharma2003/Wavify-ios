@@ -368,8 +368,9 @@ class PlaybackService {
             MPMediaItemPropertyPlaybackDuration: duration
         ]
         
-        // Load artwork asynchronously using ImageCache
-        if let url = URL(string: song.thumbnailUrl) {
+        // Load high-resolution artwork (544px) for lock screen display
+        let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+        if let url = URL(string: highResUrl) {
             Task {
                 if let image = await ImageCache.shared.image(for: url) {
                     let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
