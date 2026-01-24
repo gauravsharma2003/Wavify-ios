@@ -1,0 +1,40 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/LyricsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Loading lyrics...",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 73
+        }
+      },
+      {
+        "comment": "",
+        "key": "No lyrics available",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 301
+        }
+      },
+      {
+        "comment": "",
+        "key": "Lyrics couldn't be found for this song",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 305
+        }
+      },
+      {
+        "comment": "",
+        "key": "Couldn't load lyrics",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 321
+        }
+      }
+    ]
+  },
+  "version": 1
+}

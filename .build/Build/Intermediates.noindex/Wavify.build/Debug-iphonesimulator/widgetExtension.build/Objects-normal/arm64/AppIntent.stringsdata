@@ -1,0 +1,88 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/AppIntent.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Play or Pause",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 15
+        }
+      },
+      {
+        "comment": "",
+        "key": "Toggles playback in Wavify",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 16
+        }
+      },
+      {
+        "comment": "",
+        "key": "Next Track",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 26
+        }
+      },
+      {
+        "comment": "",
+        "key": "Skips to the next track",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 27
+        }
+      },
+      {
+        "comment": "",
+        "key": "Previous Track",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 37
+        }
+      },
+      {
+        "comment": "",
+        "key": "Goes to the previous track",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 38
+        }
+      },
+      {
+        "comment": "",
+        "key": "Open Favorite",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 48
+        }
+      },
+      {
+        "comment": "",
+        "key": "Opens a favorite in Wavify",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 49
+        }
+      },
+      {
+        "comment": "",
+        "key": "Item ID",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 52
+        }
+      },
+      {
+        "comment": "",
+        "key": "Item Type",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 55
+        }
+      }
+    ]
+  },
+  "version": 1
+}

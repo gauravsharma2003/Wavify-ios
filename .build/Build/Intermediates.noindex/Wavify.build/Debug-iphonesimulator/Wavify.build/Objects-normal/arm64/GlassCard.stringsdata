@@ -1,0 +1,16 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/GlassCard.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Glass Card",
+        "location": {
+          "startingColumn": 1,
+          "startingLine": 110
+        }
+      }
+    ]
+  },
+  "version": 1
+}

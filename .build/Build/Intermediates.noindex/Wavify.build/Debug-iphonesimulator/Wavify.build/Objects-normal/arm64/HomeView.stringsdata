@@ -1,0 +1,24 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Views/HomeView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Home",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 156
+        }
+      },
+      {
+        "comment": "",
+        "key": "Playlist Not Found",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 225
+        }
+      }
+    ]
+  },
+  "version": 1
+}

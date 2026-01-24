@@ -1,0 +1,69 @@
+{
+  "" : {
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetExtension-primary.dia",
+    "emit-module-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetExtension-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetExtension-primary-emit-module.dia",
+    "pch" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetExtension-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetExtension-primary.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/GeneratedAssetSymbols~partial.swiftmodule"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/AppIntent.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/AppIntent~partial.swiftmodule"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/widget.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widget~partial.swiftmodule"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/widgetBundle.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetBundle~partial.swiftmodule"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/widgetControl.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetControl~partial.swiftmodule"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/widget/widgetLiveActivity.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.dia",
+    "index-unit-output-path" : "/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.o",
+    "llvm-bc" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.bc",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity.swiftdeps",
+    "swiftmodule" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/widgetExtension.build/Objects-normal/x86_64/widgetLiveActivity~partial.swiftmodule"
+  }
+}

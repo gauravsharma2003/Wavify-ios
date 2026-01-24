@@ -1,0 +1,88 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/HomeComponents/LanguageChartCard.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "100 songs",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 103
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Playlist",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 157
+        }
+      },
+      {
+        "comment": "",
+        "key": "Unlike",
+        "location": {
+          "startingColumn": 45,
+          "startingLine": 164
+        }
+      },
+      {
+        "comment": "",
+        "key": "Like",
+        "location": {
+          "startingColumn": 56,
+          "startingLine": 164
+        }
+      },
+      {
+        "comment": "",
+        "key": "Play Next",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 170
+        }
+      },
+      {
+        "comment": "",
+        "key": "In Queue",
+        "location": {
+          "startingColumn": 47,
+          "startingLine": 177
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Queue",
+        "location": {
+          "startingColumn": 60,
+          "startingLine": 177
+        }
+      },
+      {
+        "comment": "",
+        "key": "Saved",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 203
+        }
+      },
+      {
+        "comment": "",
+        "key": "Save",
+        "location": {
+          "startingColumn": 46,
+          "startingLine": 203
+        }
+      },
+      {
+        "comment": "",
+        "key": "Play",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 217
+        }
+      }
+    ]
+  },
+  "version": 1
+}

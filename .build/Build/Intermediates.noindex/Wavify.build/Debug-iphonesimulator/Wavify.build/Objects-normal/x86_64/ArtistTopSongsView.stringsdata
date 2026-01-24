@@ -1,0 +1,32 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Views/ArtistTopSongsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Top Songs",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 82
+        }
+      },
+      {
+        "comment": "",
+        "key": "Failed to load songs",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 37
+        }
+      },
+      {
+        "comment": "",
+        "key": "Retry",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 42
+        }
+      }
+    ]
+  },
+  "version": 1
+}

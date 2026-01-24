@@ -249,6 +249,7 @@ struct SearchView: View {
                     .padding()
                 }
             }
+            .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
         }
     }
     

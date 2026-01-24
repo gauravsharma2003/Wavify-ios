@@ -55,9 +55,35 @@ final class ArtistAPIService {
     
     /// Get section items (See All for albums, singles, etc.)
     func getSectionItems(browseId: String, params: String? = nil) async throws -> [ArtistItem] {
+        // Use WEB_REMIX client with MOBILE platform for proper video/channel browsing support
+        var headers = YouTubeAPIContext.webHeaders
+        headers["X-YouTube-Client-Name"] = "67"  // WEB_REMIX
+        headers["X-YouTube-Client-Version"] = "1.20260121.03.00"
+        headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36"
+        
+        // Enhanced client context for channel video browsing (mobile platform)
+        let clientContext: [String: Any] = [
+            "client": [
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20260121.03.00",
+                "hl": "en",
+                "gl": "IN",
+                "platform": "MOBILE",  // Mobile has better channel video support
+                "clientFormFactor": "UNKNOWN_FORM_FACTOR",
+                "osName": "Android",
+                "osVersion": "6.0",
+                "deviceMake": "Google",
+                "deviceModel": "Nexus 5",
+                "browserName": "Chrome Mobile",
+                "browserVersion": "144.0.0.0",
+                "screenPixelDensity": 2,
+                "userInterfaceTheme": "USER_INTERFACE_THEME_DARK"
+            ]
+        ]
+        
         var body: [String: Any] = [
             "browseId": browseId,
-            "context": YouTubeAPIContext.webContext
+            "context": clientContext
         ]
         
         if let params = params {
@@ -67,7 +93,7 @@ final class ArtistAPIService {
         let request = try requestManager.createRequest(
             endpoint: "browse",
             body: body,
-            headers: YouTubeAPIContext.webHeaders
+            headers: headers
         )
         
         let dedupeKey = params != nil ? "section_\(browseId)_\(params!)" : "section_\(browseId)"
@@ -401,6 +427,36 @@ final class ArtistAPIService {
         // Log what renderer types exist in firstSection
         print("[ArtistAPIService] parseSectionItemsResponse: firstSection keys: \(firstSection.keys.joined(separator: ", "))")
         
+        // Check for itemSectionRenderer with error message (e.g., "no public YouTube Music content")
+        if let itemSection = firstSection["itemSectionRenderer"] as? [String: Any],
+           let sectionContents = itemSection["contents"] as? [[String: Any]] {
+            print("[ArtistAPIService] itemSectionRenderer: has \(sectionContents.count) contents")
+            
+            // Check for messageRenderer (error/info message)
+            for (index, itemData) in sectionContents.enumerated() {
+                print("[ArtistAPIService] itemSectionRenderer content \(index) keys: \(itemData.keys.joined(separator: ", "))")
+                
+                if let messageRenderer = itemData["messageRenderer"] as? [String: Any],
+                   let text = messageRenderer["text"] as? [String: Any],
+                   let runs = text["runs"] as? [[String: Any]],
+                   let firstRun = runs.first,
+                   let message = firstRun["text"] as? String {
+                    print("[ArtistAPIService] ⚠️ API returned message: \(message)")
+                    
+                    // If this is "no public YouTube Music content", return empty so fallback is used
+                    if message.lowercased().contains("doesn't have any public youtube music content") {
+                        print("[ArtistAPIService] → This is a regular YouTube channel, not a Music artist. Returning empty (fallback will be used).")
+                        return []
+                    }
+                }
+                
+                // Also check for video/song list items
+                if let listItem = itemData["musicResponsiveListItemRenderer"] as? [String: Any] {
+                    // Will be handled below in the existing itemSectionRenderer parsing
+                }
+            }
+        }
+        
         // Check for Grid (Singles, Albums)
         if let gridRenderer = firstSection["gridRenderer"] as? [String: Any],
            let items = gridRenderer["items"] as? [[String: Any]] {
@@ -436,23 +492,13 @@ final class ArtistAPIService {
         // Check for Item Section Renderer (may contain list items or error messages)
         if let itemSection = firstSection["itemSectionRenderer"] as? [String: Any],
            let sectionContents = itemSection["contents"] as? [[String: Any]] {
-            print("[ArtistAPIService] itemSectionRenderer: has \(sectionContents.count) contents")
             var artistItems: [ArtistItem] = []
-            for (index, itemData) in sectionContents.enumerated() {
-                print("[ArtistAPIService] itemSectionRenderer content \(index) keys: \(itemData.keys.joined(separator: ", "))")
+            for itemData in sectionContents {
                 // Check for video/song list items
                 if let listItem = itemData["musicResponsiveListItemRenderer"] as? [String: Any] {
                     if let item = parseResponsiveListItem(listItem) {
                         artistItems.append(item)
                     }
-                }
-                // Check for messageRenderer (error message)
-                if let messageRenderer = itemData["messageRenderer"] as? [String: Any],
-                   let text = messageRenderer["text"] as? [String: Any],
-                   let runs = text["runs"] as? [[String: Any]],
-                   let firstRun = runs.first,
-                   let message = firstRun["text"] as? String {
-                    print("[ArtistAPIService] itemSectionRenderer contains error message: \(message)")
                 }
             }
             print("[ArtistAPIService] itemSectionRenderer: parsed \(artistItems.count) items")
@@ -468,11 +514,23 @@ final class ArtistAPIService {
         
         for itemWrapper in items {
             if let twoRowItem = itemWrapper["musicTwoRowItemRenderer"] as? [String: Any] {
+                // Extract IDs from navigationEndpoint
                 var browseId: String?
-                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any],
-                   let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
-                    browseId = browseEndpoint["browseId"] as? String
+                var videoId: String?
+                
+                if let navEndpoint = twoRowItem["navigationEndpoint"] as? [String: Any] {
+                    // For albums/singles - has browseEndpoint
+                    if let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any] {
+                        browseId = browseEndpoint["browseId"] as? String
+                    }
+                    // For videos - has watchEndpoint
+                    if let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any] {
+                        videoId = watchEndpoint["videoId"] as? String
+                    }
                 }
+                
+                // Skip items with neither ID
+                guard videoId != nil || browseId != nil else { continue }
                 
                 var itemTitle = ""
                 if let titleData = twoRowItem["title"] as? [String: Any],
@@ -497,14 +555,14 @@ final class ArtistAPIService {
                 }
                 
                 artistItems.append(ArtistItem(
-                    id: browseId ?? UUID().uuidString,
+                    id: videoId ?? browseId ?? UUID().uuidString,
                     title: itemTitle,
                     subtitle: subtitle,
                     thumbnailUrl: thumbUrl,
                     isExplicit: false,
-                    videoId: nil,
+                    videoId: videoId,  // Will be set for videos
                     playlistId: nil,
-                    browseId: browseId
+                    browseId: browseId  // Will be set for albums/singles
                 ))
             }
         }

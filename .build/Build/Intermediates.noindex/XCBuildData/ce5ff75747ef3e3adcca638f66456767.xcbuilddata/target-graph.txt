@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'Wavify' in project 'Wavify'
+➜ Explicit dependency on target 'widgetExtension' in project 'Wavify'
+Target 'widgetExtension' in project 'Wavify' (no dependencies)

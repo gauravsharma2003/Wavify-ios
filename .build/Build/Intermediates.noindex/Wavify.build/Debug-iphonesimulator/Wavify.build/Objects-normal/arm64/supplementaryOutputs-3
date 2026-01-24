@@ -1,0 +1,86 @@
+{
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/SongRow.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/SongRow.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/SongRow.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/SongRow.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/SongRow.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/SongRow.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Managers/ChartsManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ChartsManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ChartsManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ChartsManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ChartsManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ChartsManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Managers/RandomCategoryManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/RandomCategoryManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/RandomCategoryManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/RandomCategoryManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/RandomCategoryManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/RandomCategoryManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/APIModels.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/APIModels.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/APIModels.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/APIModels.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/APIModels.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/APIModels.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/ApiArtistDetail.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ApiArtistDetail.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ApiArtistDetail.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ApiArtistDetail.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ApiArtistDetail.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/ApiArtistDetail.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/CategoryPlaylist.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/CategoryPlaylist.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/CategoryPlaylist.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/CategoryPlaylist.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/CategoryPlaylist.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/CategoryPlaylist.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/EqualizerPreset.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/EqualizerPreset.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/EqualizerPreset.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/EqualizerPreset.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/EqualizerPreset.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/EqualizerPreset.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/FavouritesTracker.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/FavouritesTracker.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/FavouritesTracker.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/FavouritesTracker.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/FavouritesTracker.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/FavouritesTracker.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/LanguageChart.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LanguageChart.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LanguageChart.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LanguageChart.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LanguageChart.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LanguageChart.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/LocalPlaylist.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalPlaylist.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalPlaylist.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalPlaylist.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalPlaylist.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalPlaylist.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/LocalSong.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalSong.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalSong.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalSong.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalSong.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocalSong.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Models/LocationModels.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocationModels.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocationModels.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocationModels.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocationModels.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/arm64/LocationModels.swiftdeps"
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Views/Components/SongOptionsMenu.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Currently Playing",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 26
+        }
+      },
+      {
+        "comment": "",
+        "key": "Play Next",
+        "location": {
+          "startingColumn": 61,
+          "startingLine": 26
+        }
+      },
+      {
+        "comment": "",
+        "key": "Currently Playing",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 35
+        }
+      },
+      {
+        "comment": "",
+        "key": "Already in Queue",
+        "location": {
+          "startingColumn": 74,
+          "startingLine": 35
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Queue",
+        "location": {
+          "startingColumn": 95,
+          "startingLine": 35
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Playlist",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 46
+        }
+      },
+      {
+        "comment": "",
+        "key": "Remove from Liked",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 53
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Liked",
+        "location": {
+          "startingColumn": 53,
+          "startingLine": 53
+        }
+      }
+    ]
+  },
+  "version": 1
+}

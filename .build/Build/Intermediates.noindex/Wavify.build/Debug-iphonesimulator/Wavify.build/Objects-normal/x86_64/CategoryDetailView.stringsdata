@@ -1,0 +1,16 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Views/CategoryDetailView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Failed to load content",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 47
+        }
+      }
+    ]
+  },
+  "version": 1
+}

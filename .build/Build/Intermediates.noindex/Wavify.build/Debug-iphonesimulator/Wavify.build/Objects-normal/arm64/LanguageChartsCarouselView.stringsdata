@@ -1,0 +1,24 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/HomeComponents/LanguageChartsCarouselView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Charts by Language",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 31
+        }
+      },
+      {
+        "comment": "",
+        "key": "Top Weekly",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 35
+        }
+      }
+    ]
+  },
+  "version": 1
+}

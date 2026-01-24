@@ -93,13 +93,19 @@ struct ArtistItemsGridView: View {
             if fetchedItems.isEmpty {
                 // Use fallback items if API returned empty
                 if !fallbackItems.isEmpty {
-                    Logger.debug("[ArtistItemsGridView] API returned empty, using \(fallbackItems.count) fallback items", category: .network)
+                    Logger.debug("[ArtistItemsGridView] ⚠️ API returned empty, using \(fallbackItems.count) fallback items", category: .network)
                     self.items = fallbackItems
                 } else {
                     Logger.warning("[ArtistItemsGridView] WARNING: No items returned for \(title) and no fallback available", category: .network)
                     self.items = []
                 }
             } else {
+                // Success! API returned items
+                if !fallbackItems.isEmpty {
+                    Logger.debug("[ArtistItemsGridView] ✅ API SUCCESS: Fetched \(fetchedItems.count) items (vs \(fallbackItems.count) fallback items)", category: .network)
+                } else {
+                    Logger.debug("[ArtistItemsGridView] ✅ API SUCCESS: Fetched \(fetchedItems.count) items", category: .network)
+                }
                 self.items = fetchedItems
                 // Log first few items for debugging
                 for (index, item) in items.prefix(3).enumerated() {
@@ -110,7 +116,7 @@ struct ArtistItemsGridView: View {
             Logger.networkError("Error loading \(title)", error: error)
             // On error, try to use fallback items
             if !fallbackItems.isEmpty {
-                Logger.debug("[ArtistItemsGridView] Error occurred, using \(fallbackItems.count) fallback items", category: .network)
+                Logger.debug("[ArtistItemsGridView] ❌ Error occurred, using \(fallbackItems.count) fallback items", category: .network)
                 self.items = fallbackItems
             } else {
                 errorMessage = error.localizedDescription

@@ -1,0 +1,16 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/SleepTimerSheet.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Sleep Timer",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 43
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,86 @@
+{
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/LikedBasedRecommendationsManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LikedBasedRecommendationsManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LikedBasedRecommendationsManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LikedBasedRecommendationsManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LikedBasedRecommendationsManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LikedBasedRecommendationsManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/LyricsService.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LyricsService.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LyricsService.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LyricsService.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LyricsService.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/LyricsService.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/NavigationManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NavigationManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NavigationManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NavigationManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NavigationManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NavigationManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/NetworkManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/NetworkMonitor.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkMonitor.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkMonitor.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkMonitor.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkMonitor.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/NetworkMonitor.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/PlayCountManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlayCountManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlayCountManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlayCountManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlayCountManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlayCountManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/PlaylistManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlaylistManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlaylistManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlaylistManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlaylistManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/PlaylistManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/RecommendationsManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/RecommendationsManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/RecommendationsManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/RecommendationsManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/RecommendationsManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/RecommendationsManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/SharedSongData.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SharedSongData.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SharedSongData.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SharedSongData.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SharedSongData.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SharedSongData.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/SleepTimerManager.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SleepTimerManager.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SleepTimerManager.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SleepTimerManager.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SleepTimerManager.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/SleepTimerManager.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Services/WidgetCommandHandler.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/WidgetCommandHandler.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/WidgetCommandHandler.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/WidgetCommandHandler.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/WidgetCommandHandler.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/WidgetCommandHandler.swiftdeps"
+  },
+  "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Utilities/ColorExtractor.swift" : {
+    "const-values" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/ColorExtractor.swiftconstvalues",
+    "dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/ColorExtractor.d",
+    "diagnostics" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/ColorExtractor.dia",
+    "object" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/ColorExtractor.o",
+    "swift-dependencies" : "/Users/Gaurav.Sharma4/Desktop/Wavify/.build/Build/Intermediates.noindex/Wavify.build/Debug-iphonesimulator/Wavify.build/Objects-normal/x86_64/ColorExtractor.swiftdeps"
+  }
+}

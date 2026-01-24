@@ -1,0 +1,41 @@
+{
+  "tables" : {
+    "AppShortcuts" : [
+      {
+        "values" : [
+          "Toggle playback in ${applicationName}",
+          "Play or pause ${applicationName}"
+        ],
+        "location" : {
+          "startingLine" : 117,
+          "startingColumn" : 0
+        },
+        "key" : "Toggle playback in ${applicationName}"
+      },
+      {
+        "values" : [
+          "Next track in ${applicationName}",
+          "Skip song in ${applicationName}"
+        ],
+        "location" : {
+          "startingLine" : 117,
+          "startingColumn" : 0
+        },
+        "key" : "Next track in ${applicationName}"
+      },
+      {
+        "values" : [
+          "Previous track in ${applicationName}",
+          "Go back in ${applicationName}"
+        ],
+        "location" : {
+          "startingLine" : 117,
+          "startingColumn" : 0
+        },
+        "key" : "Previous track in ${applicationName}"
+      }
+    ]
+  },
+  "version" : 1,
+  "source" : "\/Users\/Gaurav.Sharma4\/Desktop\/Wavify\/Wavify\/Services\/AudioPlaybackIntents.swift"
+}

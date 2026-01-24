@@ -1,0 +1,64 @@
+{
+  "source": "/Users/Gaurav.Sharma4/Desktop/Wavify/Wavify/Components/HomeComponents/YourFavouritesGridView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Your Favourites",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 40
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Playlist",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 139
+        }
+      },
+      {
+        "comment": "",
+        "key": "Unlike",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 145
+        }
+      },
+      {
+        "comment": "",
+        "key": "Like",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 145
+        }
+      },
+      {
+        "comment": "",
+        "key": "Play Next",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 151
+        }
+      },
+      {
+        "comment": "",
+        "key": "In Queue",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 157
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to Queue",
+        "location": {
+          "startingColumn": 52,
+          "startingLine": 157
+        }
+      }
+    ]
+  },
+  "version": 1
+}
