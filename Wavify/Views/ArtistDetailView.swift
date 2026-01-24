@@ -26,11 +26,12 @@ struct ArtistDetailView: View {
     @State private var selectedSongForPlaylist: Song?
     @State private var likedSongIds: Set<String> = []
     
-    // Hero animation namespace for albums
+    // Hero animation namespace for albums and artists
     @Namespace private var artistHeroAnimation
     
     // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
     @State private var albumRefreshId = UUID()
+    @State private var artistRefreshId = UUID()
     
     private let networkManager = NetworkManager.shared
     
@@ -436,6 +437,10 @@ struct ArtistDetailView: View {
                                 initialThumbnail: item.thumbnailUrl,
                                 audioPlayer: audioPlayer
                             )
+                            .navigationTransition(.zoom(sourceID: item.id, in: artistHeroAnimation))
+                            .onDisappear {
+                                artistRefreshId = UUID()
+                            }
                         }
                     } label: {
                         VStack(spacing: 8) {
@@ -449,6 +454,8 @@ struct ArtistDetailView: View {
                             }
                             .frame(width: 100, height: 100)
                             .clipShape(Circle())
+                            .id(artistRefreshId) // Force recreate when returning from detail
+                            .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
                             
                             Text(item.title)
                                 .font(.system(size: 13, weight: .medium))
