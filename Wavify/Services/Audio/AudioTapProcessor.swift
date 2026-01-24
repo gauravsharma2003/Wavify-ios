@@ -110,60 +110,96 @@ private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, nu
 final class AudioTapProcessor {
     
     // MARK: - Properties
-    
+
     /// Shared context for tap callbacks
     private var tapContext: AudioTapContext?
-    
+
     /// Reference to the current audio mix
     private var currentAudioMix: AVMutableAudioMix?
-    
+
     /// Subscription to EQ settings changes
     private var settingsCancellable: AnyCancellable?
-    
+
     /// Current sample rate (updated from tap prepare callback)
     private var currentSampleRate: Double = 44100
-    
+
+    /// Task for async tap attachment - allows cancellation
+    private var attachTask: Task<Void, Never>?
+
+    /// Unique ID to track which attachment is current
+    private var currentAttachmentId: UUID?
+
     // MARK: - Initialization
-    
+
     init() {
         subscribeToEqualizerSettings()
     }
-    
+
     deinit {
         settingsCancellable?.cancel()
+        attachTask?.cancel()
     }
-    
+
     // MARK: - Public API
-    
-    /// Attach audio processing tap to an AVPlayerItem
+
+    /// Attach audio processing tap to an AVPlayerItem synchronously
+    /// Called when player is readyToPlay, so tracks should be available
     /// - Parameter playerItem: The player item to process
-    func attach(to playerItem: AVPlayerItem) {
+    func attachSync(to playerItem: AVPlayerItem) {
+        // Cancel any pending attachment task
+        attachTask?.cancel()
+
+        // DON'T invalidate previous context here - its tap may still be processing
+        // The old tap will finalize naturally when the old playerItem is deallocated
+
         // Create new context for this player item
         let context = AudioTapContext()
         tapContext = context
-        
-        // Get audio tracks asynchronously
+
+        let attachmentId = UUID()
+        currentAttachmentId = attachmentId
+
         let asset = playerItem.asset
-        Task {
-            do {
-                let tracks = try await asset.loadTracks(withMediaType: .audio)
-                guard let audioTrack = tracks.first else {
-                    Logger.error("No audio track found in asset", category: .playback)
-                    return
+
+        // Use synchronous tracks access - fast when asset is ready
+        let tracks = asset.tracks(withMediaType: .audio)
+
+        guard let audioTrack = tracks.first else {
+            // Fallback to async if sync fails
+            attachTask = Task {
+                do {
+                    let asyncTracks = try await asset.loadTracks(withMediaType: .audio)
+                    guard self.currentAttachmentId == attachmentId else { return }
+                    if let track = asyncTracks.first {
+                        self.createAndAttachTap(to: playerItem, audioTrack: track, context: context)
+                    }
+                } catch {
+                    Logger.error("Failed to load audio tracks for EQ", category: .playback, error: error)
                 }
-                
-                await MainActor.run {
-                    createAndAttachTap(to: playerItem, audioTrack: audioTrack, context: context)
-                }
-            } catch {
-                Logger.error("Failed to load audio tracks for EQ", category: .playback, error: error)
             }
+            return
         }
+
+        createAndAttachTap(to: playerItem, audioTrack: audioTrack, context: context)
     }
-    
+
+    /// Attach audio processing tap to an AVPlayerItem (async fire-and-forget version)
+    /// - Parameter playerItem: The player item to process
+    func attach(to playerItem: AVPlayerItem) {
+        // Just call the sync version directly
+        attachSync(to: playerItem)
+    }
+
     /// Detach and cleanup the audio tap
     func detach() {
-        tapContext?.isValid = false
+        // Cancel any pending attachment
+        attachTask?.cancel()
+        attachTask = nil
+        currentAttachmentId = nil
+
+        // DON'T invalidate context here - the tap may still be processing audio
+        // Let it finalize naturally via tapFinalizeCallback when audio engine releases it
+        // The audioMix should be cleared on playerItem BEFORE calling this method
         tapContext = nil
         currentAudioMix = nil
     }

@@ -95,17 +95,17 @@ class PlaybackService {
     func load(url: URL, expectedDuration: Double, autoPlay: Bool = true, seekTo: Double? = nil, headers: [String: String]? = nil) {
         // Ensure audio session is active before loading
         setupAudioSession()
-        
+
         cleanup()
-        
+
         // Reset retry count for new load
         retryCount = 0
         currentLoadParameters = (url, expectedDuration, autoPlay, seekTo, headers)
-        
+
         // Set duration from API before player reports
         duration = expectedDuration
         pendingSeekTime = seekTo
-        
+
         if let headers = headers {
             let options = ["AVURLAssetHTTPHeaderFieldsKey": headers]
             let asset = AVURLAsset(url: url, options: options)
@@ -124,9 +124,12 @@ class PlaybackService {
                 
                 switch item.status {
                 case .readyToPlay:
+                    // Attach EQ tap BEFORE playing to prevent audio muting
+                    self.audioTapProcessor.attachSync(to: item)
+
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
-                    
+
                     // Apply pending seek before playing
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
@@ -134,15 +137,12 @@ class PlaybackService {
                         self.currentTime = seekTime
                         self.pendingSeekTime = nil
                     }
-                    
+
                     if autoPlay {
                         self.player?.play()
                         self.isPlaying = true
                         self.onPlayPauseChanged?(true)
                     }
-                    
-                    // Attach EQ tap now that asset is ready
-                    self.audioTapProcessor.attach(to: item)
                     
                 case .failed:
                     let error = item.error
@@ -238,13 +238,13 @@ class PlaybackService {
                 switch item.status {
                 case .readyToPlay:
                     Logger.log("Playback retry successful", category: .playback)
-                    
-                    // Attach EQ tap now that asset is ready
-                    self.audioTapProcessor.attach(to: item)
+
+                    // CRITICAL: Attach EQ tap BEFORE playing to prevent audio muting
+                    self.audioTapProcessor.attachSync(to: item)
 
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
-                    
+
                     // Apply pending seek before playing
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
@@ -252,7 +252,7 @@ class PlaybackService {
                         self.currentTime = seekTime
                         self.pendingSeekTime = nil
                     }
-                    
+
                     if autoPlay {
                         self.player?.play()
                         self.isPlaying = true
@@ -340,22 +340,28 @@ class PlaybackService {
     }
     
     // MARK: - Time Observer
-    
+
+    /// Flag to prevent duplicate song end callbacks
+    private var hasFiredSongEnd = false
+
     private func setupTimeObserver() {
-        let interval = CMTime(seconds: 1.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        // Reset the flag for new song
+        hasFiredSongEnd = false
+
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let seconds = time.seconds.isNaN ? 0 : time.seconds
                 self.currentTime = min(seconds, self.duration)
-                
+
                 self.onTimeUpdated?(self.currentTime)
                 self.delegate?.playbackService(self, didUpdateTime: self.currentTime)
-                
-                // Check if song should end
-                if self.duration > 0 && seconds >= self.duration - 0.5 {
+
+                // Fallback song end detection if AVPlayerItemDidPlayToEndTime doesn't fire
+                if self.duration > 0 && seconds >= self.duration - 0.5 && !self.hasFiredSongEnd {
+                    self.hasFiredSongEnd = true
                     self.onSongEnded?()
-                    self.delegate?.playbackService(self, didReachEndOfSong: ())
                 }
             }
         }
@@ -421,10 +427,14 @@ class PlaybackService {
         }
         statusObserver?.invalidate()
         statusObserver = nil
+        
+        // CRITICAL: Clear audioMix BEFORE detaching tap to stop audio engine callbacks
+        playerItem?.audioMix = nil
+        
         player?.pause()
         player = nil
         
-        // Detach EQ tap
+        // Now safe to detach EQ tap since audio engine is no longer using it
         audioTapProcessor.detach()
         
         playerItem = nil

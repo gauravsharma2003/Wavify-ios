@@ -10,6 +10,7 @@ import AVFoundation
 import MediaPlayer
 import Combine
 import Observation
+import UIKit
 
 // MARK: - Loop Mode
 
@@ -91,11 +92,14 @@ class AudioPlayer {
     }
     
     // MARK: - Services
-    
+
     private let queueManager = QueueManager()
     private let shuffleController = ShuffleController()
     private let playbackService = PlaybackService()
     private let networkManager = NetworkManager.shared
+
+    /// Flag to prevent duplicate song end handling
+    private var isHandlingSongEnd = false
     
     // MARK: - Initialization
     
@@ -120,12 +124,16 @@ class AudioPlayer {
             }
         }
         
+        // Fallback song end handler for when AVPlayerItemDidPlayToEndTime doesn't fire
         playbackService.onSongEnded = { [weak self] in
-            Task {
-                await self?.playNext()
+            Task { @MainActor in
+                guard let self = self, !self.isHandlingSongEnd else { return }
+                self.isHandlingSongEnd = true
+                await self.playNext()
+                self.isHandlingSongEnd = false
             }
         }
-        
+
         playbackService.onReady = { [weak self] dur in
             self?.duration = dur
             self?.isLoading = false
@@ -234,8 +242,31 @@ class AudioPlayer {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // Start background task to prevent iOS from suspending during song transition
+            var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+            backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "SongTransition") {
+                // Expiration handler
+                if backgroundTaskId != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTaskId)
+                    backgroundTaskId = .invalid
+                }
+            }
+
             Task { @MainActor in
-                await self?.playNext()
+                guard let self = self, !self.isHandlingSongEnd else {
+                    if backgroundTaskId != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTaskId)
+                    }
+                    return
+                }
+                self.isHandlingSongEnd = true
+                await self.playNext()
+                self.isHandlingSongEnd = false
+
+                // End background task when done
+                if backgroundTaskId != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTaskId)
+                }
             }
         }
         
@@ -249,7 +280,7 @@ class AudioPlayer {
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
                 return
             }
-            
+
             Task { @MainActor in
                 switch type {
                 case .began:
@@ -265,6 +296,41 @@ class AudioPlayer {
                     break
                 }
             }
+        }
+
+        // Handle audio route changes (Bluetooth disconnect, headphones unplugged, etc.)
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let userInfo = notification.userInfo,
+                  let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+                return
+            }
+
+            Task { @MainActor in
+                self?.handleRouteChange(reason: reason)
+            }
+        }
+    }
+
+    /// Handle audio route changes to prevent audio loss
+    private func handleRouteChange(reason: AVAudioSession.RouteChangeReason) {
+        switch reason {
+        case .oldDeviceUnavailable:
+            // Headphones/Bluetooth disconnected - pause playback
+            pause()
+        case .newDeviceAvailable, .routeConfigurationChange:
+            // New device connected or route changed - ensure audio session is active
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                Logger.error("Failed to reactivate audio session after route change", category: .playback, error: error)
+            }
+        default:
+            break
         }
     }
     
@@ -311,22 +377,22 @@ class AudioPlayer {
     private func playNewSong(_ song: Song, refreshQueue: Bool) async {
         isLoading = true
         currentSong = song
-        
+
         // Notify for play count tracking
         NotificationCenter.default.post(
             name: .songDidStartPlaying,
             object: nil,
             userInfo: ["song": song]
         )
-        
+
         do {
             let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
-            
+
             guard let url = URL(string: playbackInfo.audioUrl) else {
                 isLoading = false
                 return
             }
-            
+
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
             // Update IDs if needed
@@ -424,7 +490,7 @@ class AudioPlayer {
     
     func playNext() async {
         guard !queue.isEmpty else { return }
-        
+
         // Handle shuffle mode
         if shuffleController.isShuffleMode {
             if let nextIndex = shuffleController.getNextShuffleIndex() {
@@ -440,11 +506,13 @@ class AudioPlayer {
         // Handle loop modes
         switch shuffleController.loopMode {
         case .one:
+            // Seek to start for instant looping
             playbackService.seekToStart()
             playbackService.play()
             isPlaying = true
+            updateNowPlayingInfo()
             return
-            
+
         case .all:
             if let _ = queueManager.moveToNext() {
                 if let song = queue[safe: currentIndex] {
