@@ -95,6 +95,7 @@ struct KeepListeningCard: View {
             }
             .frame(width: 220)
             .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

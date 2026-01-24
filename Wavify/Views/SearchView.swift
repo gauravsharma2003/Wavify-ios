@@ -513,6 +513,7 @@ struct SearchView: View {
             }
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
     
     private func iconForType(_ type: SearchResultType) -> String {
