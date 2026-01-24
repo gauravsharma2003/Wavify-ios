@@ -42,7 +42,7 @@ class PlaybackService {
     // Retry mechanism
     private var retryCount = 0
     private let maxRetries = 3
-    private var currentLoadParameters: (url: URL, expectedDuration: Double, autoPlay: Bool, seekTo: Double?)?
+    private var currentLoadParameters: (url: URL, expectedDuration: Double, autoPlay: Bool, seekTo: Double?, headers: [String: String]?)?
     
     /// Callback to request fresh URL for retry (called when URL might have expired)
     var onRetryNeeded: ((_ completion: @escaping (URL?) -> Void) -> Void)?
@@ -88,7 +88,7 @@ class PlaybackService {
     ///   - expectedDuration: The expected duration in seconds
     ///   - autoPlay: Whether to start playing automatically when ready (default: true)
     ///   - seekTo: Optional position to seek to when ready before playing
-    func load(url: URL, expectedDuration: Double, autoPlay: Bool = true, seekTo: Double? = nil) {
+    func load(url: URL, expectedDuration: Double, autoPlay: Bool = true, seekTo: Double? = nil, headers: [String: String]? = nil) {
         // Ensure audio session is active before loading
         setupAudioSession()
         
@@ -96,13 +96,19 @@ class PlaybackService {
         
         // Reset retry count for new load
         retryCount = 0
-        currentLoadParameters = (url, expectedDuration, autoPlay, seekTo)
+        currentLoadParameters = (url, expectedDuration, autoPlay, seekTo, headers)
         
         // Set duration from API before player reports
         duration = expectedDuration
         pendingSeekTime = seekTo
         
-        playerItem = AVPlayerItem(url: url)
+        if let headers = headers {
+            let options = ["AVURLAssetHTTPHeaderFieldsKey": headers]
+            let asset = AVURLAsset(url: url, options: options)
+            playerItem = AVPlayerItem(asset: asset)
+        } else {
+            playerItem = AVPlayerItem(url: url)
+        }
         player = AVPlayer(playerItem: playerItem)
         
 
@@ -136,7 +142,11 @@ class PlaybackService {
                     
                 case .failed:
                     let error = item.error
-                    Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1))", category: .playback)
+                    let errorDesc = error?.localizedDescription ?? "unknown"
+                    let nsError = error as NSError?
+                    let errorCode = nsError?.code ?? 0
+                    let errorDomain = nsError?.domain ?? "unknown"
+                    Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDomain):\(errorCode) \(errorDesc)", category: .playback)
                     
                     // Attempt retry if we haven't exceeded max retries
                     if self.retryCount < self.maxRetries {
@@ -155,7 +165,7 @@ class PlaybackService {
                                     if let freshUrl = freshUrl,
                                        let params = self.currentLoadParameters {
                                         // Update stored parameters with fresh URL
-                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo)
+                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo, params.headers)
                                         self.retryLoad(url: freshUrl)
                                     } else if let params = self.currentLoadParameters {
                                         // Fall back to original URL
@@ -203,8 +213,13 @@ class PlaybackService {
         duration = params.expectedDuration
         pendingSeekTime = params.seekTo
         
-        
-        playerItem = AVPlayerItem(url: url)
+        if let headers = params.headers {
+            let options = ["AVURLAssetHTTPHeaderFieldsKey": headers]
+            let asset = AVURLAsset(url: url, options: options)
+            playerItem = AVPlayerItem(asset: asset)
+        } else {
+            playerItem = AVPlayerItem(url: url)
+        }
         player = AVPlayer(playerItem: playerItem)
         
         // Attach EQ will happen in readyToPlay
@@ -242,7 +257,11 @@ class PlaybackService {
                     
                 case .failed:
                     let error = item.error
-                    Logger.warning("Retry failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1))", category: .playback)
+                    let errorDesc = error?.localizedDescription ?? "unknown"
+                    let nsError = error as NSError?
+                    let errorCode = nsError?.code ?? 0
+                    let errorDomain = nsError?.domain ?? "unknown"
+                    Logger.warning("Retry failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDomain):\(errorCode) \(errorDesc)", category: .playback)
                     
                     if self.retryCount < self.maxRetries {
                         self.retryCount += 1
@@ -258,7 +277,7 @@ class PlaybackService {
                                 Task { @MainActor in
                                     if let freshUrl = freshUrl,
                                        let params = self.currentLoadParameters {
-                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo)
+                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo, params.headers)
                                         self.retryLoad(url: freshUrl)
                                     } else if let params = self.currentLoadParameters {
                                         self.retryLoad(url: params.url)

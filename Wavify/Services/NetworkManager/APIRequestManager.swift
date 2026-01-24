@@ -114,6 +114,11 @@ actor APIRequestManager {
     func clearCache() {
         requestCache.removeAll()
     }
+
+    /// Clear a specific cache entry by key
+    func clearCacheEntry(forKey key: String) {
+        requestCache.removeValue(forKey: key)
+    }
     
     // MARK: - Convenience Methods
     

@@ -133,6 +133,12 @@ class AudioPlayer {
         
         playbackService.onFailed = { [weak self] _ in
             self?.isLoading = false
+            // Invalidate cached playback URL so next attempt gets a fresh one
+            if let videoId = self?.currentSong?.videoId {
+                Task {
+                    await self?.networkManager.invalidatePlaybackCache(videoId: videoId)
+                }
+            }
         }
         
         // Retry callback - fetch fresh URL when playback fails (handles expired URLs)
@@ -141,9 +147,11 @@ class AudioPlayer {
                 completion(nil)
                 return
             }
-            
+
             Task { @MainActor in
                 do {
+                    // Invalidate cache before fetching to ensure truly fresh URL
+                    await self.networkManager.invalidatePlaybackCache(videoId: song.videoId)
                     Logger.log("Requesting fresh URL for retry: \(song.title)", category: .playback)
                     let playbackInfo = try await self.networkManager.getPlaybackInfo(videoId: song.videoId)
                     if let freshUrl = URL(string: playbackInfo.audioUrl) {
@@ -349,7 +357,11 @@ class AudioPlayer {
             }
             
             // Load audio
-            playbackService.load(url: url, expectedDuration: apiDuration)
+            playbackService.load(
+                url: url,
+                expectedDuration: apiDuration,
+                headers: YouTubeAPIContext.playbackHeaders
+            )
             duration = apiDuration
             
             // Handle queue
@@ -594,7 +606,14 @@ class AudioPlayer {
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
             // Load audio with seek position
-            playbackService.load(url: url, expectedDuration: apiDuration, autoPlay: true, seekTo: seekTo)
+            // Load audio with seek position
+            playbackService.load(
+                url: url,
+                expectedDuration: apiDuration,
+                autoPlay: true,
+                seekTo: seekTo,
+                headers: YouTubeAPIContext.playbackHeaders
+            )
             duration = apiDuration
             
             updateNowPlayingInfo()

@@ -45,6 +45,14 @@ enum YouTubeAPIContext {
         ]
     }
     
+    /// Headers suitable for AVURLAsset (playback) - excludes API-specific JSON headers
+    static var playbackHeaders: [String: String] {
+        [
+            "User-Agent": androidHeaders["User-Agent"] ?? "",
+            "Referer": androidHeaders["Referer"] ?? ""
+        ]
+    }
+    
     // MARK: - Request Contexts
     
     static var webContext: [String: Any] {

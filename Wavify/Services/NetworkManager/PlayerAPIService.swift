@@ -137,12 +137,21 @@ final class PlayerAPIService {
             throw YouTubeMusicError.invalidResponse
         }
         
-        // Filter for audio-only formats (no width)
+        // Filter for audio-only formats that AVPlayer can handle (mp4/m4a only, NOT webm/opus)
+        // Also require direct URL (not signatureCipher which requires decryption)
         let audioFormats = adaptiveFormats.filter { format in
+            // Must be audio-only (no width)
             guard format["width"] == nil else { return false }
-            
+
+            // Must have direct URL (not cipher-protected)
+            guard format["url"] as? String != nil else { return false }
+
+            // Must be mp4/m4a format (AVPlayer doesn't support webm/opus)
             if let mimeType = format["mimeType"] as? String {
-                return mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a")
+                let isCompatible = mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a")
+                // Explicitly reject webm/opus which causes "unknown error"
+                let isIncompatible = mimeType.contains("webm") || mimeType.contains("opus")
+                return isCompatible && !isIncompatible
             }
             return false
         }.sorted { format1, format2 in
@@ -150,12 +159,8 @@ final class PlayerAPIService {
             let bitrate2 = format2["bitrate"] as? Int ?? 0
             return bitrate1 > bitrate2
         }
-        
-        // Fallback to any audio format
-        let fallbackFormats = adaptiveFormats.filter { $0["width"] == nil }
-        let selectedFormats = audioFormats.isEmpty ? fallbackFormats : audioFormats
-        
-        guard let bestFormat = selectedFormats.first,
+
+        guard let bestFormat = audioFormats.first,
               let audioUrl = bestFormat["url"] as? String,
               let videoId = videoDetails["videoId"] as? String,
               let title = videoDetails["title"] as? String,
