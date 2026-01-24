@@ -110,7 +110,7 @@ struct FavouriteBlockCard: View {
                 .frame(width: 44, height: 44)
                 .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 5)))
                 .id(refreshId) // Force recreate when returning from detail
-                .matchedTransitionSource(id: item.type == .album ? item.id : "non_hero_\(item.id)", in: namespace)
+                .matchedTransitionSource(id: item.type == .album || item.type == .artist ? item.id : "non_hero_\(item.id)", in: namespace)
                 
                 // Name on the right, left-aligned
                 Text(item.name)

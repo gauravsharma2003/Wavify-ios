@@ -172,6 +172,11 @@ struct HomeView: View {
                         initialThumbnail: thumbnail,
                         audioPlayer: audioPlayer
                     )
+                    .navigationTransition(.zoom(sourceID: id, in: chartHeroAnimation))
+                    .onDisappear {
+                        NavigationManager.shared.recordClose(id: id)
+                        heroRefreshId = UUID() // Force refresh source images
+                    }
                 case .album(let id, let name, let artist, let thumbnail):
                     AlbumDetailView(
                         albumId: id,
