@@ -15,8 +15,10 @@ struct CategoryDetailView: View {
     var audioPlayer: AudioPlayer
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var page: HomePage?
     @State private var isLoading = true
+    @State var navigationManager: NavigationManager = .shared
     
     // Force refresh to restore visibility after zoom transition (iOS 18 bug workaround)
     @State private var refreshId = UUID()
@@ -51,6 +53,69 @@ struct CategoryDetailView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationDestination(for: NavigationDestination.self) { destination in
+            switch destination {
+            case .artist(let id, let name, let thumbnail):
+                ArtistDetailView(
+                    artistId: id,
+                    initialName: name,
+                    initialThumbnail: thumbnail,
+                    audioPlayer: audioPlayer
+                )
+                .navigationTransition(.zoom(sourceID: id, in: namespace))
+                .onDisappear {
+                    NavigationManager.shared.recordClose(id: id)
+                    refreshId = UUID() // Force refresh source images
+                }
+            case .album(let id, let name, let artist, let thumbnail):
+                AlbumDetailView(
+                    albumId: id,
+                    initialName: name,
+                    initialArtist: artist,
+                    initialThumbnail: thumbnail,
+                    audioPlayer: audioPlayer
+                )
+                .navigationTransition(.zoom(sourceID: id, in: namespace))
+                .onDisappear {
+                    NavigationManager.shared.recordClose(id: id)
+                    refreshId = UUID() // Force refresh source images
+                }
+            case .song(_):
+                EmptyView()
+            case .playlist(let id, let name, let thumbnail):
+                PlaylistDetailView(
+                    playlistId: id,
+                    initialName: name,
+                    initialThumbnail: thumbnail,
+                    audioPlayer: audioPlayer
+                )
+                .navigationTransition(.zoom(sourceID: id, in: namespace))
+                .onDisappear {
+                    NavigationManager.shared.recordClose(id: id)
+                    refreshId = UUID() // Force refresh source images
+                }
+            case .category(let title, let endpoint):
+                CategoryDetailView(
+                    title: title,
+                    endpoint: endpoint,
+                    namespace: namespace,
+                    audioPlayer: audioPlayer
+                )
+            case .localPlaylist(let pID):
+                if let playlist = modelContext.model(for: pID) as? LocalPlaylist {
+                    AlbumDetailView(
+                        albumId: nil,
+                        initialName: playlist.name,
+                        initialArtist: "",
+                        initialThumbnail: playlist.thumbnailUrl ?? "",
+                        localPlaylist: playlist,
+                        audioPlayer: audioPlayer
+                    )
+                } else {
+                    ContentUnavailableView("Playlist Not Found", systemImage: "questionmark.folder")
+                }
+            }
+        }
         .task {
             await loadContent()
         }
@@ -71,7 +136,8 @@ struct CategoryDetailView: View {
     }
     
     private func handleResultTap(_ result: SearchResult) {
-        // Reuse navigation logic
-        NavigationManager.shared.handleNavigation(for: result, audioPlayer: audioPlayer)
+        // Navigate using NavigationManager which routes to appropriate tab's stack
+        navigationManager.handleNavigation(for: result, audioPlayer: audioPlayer)
     }
 }
+
