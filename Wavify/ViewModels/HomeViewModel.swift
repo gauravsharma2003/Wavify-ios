@@ -28,7 +28,10 @@ class HomeViewModel {
     var us100Songs: [SearchResult] { chartsManager.us100Songs }
     var languageCharts: [LanguageChart] { chartsManager.languageCharts }
     var hasHistory: Bool = false
-    
+
+    // Track if initial load has completed (prevents loader on tab switch)
+    private var hasLoadedInitially = false
+
     // Random category section (computed from RandomCategoryManager cache)
     var randomCategoryName: String { randomCategoryManager.currentCategoryName }
     var randomCategoryPlaylists: [CategoryPlaylist] { randomCategoryManager.categoryPlaylists }
@@ -42,59 +45,65 @@ class HomeViewModel {
     private let randomCategoryManager = RandomCategoryManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
-        // Always show loading on fresh start
-        isLoading = true
-        
+        // Skip if already loaded (prevents loader when switching tabs)
+        guard !hasLoadedInitially else { return }
+
         // 1. Load cached data instantly
         loadCachedRecommendations()
         loadCachedKeepListening()
         loadCachedFavourites()
         loadCachedLikedBasedRecommendations()
-        
+
         hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
-        
+
+        // Only show loader if we have no content to display
+        let hasCachedContent = chartsManager.hasCachedData || homePage != nil
+        if !hasCachedContent {
+            isLoading = true
+        }
+
         // 2. Load charts and random category data in parallel
         let needsChartsRefresh = !chartsManager.hasCachedData
-        
+
         await withTaskGroup(of: Void.self) { group in
             if needsChartsRefresh {
                 group.addTask { @MainActor in
                     await self.chartsManager.refreshInBackground()
                 }
             }
-            
+
             group.addTask { @MainActor in
                 await self.randomCategoryManager.refreshInBackground()
             }
         }
-        
+
         await loadHome()
-        
-        // Let UI show loading state naturally - removed artificial delays
+
         isLoading = false
-        
+        hasLoadedInitially = true
+
         // Refresh Keep Listening and Favourites in background
         Task { [weak self] in
             guard let self = self else { return }
-            
+
             if hasHistory {
                 self.keepListeningSongs = self.keepListeningManager.refreshSongs(in: modelContext)
-                
+
                 // Yield between operations to keep UI responsive
                 await Task.yield()
-                
+
                 // Refresh favourites in FavouritesManager (computed property will pick it up)
                 _ = self.favouritesManager.refreshFavourites(in: modelContext)
-                
+
                 await Task.yield()
-                
+
                 await self.recommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
-                
+
                 await Task.yield()
-                
+
                 await self.likedBasedRecommendationsManager.prefetchRecommendationsInBackground(in: modelContext)
             }
-            
+
             // Background refresh charts if needed (won't block UI)
             if chartsManager.needsRefresh {
                 await chartsManager.refreshInBackground()
