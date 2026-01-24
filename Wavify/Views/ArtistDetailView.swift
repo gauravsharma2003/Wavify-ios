@@ -45,6 +45,7 @@ struct ArtistDetailView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     if isLoading {
                         ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 50)
                     } else if let detail = artistDetail {
                         // Action Buttons

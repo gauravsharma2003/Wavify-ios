@@ -655,7 +655,8 @@ struct SearchView: View {
                                     Color.gray.opacity(0.3)
                                 }
                             }
-                            .aspectRatio(1, contentMode: .fit)
+                            .frame(width: (UIScreen.main.bounds.width - 48 - 16) / 2, height: (UIScreen.main.bounds.width - 48 - 16) / 2)
+                            .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .id(searchRefreshId) // Force recreate when returning from detail
                             .matchedTransitionSource(id: album.id, in: searchHeroAnimation)
@@ -718,7 +719,7 @@ struct SearchView: View {
                                     Color.gray.opacity(0.3)
                                 }
                             }
-                            .aspectRatio(1, contentMode: .fit)
+                            .frame(width: (UIScreen.main.bounds.width - 48 - 16) / 2, height: (UIScreen.main.bounds.width - 48 - 16) / 2)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .id(searchRefreshId) // Force recreate when returning from detail

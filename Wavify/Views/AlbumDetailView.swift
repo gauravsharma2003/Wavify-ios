@@ -80,13 +80,27 @@ struct AlbumDetailView: View {
             VStack(spacing: 20) {
                 albumArtwork
                 albumInfo
-                if !songs.isEmpty {
+                
+                if isLoading {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(1.2)
+                        
+                        Text("Loading album...")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 40)
+                    .padding(.bottom, 200)
+                } else if !songs.isEmpty {
                     actionButtons
                     songList
-                } else if isUserCreatedPlaylist && !isLoading {
+                } else if isUserCreatedPlaylist {
                     // Empty state for user-created playlists with no songs
                     emptyPlaylistState
-                } else if !isLoading {
+                } else {
                     // Empty state for remote albums with no songs
                     remoteEmptyState
                 }
