@@ -39,6 +39,10 @@ class PlaybackService {
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
     
+    // Cached artwork to prevent reloading during seek
+    private var cachedArtwork: MPMediaItemArtwork?
+    private var cachedSongId: String?
+    
     // Retry mechanism
     private var retryCount = 0
     private let maxRetries = 3
@@ -368,32 +372,44 @@ class PlaybackService {
             MPMediaItemPropertyPlaybackDuration: duration
         ]
         
-        // Load high-resolution artwork (544px) for lock screen display
-        let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
-        if let url = URL(string: highResUrl) {
-            Task {
-                if let image = await ImageCache.shared.image(for: url) {
-                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-                } else {
-                    // Fallback to direct fetch and cache
-                    do {
-                        let (data, _) = try await URLSession.shared.data(from: url)
-                        if let image = UIImage(data: data) {
-                            await ImageCache.shared.store(image, for: url)
-                            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        // Use cached artwork if same song, otherwise load new artwork
+        if let cachedArtwork = cachedArtwork, cachedSongId == song.id {
+            // Same song - reuse cached artwork (prevents flicker during seek)
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = cachedArtwork
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        } else {
+            // New song - load high-resolution artwork (544px) for lock screen display
+            let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+            if let url = URL(string: highResUrl) {
+                Task {
+                    if let image = await ImageCache.shared.image(for: url) {
+                        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                        self.cachedArtwork = artwork
+                        self.cachedSongId = song.id
+                        nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                    } else {
+                        // Fallback to direct fetch and cache
+                        do {
+                            let (data, _) = try await URLSession.shared.data(from: url)
+                            if let image = UIImage(data: data) {
+                                await ImageCache.shared.store(image, for: url)
+                                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                                self.cachedArtwork = artwork
+                                self.cachedSongId = song.id
+                                nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                                MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                            }
+                        } catch {
+                            Logger.error("Failed to load artwork", category: .playback, error: error)
                         }
-                    } catch {
-                        Logger.error("Failed to load artwork", category: .playback, error: error)
                     }
                 }
             }
+            
+            // Set info immediately without artwork for new songs
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         }
-        
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
     
     // MARK: - Cleanup
@@ -413,6 +429,10 @@ class PlaybackService {
         
         playerItem = nil
         currentTime = 0
+        
+        // Clear artwork cache
+        cachedArtwork = nil
+        cachedSongId = nil
     }
     
     deinit {
