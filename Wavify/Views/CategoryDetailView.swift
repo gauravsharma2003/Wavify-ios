@@ -57,6 +57,10 @@ struct CategoryDetailView: View {
     }
     
     private func loadContent() async {
+        // Only load if content hasn't been loaded yet
+        // This preserves the cache while view is in navigation stack
+        guard page == nil else { return }
+        
         isLoading = true
         do {
             page = try await networkManager.loadPage(endpoint: endpoint)
