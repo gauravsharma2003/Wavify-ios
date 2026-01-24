@@ -185,10 +185,10 @@ class HomeViewModel {
             await loadHome()
             return
         }
-        
+
         isLoading = true
         selectedChipId = chip.id
-        
+
         do {
             self.homePage = try await ErrorHandler.withRetry {
                 try await self.networkManager.loadPage(endpoint: chip.endpoint)
@@ -197,5 +197,18 @@ class HomeViewModel {
             Logger.error("Failed to load chip", category: .network, error: error)
         }
         isLoading = false
+    }
+
+    /// Called when a song starts playing - loads recommendations if this creates history for the first time
+    func onSongPlayed(song: Song, modelContext: ModelContext) async {
+        // Check if history was just created (user didn't have history before)
+        let hadHistoryBefore = hasHistory
+        hasHistory = PlayCountManager.shared.hasPlayHistory(in: modelContext)
+
+        // If this is the first song played (history just created), load recommendations immediately
+        if !hadHistoryBefore && hasHistory {
+            // Fetch recommendations based on the song just played
+            recommendedSongs = await recommendationsManager.refreshRecommendations(in: modelContext)
+        }
     }
 }

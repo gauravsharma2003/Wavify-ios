@@ -97,13 +97,13 @@ struct SearchView: View {
             .onSubmit(of: .search) {
                 viewModel.performSearch()
             }
-            .background(Color(white: 0.06).ignoresSafeArea())
+            .background(Color(hex: "1A1A1A").ignoresSafeArea())
             .overlay(alignment: .top) {
                 // Gradient blur at top
                 LinearGradient(
                     stops: [
-                        .init(color: Color(white: 0.06).opacity(0.95), location: 0),
-                        .init(color: Color(white: 0.06).opacity(0.7), location: 0.5),
+                        .init(color: Color(hex: "1A1A1A").opacity(0.95), location: 0),
+                        .init(color: Color(hex: "1A1A1A").opacity(0.7), location: 0.5),
                         .init(color: .clear, location: 1.0)
                     ],
                     startPoint: .top,

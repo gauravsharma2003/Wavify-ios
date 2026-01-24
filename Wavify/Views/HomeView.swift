@@ -231,7 +231,7 @@ struct HomeView: View {
                 Task {
                     // Track song play count
                     await BackgroundDataManager.shared.incrementPlayCount(for: song)
-                    
+
                     // Track artist play (if artistId available)
                     if let artistId = song.artistId, !artistId.isEmpty {
                         await BackgroundDataManager.shared.trackArtistPlay(
@@ -240,7 +240,7 @@ struct HomeView: View {
                             thumbnailUrl: song.thumbnailUrl
                         )
                     }
-                    
+
                     // Track album play (if albumId available)
                     if let albumId = song.albumId, !albumId.isEmpty {
                         await BackgroundDataManager.shared.trackAlbumPlay(
@@ -250,8 +250,11 @@ struct HomeView: View {
                             thumbnailUrl: song.thumbnailUrl
                         )
                     }
+
+                    // Update hasHistory and load recommendations if first song played
+                    await viewModel.onSongPlayed(song: song, modelContext: modelContext)
                 }
-                
+
                 // Prefetch new recommendations in background for next launch
                 Task {
                     await RecommendationsManager.shared.prefetchRecommendationsInBackground(in: modelContext)

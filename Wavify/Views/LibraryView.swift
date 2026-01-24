@@ -62,8 +62,8 @@ struct LibraryView: View {
                 // Gradient blur at top
                 LinearGradient(
                     stops: [
-                        .init(color: Color(white: 0.06).opacity(0.95), location: 0),
-                        .init(color: Color(white: 0.06).opacity(0.7), location: 0.5),
+                        .init(color: Color(hex: "1A1A1A").opacity(0.95), location: 0),
+                        .init(color: Color(hex: "1A1A1A").opacity(0.7), location: 0.5),
                         .init(color: .clear, location: 1.0)
                     ],
                     startPoint: .top,
@@ -148,7 +148,7 @@ struct LibraryView: View {
     }
     
     private var gradientBackground: some View {
-        Color(white: 0.06)
+        Color(hex: "1A1A1A")
             .ignoresSafeArea()
     }
     
