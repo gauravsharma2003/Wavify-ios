@@ -124,12 +124,12 @@ class PlaybackService {
                 
                 switch item.status {
                 case .readyToPlay:
-                    // Attach EQ tap BEFORE playing to prevent audio muting
-                    self.audioTapProcessor.attachSync(to: item)
-
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
-
+                    
+                    // Ensure session is active
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    
                     // Apply pending seek before playing
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
@@ -137,11 +137,33 @@ class PlaybackService {
                         self.currentTime = seekTime
                         self.pendingSeekTime = nil
                     }
-
+                    
                     if autoPlay {
                         self.player?.play()
                         self.isPlaying = true
                         self.onPlayPauseChanged?(true)
+                    }
+                    
+                    // Attach EQ tap AFTER playback starts to prevents audio engine initialization deadlock
+                    // This "hot-swap" is more reliable than attaching before play
+                    self.audioTapProcessor.attachSync(to: item)
+                    
+                    // WORKAROUND: Force a switch of the audio engine state to prevent silence
+                    // The user reported that "pause and play fixes it", so we automate that sequence
+                    if autoPlay {
+                        Task {
+                            // Allow engine to start up (0.2s)
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            
+                            // Brief pause (0.1s) - resets the audio graph synchronization
+                            self.player?.pause()
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                            
+                            // Resume if we're still meant to be playing
+                            if self.isPlaying {
+                                self.player?.play()
+                            }
+                        }
                     }
                     
                 case .failed:
