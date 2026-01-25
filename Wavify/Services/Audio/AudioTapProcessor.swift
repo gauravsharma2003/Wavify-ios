@@ -2,31 +2,30 @@
 //  AudioTapProcessor.swift
 //  Wavify
 //
-//  MTAudioProcessingTap-based audio processor for applying real-time EQ to AVPlayer content
+//  MTAudioProcessingTap-based audio processor.
+//  Acts as a bridge: Captures audio from AVPlayer (streaming) and writes it to the CircularBuffer.
+//  Crucially, it SILENCES the pass-through audio so AVPlayer doesn't play raw sound.
 //
 
 import Foundation
 import AVFoundation
 import MediaToolbox
 import Combine
+import Accelerate
 
 // MARK: - Tap Context
 
 /// Context passed to MTAudioProcessingTap callbacks
-/// Must be a class for reference semantics in C callbacks
 final class AudioTapContext {
-    /// The 10-band EQ processor
-    let eqProcessor: TenBandEQProcessor
-    
-    /// Audio format info (populated in prepare callback)
     var sampleRate: Double = 44100
     var channelCount: Int = 2
-    
-    /// Flag to check if processor is valid
     var isValid: Bool = true
     
-    init() {
-        eqProcessor = TenBandEQProcessor()
+    // Direct reference to the ring buffer for synchronous access
+    let ringBuffer: CircularBuffer
+    
+    init(ringBuffer: CircularBuffer) {
+        self.ringBuffer = ringBuffer
     }
     
     deinit {
@@ -34,45 +33,39 @@ final class AudioTapContext {
     }
 }
 
-// MARK: - C-Style Tap Callbacks (Must be at file scope)
+// MARK: - C-Style Tap Callbacks
 
-/// Called when the tap is initialized
 private let tapInitCallback: MTAudioProcessingTapInitCallback = { (tap, clientInfo, tapStorageOut) in
-    // Store the context pointer for later retrieval
     tapStorageOut.pointee = clientInfo
 }
 
-/// Called when the tap is finalized (deallocated)
 private let tapFinalizeCallback: MTAudioProcessingTapFinalizeCallback = { (tap) in
-    // Retrieve and release the context
     let storage = MTAudioProcessingTapGetStorage(tap)
     Unmanaged<AudioTapContext>.fromOpaque(storage).release()
 }
 
-/// Called when the tap is prepared for processing
 private let tapPrepareCallback: MTAudioProcessingTapPrepareCallback = { (tap, maxFrames, processingFormat) in
     let storage = MTAudioProcessingTapGetStorage(tap)
     let context = Unmanaged<AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
     
-    // Store format info
-    context.sampleRate = processingFormat.pointee.mSampleRate
-    context.channelCount = Int(processingFormat.pointee.mChannelsPerFrame)
+    let sampleRate = processingFormat.pointee.mSampleRate
+    let channelCount = Int(processingFormat.pointee.mChannelsPerFrame)
     
-    // Reset filter states for new stream
-    context.eqProcessor.reset()
+    context.sampleRate = sampleRate
+    context.channelCount = channelCount
+    
+    // CRITICAL: Notify AudioEngine of the format to prevent pitch shift/distortion
+    Task { @MainActor in
+        AudioEngineService.shared.reconfigure(sampleRate: sampleRate, channels: channelCount)
+    }
 }
 
-/// Called when the tap is unprepared (stream ends)
 private let tapUnprepareCallback: MTAudioProcessingTapUnprepareCallback = { (tap) in
-    let storage = MTAudioProcessingTapGetStorage(tap)
-    let context = Unmanaged<AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
-    context.eqProcessor.reset()
+    // No-op for now
 }
 
-/// Main processing callback - called on audio render thread
-/// CRITICAL: Must be fast, no blocking, no allocations
 private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut) in
-    // Get source audio
+    // 1. Get source audio from AVPlayer
     let status = MTAudioProcessingTapGetSourceAudio(
         tap,
         numberFrames,
@@ -84,165 +77,120 @@ private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, nu
     
     guard status == noErr else { return }
     
-    // Get context
+    // 2. Access Context
     let storage = MTAudioProcessingTapGetStorage(tap)
     let context = Unmanaged<AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
     guard context.isValid else { return }
     
-    // Process each audio buffer
+    // 3. Process Buffers
     let bufferList = UnsafeMutableAudioBufferListPointer(bufferListInOut)
+    let frameCount = Int(numberFrames)
     
-    for buffer in bufferList {
-        guard let data = buffer.mData else { continue }
+    // Check if we have multiple buffers (Non-Interleaved/Planar) or single buffer (Interleaved)
+    if bufferList.count >= 2,
+       let leftData = bufferList[0].mData,
+       let rightData = bufferList[1].mData {
         
+        // Handle Non-Interleaved (Planar) -> Need to Interleave for RingBuffer
+        let left = leftData.assumingMemoryBound(to: Float.self)
+        let right = rightData.assumingMemoryBound(to: Float.self)
+        
+        // Temporary buffer for interleaving
+        // Note: allocating every frame is not ideal for realtime, but stack allocation is safe for small chunks
+        // numberFrames is usually 4096 or 8192 max
+        var interleaved = [Float](repeating: 0, count: frameCount * 2)
+        
+        for i in 0..<frameCount {
+            interleaved[i * 2] = left[i]
+            interleaved[i * 2 + 1] = right[i]
+        }
+        
+        // Write interleaved data
+        context.ringBuffer.write(interleaved, count: frameCount * 2)
+        
+        // Silence input
+        memset(leftData, 0, Int(bufferList[0].mDataByteSize))
+        memset(rightData, 0, Int(bufferList[1].mDataByteSize))
+        
+    } else if let audioBuffer = bufferList.first, let data = audioBuffer.mData {
+        // Handle Interleaved (Standard) -> Just Copy
         let floatBuffer = data.assumingMemoryBound(to: Float.self)
-        let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / context.channelCount
+        let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
         
-        // Apply 10-band EQ
-        context.eqProcessor.process(buffer: floatBuffer, frameCount: frameCount)
+        context.ringBuffer.write(floatBuffer, count: sampleCount)
+        
+        // Silence input
+        memset(data, 0, Int(audioBuffer.mDataByteSize))
     }
 }
 
 // MARK: - Audio Tap Processor
 
-/// Manages MTAudioProcessingTap for real-time audio EQ processing
+/// Manages MTAudioProcessingTap to bridge AVPlayer -> AudioEngine
 @MainActor
 final class AudioTapProcessor {
     
-    // MARK: - Properties
-
-    /// Shared context for tap callbacks
     private var tapContext: AudioTapContext?
-
-    /// Reference to the current audio mix
-    private var currentAudioMix: AVMutableAudioMix?
-
-    /// Subscription to EQ settings changes
-    private var settingsCancellable: AnyCancellable?
-
-    /// Current sample rate (updated from tap prepare callback)
-    private var currentSampleRate: Double = 44100
-
-    /// Task for async tap attachment - allows cancellation
     private var attachTask: Task<Void, Never>?
-
-    /// Unique ID to track which attachment is current
     private var currentAttachmentId: UUID?
-
+    
     // MARK: - Initialization
-
+    
     init() {
-        subscribeToEqualizerSettings()
+        // No longer need to subscribe to legacy EQ settings
+        // AudioEngineService handles new EQ
     }
-
+    
     deinit {
-        settingsCancellable?.cancel()
         attachTask?.cancel()
     }
 
     // MARK: - Public API
 
-    /// Attach audio processing tap to an AVPlayerItem synchronously
-    /// Called when player is readyToPlay, so tracks should be available
-    /// - Parameter playerItem: The player item to process
     func attachSync(to playerItem: AVPlayerItem) {
-        // Cancel any pending attachment task
         attachTask?.cancel()
-
-        // DON'T invalidate previous context here - its tap may still be processing
-        // The old tap will finalize naturally when the old playerItem is deallocated
-
-        // Create new context for this player item
-        let context = AudioTapContext()
+        
+        // Pass the shared ring buffer to the context
+        let context = AudioTapContext(ringBuffer: AudioEngineService.shared.ringBuffer)
         tapContext = context
-
+        
         let attachmentId = UUID()
         currentAttachmentId = attachmentId
-
+        
         let asset = playerItem.asset
-
-        // Use synchronous tracks access - fast when asset is ready
         let tracks = asset.tracks(withMediaType: .audio)
-
-        guard let audioTrack = tracks.first else {
-            // Fallback to async if sync fails
+        
+        if let audioTrack = tracks.first {
+            createAndAttachTap(to: playerItem, audioTrack: audioTrack, context: context)
+        } else {
             attachTask = Task(priority: .userInitiated) {
-                do {
-                    let asyncTracks = try await asset.loadTracks(withMediaType: .audio)
-                    guard self.currentAttachmentId == attachmentId else { return }
-                    if let track = asyncTracks.first {
-                        self.createAndAttachTap(to: playerItem, audioTrack: track, context: context)
-                    }
-                } catch {
-                    Logger.error("Failed to load audio tracks for EQ", category: .playback, error: error)
-                }
+                let asyncTracks = try? await asset.loadTracks(withMediaType: .audio)
+                guard self.currentAttachmentId == attachmentId, let asyncTracks = asyncTracks, let track = asyncTracks.first else { return }
+                self.createAndAttachTap(to: playerItem, audioTrack: track, context: context)
             }
-            return
         }
-
-        createAndAttachTap(to: playerItem, audioTrack: audioTrack, context: context)
     }
-
-    /// Attach audio processing tap to an AVPlayerItem (async fire-and-forget version)
-    /// - Parameter playerItem: The player item to process
-    func attach(to playerItem: AVPlayerItem) {
-        // Just call the sync version directly
-        attachSync(to: playerItem)
-    }
-
-    /// Detach and cleanup the audio tap
+    
     func detach() {
-        // Cancel any pending attachment
         attachTask?.cancel()
         attachTask = nil
         currentAttachmentId = nil
         tapContext = nil
-        currentAudioMix = nil
+        // Clears the bridge
+        AudioEngineService.shared.ringBuffer.clear()
     }
     
-    /// Reset filter states (call on seek)
     func resetFilters() {
-        tapContext?.eqProcessor.reset()
-    }
-    
-    /// Update EQ settings
-    func updateSettings(_ settings: EqualizerSettings) {
-        guard let context = tapContext else { return }
-        
-        // Get gains (0 if disabled)
-        let gains = settings.bands.map { settings.isEnabled ? $0.gain : Float(0) }
-        
-        // Calculate coefficients for current sample rate
-        let bands = settings.bands.map { ($0.frequency, settings.isEnabled ? $0.gain : Float(0)) }
-        let coefficients = BiquadCoefficientCalculator.calculateEQCoefficients(
-            bands: bands,
-            sampleRate: context.sampleRate
-        )
-        
-        // Pass both coefficients and gains for auto-compensation
-        context.eqProcessor.updateCoefficients(coefficients, gains: gains)
-        
-
+        // Handled by AudioEngineService now if needed
     }
     
     // MARK: - Private Methods
-    
-    private func subscribeToEqualizerSettings() {
-        settingsCancellable = EqualizerManager.shared.settingsDidChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] settings in
-                Task { @MainActor in
-                    self?.updateSettings(settings)
-                }
-            }
-    }
     
     private func createAndAttachTap(
         to playerItem: AVPlayerItem,
         audioTrack: AVAssetTrack,
         context: AudioTapContext
     ) {
-        // Create tap callbacks structure
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: Unmanaged.passRetained(context).toOpaque(),
@@ -253,7 +201,6 @@ final class AudioTapProcessor {
             process: tapProcessCallback
         )
         
-        // Create the audio processing tap
         var tapRef: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(
             kCFAllocatorDefault,
@@ -263,11 +210,10 @@ final class AudioTapProcessor {
         )
         
         guard status == noErr, let tap = tapRef else {
-            Logger.error("Failed to create MTAudioProcessingTap: \(status)", category: .playback)
+            Logger.error("Failed to create Tap", category: .playback)
             return
         }
         
-        // Create audio mix with the tap
         let inputParameters = AVMutableAudioMixInputParameters(track: audioTrack)
         inputParameters.audioTapProcessor = tap
         
@@ -275,11 +221,5 @@ final class AudioTapProcessor {
         audioMix.inputParameters = [inputParameters]
         
         playerItem.audioMix = audioMix
-        currentAudioMix = audioMix
-        
-        // Apply initial EQ settings
-        updateSettings(EqualizerManager.shared.settings)
-        
-
     }
 }

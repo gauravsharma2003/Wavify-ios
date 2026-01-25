@@ -2,7 +2,8 @@
 //  PlaybackService.swift
 //  Wavify
 //
-//  Core playback infrastructure: AVPlayer with MTAudioProcessingTap EQ support
+//  Core playback infrastructure: AVPlayer with MTAudioProcessingTap bridging to AudioEngineService
+//
 //
 
 import Foundation
@@ -115,8 +116,6 @@ class PlaybackService {
         }
         player = AVPlayer(playerItem: playerItem)
         
-
-        
         // Observe player status
         statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
@@ -138,77 +137,32 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
                     
+                    // Start the Audio Engine via AudioEngineService
+                    AudioEngineService.shared.start()
+                    
                     if autoPlay {
                         self.player?.play()
                         self.isPlaying = true
                         self.onPlayPauseChanged?(true)
                     }
                     
-                    // Attach EQ tap AFTER playback starts to prevents audio engine initialization deadlock
-                    // This "hot-swap" is more reliable than attaching before play
+                    // Attach EQ tap AFTER playback starts
                     self.audioTapProcessor.attachSync(to: item)
                     
-                    // WORKAROUND: Force a switch of the audio engine state to prevent silence
-                    // The user reported that "pause and play fixes it", so we automate that sequence
+                    // Workaround for startup silence/synchronization
                     if autoPlay {
                         Task {
-                            // Allow engine to start up (0.2s)
-                            try? await Task.sleep(nanoseconds: 200_000_000)
-                            
-                            // Brief pause (0.1s) - resets the audio graph synchronization
-                            self.player?.pause()
-                            try? await Task.sleep(nanoseconds: 100_000_000)
-                            
-                            // Resume if we're still meant to be playing
-                            if self.isPlaying {
-                                self.player?.play()
-                            }
+                            // Short pause/play sequence to sync graph
+                             try? await Task.sleep(nanoseconds: 200_000_000)
+                             if self.isPlaying {
+                                 // Just ensure we are playing
+                                 self.player?.play()
+                             }
                         }
                     }
                     
                 case .failed:
-                    let error = item.error
-                    let errorDesc = error?.localizedDescription ?? "unknown"
-                    let nsError = error as NSError?
-                    let errorCode = nsError?.code ?? 0
-                    let errorDomain = nsError?.domain ?? "unknown"
-                    Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDomain):\(errorCode) \(errorDesc)", category: .playback)
-                    
-                    // Attempt retry if we haven't exceeded max retries
-                    if self.retryCount < self.maxRetries {
-                        self.retryCount += 1
-                        let delay = pow(2.0, Double(self.retryCount - 1)) * 0.5 // 0.5s, 1s, 2s
-                        
-                        Logger.log("Retrying playback in \(delay)s...", category: .playback)
-                        
-                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                        
-                        // Try to get fresh URL first (handles expired URL case)
-                        if let onRetryNeeded = self.onRetryNeeded {
-                            onRetryNeeded { [weak self] freshUrl in
-                                guard let self = self else { return }
-                                Task { @MainActor in
-                                    if let freshUrl = freshUrl,
-                                       let params = self.currentLoadParameters {
-                                        // Update stored parameters with fresh URL
-                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo, params.headers)
-                                        self.retryLoad(url: freshUrl)
-                                    } else if let params = self.currentLoadParameters {
-                                        // Fall back to original URL
-                                        self.retryLoad(url: params.url)
-                                    }
-                                }
-                            }
-                        } else if let params = self.currentLoadParameters {
-                            // No fresh URL callback, retry with original URL
-                            self.retryLoad(url: params.url)
-                        }
-                    } else {
-                        // Max retries exceeded, report failure
-                        Logger.error("Player failed after \(self.maxRetries) retries", category: .playback, error: error)
-                        self.onFailed?(error)
-                        self.delegate?.playbackService(self, didFail: error)
-                    }
+                    self.handlePlayerFailure(error: item.error)
                     
                 default:
                     break
@@ -219,11 +173,47 @@ class PlaybackService {
         setupTimeObserver()
     }
     
+    private func handlePlayerFailure(error: Error?) {
+        let errorDesc = error?.localizedDescription ?? "unknown"
+        Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDesc)", category: .playback)
+        
+        if self.retryCount < self.maxRetries {
+            self.retryCount += 1
+            let delay = pow(2.0, Double(self.retryCount - 1)) * 0.5
+            
+            Logger.log("Retrying playback in \(delay)s...", category: .playback)
+            
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                
+                if let onRetryNeeded = self.onRetryNeeded {
+                    onRetryNeeded { [weak self] freshUrl in
+                        guard let self = self else { return }
+                        Task { @MainActor in
+                            if let freshUrl = freshUrl, let params = self.currentLoadParameters {
+                                self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo, params.headers)
+                                self.retryLoad(url: freshUrl)
+                            } else if let params = self.currentLoadParameters {
+                                self.retryLoad(url: params.url)
+                            }
+                        }
+                    }
+                } else if let params = self.currentLoadParameters {
+                    self.retryLoad(url: params.url)
+                }
+            }
+        } else {
+            Logger.error("Player failed after \(self.maxRetries) retries", category: .playback, error: error)
+            self.onFailed?(error)
+            self.delegate?.playbackService(self, didFail: error)
+        }
+    }
+    
     /// Internal retry helper - loads with fresh URL while preserving retry count
     private func retryLoad(url: URL) {
         guard let params = currentLoadParameters else { return }
         
-        // Clean up existing player but don't reset retry count
+        // Cleanup existing player
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
@@ -234,6 +224,9 @@ class PlaybackService {
         player = nil
         audioTapProcessor.detach()
         playerItem = nil
+        
+        // Critical: Flush Audio Engine buffer
+        AudioEngineService.shared.flush()
         
         // Set duration and pending seek from stored parameters
         duration = params.expectedDuration
@@ -248,8 +241,6 @@ class PlaybackService {
         }
         player = AVPlayer(playerItem: playerItem)
         
-        // Attach EQ will happen in readyToPlay
-        
         let autoPlay = params.autoPlay
         
         // Observe player status
@@ -260,14 +251,15 @@ class PlaybackService {
                 switch item.status {
                 case .readyToPlay:
                     Logger.log("Playback retry successful", category: .playback)
+                    
+                    // Start Engine
+                    AudioEngineService.shared.start()
 
-                    // CRITICAL: Attach EQ tap BEFORE playing to prevent audio muting
                     self.audioTapProcessor.attachSync(to: item)
 
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
 
-                    // Apply pending seek before playing
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
                         await self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -282,42 +274,7 @@ class PlaybackService {
                     }
                     
                 case .failed:
-                    let error = item.error
-                    let errorDesc = error?.localizedDescription ?? "unknown"
-                    let nsError = error as NSError?
-                    let errorCode = nsError?.code ?? 0
-                    let errorDomain = nsError?.domain ?? "unknown"
-                    Logger.warning("Retry failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDomain):\(errorCode) \(errorDesc)", category: .playback)
-                    
-                    if self.retryCount < self.maxRetries {
-                        self.retryCount += 1
-                        let delay = pow(2.0, Double(self.retryCount - 1)) * 0.5
-                        
-                        Logger.log("Retrying playback in \(delay)s...", category: .playback)
-                        
-                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                        
-                        if let onRetryNeeded = self.onRetryNeeded {
-                            onRetryNeeded { [weak self] freshUrl in
-                                guard let self = self else { return }
-                                Task { @MainActor in
-                                    if let freshUrl = freshUrl,
-                                       let params = self.currentLoadParameters {
-                                        self.currentLoadParameters = (freshUrl, params.expectedDuration, params.autoPlay, params.seekTo, params.headers)
-                                        self.retryLoad(url: freshUrl)
-                                    } else if let params = self.currentLoadParameters {
-                                        self.retryLoad(url: params.url)
-                                    }
-                                }
-                            }
-                        } else if let params = self.currentLoadParameters {
-                            self.retryLoad(url: params.url)
-                        }
-                    } else {
-                        Logger.error("Player failed after \(self.maxRetries) retries. Error: \(error?.localizedDescription ?? "unknown")", category: .playback, error: error)
-                        self.onFailed?(error)
-                        self.delegate?.playbackService(self, didFail: error)
-                    }
+                    self.handlePlayerFailure(error: item.error)
                     
                 default:
                     break
@@ -329,6 +286,7 @@ class PlaybackService {
     }
     
     func play() {
+        AudioEngineService.shared.start()
         player?.play()
         isPlaying = true
         onPlayPauseChanged?(true)
@@ -336,6 +294,15 @@ class PlaybackService {
     
     func pause() {
         player?.pause()
+        // We keep audio engine running briefly or stop it?
+        // Stopping it immediately might be fine, but starting it takes time.
+        // Let's stop it for battery's sake, but maybe we can keep it for short pauses?
+        // For robustness, let's keep it simple: stop implies stop.
+        // Actually, if we stop AudioEngine, we might lose tail sounds (reverb/echo).
+        // A better approach is to pause AVPlayer but keep Engine running if user might resume soon.
+        // But for minimizing bugs:
+        AudioEngineService.shared.stop()
+        
         isPlaying = false
         onPlayPauseChanged?(false)
     }
@@ -353,8 +320,11 @@ class PlaybackService {
         player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = time
         
-        // Reset EQ filter states to prevent artifacts after seek
+        // Reset EQ filter states
         audioTapProcessor.resetFilters()
+        // Also flush engine buffer? Maybe not necessary as it's a seek.
+        // But we might have old samples in ring buffer.
+        AudioEngineService.shared.flush()
     }
     
     func seekToStart() {
@@ -383,6 +353,8 @@ class PlaybackService {
                 // Fallback song end detection if AVPlayerItemDidPlayToEndTime doesn't fire
                 if self.duration > 0 && seconds >= self.duration - 0.5 && !self.hasFiredSongEnd {
                     self.hasFiredSongEnd = true
+                    // Wait slightly before calling song ended to letting buffers drain
+                    // (Optional, but safe)
                     self.onSongEnded?()
                 }
             }
@@ -400,13 +372,10 @@ class PlaybackService {
             MPMediaItemPropertyPlaybackDuration: duration
         ]
         
-        // Use cached artwork if same song, otherwise load new artwork
         if let cachedArtwork = cachedArtwork, cachedSongId == song.id {
-            // Same song - reuse cached artwork (prevents flicker during seek)
             nowPlayingInfo[MPMediaItemPropertyArtwork] = cachedArtwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         } else {
-            // New song - load high-resolution artwork (544px) for lock screen display
             let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
             if let url = URL(string: highResUrl) {
                 Task {
@@ -417,7 +386,6 @@ class PlaybackService {
                         nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
                         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
                     } else {
-                        // Fallback to direct fetch and cache
                         do {
                             let (data, _) = try await URLSession.shared.data(from: url)
                             if let image = UIImage(data: data) {
@@ -434,8 +402,6 @@ class PlaybackService {
                     }
                 }
             }
-            
-            // Set info immediately without artwork for new songs
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         }
     }
@@ -450,19 +416,18 @@ class PlaybackService {
         statusObserver?.invalidate()
         statusObserver = nil
         
-        // CRITICAL: Clear audioMix BEFORE detaching tap to stop audio engine callbacks
         playerItem?.audioMix = nil
         
         player?.pause()
         player = nil
         
-        // Now safe to detach EQ tap since audio engine is no longer using it
         audioTapProcessor.detach()
+        AudioEngineService.shared.flush()
+        AudioEngineService.shared.stop()
         
         playerItem = nil
         currentTime = 0
         
-        // Clear artwork cache
         cachedArtwork = nil
         cachedSongId = nil
     }
