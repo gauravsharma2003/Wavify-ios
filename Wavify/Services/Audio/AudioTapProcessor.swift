@@ -166,7 +166,7 @@ final class AudioTapProcessor {
 
         guard let audioTrack = tracks.first else {
             // Fallback to async if sync fails
-            attachTask = Task {
+            attachTask = Task(priority: .userInitiated) {
                 do {
                     let asyncTracks = try await asset.loadTracks(withMediaType: .audio)
                     guard self.currentAttachmentId == attachmentId else { return }
@@ -196,10 +196,6 @@ final class AudioTapProcessor {
         attachTask?.cancel()
         attachTask = nil
         currentAttachmentId = nil
-
-        // DON'T invalidate context here - the tap may still be processing audio
-        // Let it finalize naturally via tapFinalizeCallback when audio engine releases it
-        // The audioMix should be cleared on playerItem BEFORE calling this method
         tapContext = nil
         currentAudioMix = nil
     }

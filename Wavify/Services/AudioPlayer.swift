@@ -375,6 +375,10 @@ class AudioPlayer {
     
     /// Internal method to play a song
     private func playNewSong(_ song: Song, refreshQueue: Bool) async {
+        // Start background task
+        let taskId = UIApplication.shared.beginBackgroundTask { }
+        defer { UIApplication.shared.endBackgroundTask(taskId) }
+        
         isLoading = true
         currentSong = song
 
