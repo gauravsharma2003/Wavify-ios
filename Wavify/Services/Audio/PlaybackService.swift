@@ -70,7 +70,10 @@ class PlaybackService {
     // MARK: - Initialization
     
     init() {
-        setupAudioSession()
+        // Move audio session setup to background to avoid blocking main thread
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.setupAudioSession()
+        }
     }
     
     // MARK: - Audio Session
@@ -125,10 +128,12 @@ class PlaybackService {
                 case .readyToPlay:
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
-                    
-                    // Ensure session is active
-                    try? AVAudioSession.sharedInstance().setActive(true)
-                    
+
+                    // Ensure session is active - move to background to avoid blocking
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                    }
+
                     // Apply pending seek before playing
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
@@ -136,31 +141,38 @@ class PlaybackService {
                         self.currentTime = seekTime
                         self.pendingSeekTime = nil
                     }
-                    
-                    // Start the Audio Engine via AudioEngineService
-                    AudioEngineService.shared.start()
-                    
-                    if autoPlay {
-                        self.player?.play()
-                        self.isPlaying = true
-                        self.onPlayPauseChanged?(true)
-                    }
-                    
-                    // Attach EQ tap AFTER playback starts
-                    self.audioTapProcessor.attachSync(to: item)
-                    
-                    // Workaround for startup silence/synchronization
-                    if autoPlay {
-                        Task {
-                            // Short pause/play sequence to sync graph
-                             try? await Task.sleep(nanoseconds: 200_000_000)
-                             if self.isPlaying {
-                                 // Just ensure we are playing
-                                 self.player?.play()
-                             }
+
+                    // Wait for AudioEngine to be fully initialized, then start playback
+                    Task.detached(priority: .userInitiated) {
+                        // Wait for engine setup to complete (no-op if already ready)
+                        await AudioEngineService.shared.waitForInitialization()
+
+                        // All these are @MainActor, so batch them together
+                        await MainActor.run {
+                            // Attach EQ tap BEFORE starting playback
+                            self.audioTapProcessor.attachSync(to: item)
+
+                            // Flush buffer right before starting to ensure no stale audio
+                            AudioEngineService.shared.flush()
+
+                            // Start the audio engine
+                            AudioEngineService.shared.start()
+
+                            if autoPlay {
+                                self.player?.play()
+                                self.isPlaying = true
+                                self.onPlayPauseChanged?(true)
+                            }
+                        }
+
+                        // Wait for audio to propagate through processing pipeline before unmuting
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+
+                        await MainActor.run {
+                            AudioEngineService.shared.unmute()
                         }
                     }
-                    
+
                 case .failed:
                     self.handlePlayerFailure(error: item.error)
                     
@@ -212,7 +224,7 @@ class PlaybackService {
     /// Internal retry helper - loads with fresh URL while preserving retry count
     private func retryLoad(url: URL) {
         guard let params = currentLoadParameters else { return }
-        
+
         // Cleanup existing player
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -220,13 +232,25 @@ class PlaybackService {
         }
         statusObserver?.invalidate()
         statusObserver = nil
+
+        // 1. Mute output first to prevent glitchy sounds
+        AudioEngineService.shared.mute()
+
+        // 2. Stop engine (stops reading from buffer)
+        AudioEngineService.shared.stop()
+
+        // 3. Pause player (stops decoding)
         player?.pause()
-        player = nil
+
+        // 4. Detach tap (stops writing to buffer)
+        playerItem?.audioMix = nil
         audioTapProcessor.detach()
-        playerItem = nil
-        
-        // Critical: Flush Audio Engine buffer
+
+        // 5. Flush buffer (clear stale samples)
         AudioEngineService.shared.flush()
+
+        player = nil
+        playerItem = nil
         
         // Set duration and pending seek from stored parameters
         duration = params.expectedDuration
@@ -251,11 +275,6 @@ class PlaybackService {
                 switch item.status {
                 case .readyToPlay:
                     Logger.log("Playback retry successful", category: .playback)
-                    
-                    // Start Engine
-                    AudioEngineService.shared.start()
-
-                    self.audioTapProcessor.attachSync(to: item)
 
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
@@ -267,12 +286,33 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
 
-                    if autoPlay {
-                        self.player?.play()
-                        self.isPlaying = true
-                        self.onPlayPauseChanged?(true)
+                    // Wait for AudioEngine to be ready, then start
+                    Task.detached(priority: .userInitiated) {
+                        await AudioEngineService.shared.waitForInitialization()
+
+                        await MainActor.run {
+                            self.audioTapProcessor.attachSync(to: item)
+
+                            // Flush buffer right before starting to ensure no stale audio
+                            AudioEngineService.shared.flush()
+
+                            AudioEngineService.shared.start()
+
+                            if autoPlay {
+                                self.player?.play()
+                                self.isPlaying = true
+                                self.onPlayPauseChanged?(true)
+                            }
+                        }
+
+                        // Wait for audio to propagate through processing pipeline before unmuting
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+
+                        await MainActor.run {
+                            AudioEngineService.shared.unmute()
+                        }
                     }
-                    
+
                 case .failed:
                     self.handlePlayerFailure(error: item.error)
                     
@@ -316,15 +356,23 @@ class PlaybackService {
     }
     
     func seek(to time: Double) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        // Mute output to prevent glitchy sounds during seek
+        AudioEngineService.shared.mute()
+
         currentTime = time
-        
-        // Reset EQ filter states
-        audioTapProcessor.resetFilters()
-        // Also flush engine buffer? Maybe not necessary as it's a seek.
-        // But we might have old samples in ring buffer.
-        AudioEngineService.shared.flush()
+        let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
+
+        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            Task { @MainActor in
+                // Flush AFTER seek completes to clear any old audio that was still being written
+                AudioEngineService.shared.flush()
+
+                // Small delay to let new audio propagate through the processing pipeline
+                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+
+                AudioEngineService.shared.unmute()
+            }
+        }
     }
     
     func seekToStart() {
@@ -378,23 +426,27 @@ class PlaybackService {
         } else {
             let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
             if let url = URL(string: highResUrl) {
-                Task {
+                Task.detached(priority: .userInitiated) {
                     if let image = await ImageCache.shared.image(for: url) {
-                        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                        self.cachedArtwork = artwork
-                        self.cachedSongId = song.id
-                        nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                        await MainActor.run {
+                            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                            self.cachedArtwork = artwork
+                            self.cachedSongId = song.id
+                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                        }
                     } else {
                         do {
                             let (data, _) = try await URLSession.shared.data(from: url)
                             if let image = UIImage(data: data) {
                                 await ImageCache.shared.store(image, for: url)
-                                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                                self.cachedArtwork = artwork
-                                self.cachedSongId = song.id
-                                nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                                MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                                await MainActor.run {
+                                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                                    self.cachedArtwork = artwork
+                                    self.cachedSongId = song.id
+                                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                                }
                             }
                         } catch {
                             Logger.error("Failed to load artwork", category: .playback, error: error)
@@ -415,19 +467,27 @@ class PlaybackService {
         }
         statusObserver?.invalidate()
         statusObserver = nil
-        
-        playerItem?.audioMix = nil
-        
-        player?.pause()
-        player = nil
-        
-        audioTapProcessor.detach()
-        AudioEngineService.shared.flush()
+
+        // 1. Mute output first to prevent any glitchy sounds during cleanup
+        AudioEngineService.shared.mute()
+
+        // 2. Stop engine (stops reading from buffer)
         AudioEngineService.shared.stop()
-        
+
+        // 3. Pause player (stops decoding)
+        player?.pause()
+
+        // 4. Remove audio mix and detach tap (stops writing to buffer)
+        playerItem?.audioMix = nil
+        audioTapProcessor.detach()
+
+        // 5. Flush buffer (clear any remaining stale samples)
+        AudioEngineService.shared.flush()
+
+        player = nil
         playerItem = nil
         currentTime = 0
-        
+
         cachedArtwork = nil
         cachedSongId = nil
     }

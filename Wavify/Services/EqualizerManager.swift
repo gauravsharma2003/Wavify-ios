@@ -24,13 +24,35 @@ class EqualizerManager {
     let settingsDidChange = PassthroughSubject<EqualizerSettings, Never>()
     
     // MARK: - Private
-    
+
     private let userDefaultsKey = "wavify_equalizer_settings"
-    
+
     // MARK: - Initialization
-    
+
     private init() {
-        loadSettings()
+        // Load settings on background thread to avoid blocking main thread
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let loadedSettings = Self.loadSettingsFromDisk()
+            await MainActor.run {
+                if let loadedSettings = loadedSettings {
+                    self?.settings = loadedSettings
+                    self?.notifyChange()
+                }
+            }
+        }
+    }
+
+    /// Load settings from disk (can be called from any thread)
+    nonisolated private static func loadSettingsFromDisk() -> EqualizerSettings? {
+        guard let data = UserDefaults.standard.data(forKey: "wavify_equalizer_settings") else {
+            return nil
+        }
+
+        do {
+            return try JSONDecoder().decode(EqualizerSettings.self, from: data)
+        } catch {
+            return nil
+        }
     }
     
     // MARK: - Public API

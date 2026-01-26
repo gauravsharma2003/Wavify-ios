@@ -53,9 +53,14 @@ struct SearchView: View {
                         case .text(let text):
                             Button {
                                 viewModel.suggestions = []
+                                // Resign first responder on main thread - UI must be on main thread
                                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                dismissSearch()
-                                viewModel.performSearchFromSuggestion(text: text)
+                                
+                                // Defer heavy operation after keyboard animation
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                    dismissSearch()
+                                    viewModel.performSearchFromSuggestion(text: text)
+                                }
                             } label: {
                                 Label(text, systemImage: "magnifyingglass")
                             }
@@ -64,9 +69,14 @@ struct SearchView: View {
                             Button {
                                 viewModel.searchText = ""
                                 viewModel.suggestions = []
+                                // Resign first responder on main thread - UI must be on main thread
                                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                dismissSearch()
-                                handleSuggestionTap(result)
+                                
+                                // Defer heavy operation after keyboard animation
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                    dismissSearch()
+                                    handleSuggestionTap(result)
+                                }
                             } label: {
                                 HStack(spacing: 12) {
                                     CachedAsyncImagePhase(url: URL(string: result.thumbnailUrl)) { phase in
@@ -750,7 +760,7 @@ struct SearchView: View {
     private func handleSuggestionTap(_ result: SearchResult) {
         switch result.type {
         case .song:
-            Task {
+            Task.detached(priority: .userInitiated) {
                 await audioPlayer.loadAndPlay(song: Song(from: result))
             }
         case .artist:

@@ -57,11 +57,30 @@ class FavouritesManager {
     private let maxItems = 16  // Max items for 2 rows x 8 columns
     
     private init() {
-        loadCachedFavourites()
+        // Load cached favourites on background thread to avoid blocking main thread
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let cached = Self.loadFromDisk()
+            await MainActor.run {
+                guard let self = self else { return }
+                self.favourites = cached
+                if !cached.isEmpty {
+                    self.saveToWidgetCache(cached)
+                }
+            }
+        }
     }
-    
+
     // MARK: - Public Methods
-    
+
+    /// Load cached favourites from disk (can be called from any thread)
+    nonisolated private static func loadFromDisk() -> [SearchResult] {
+        guard let data = UserDefaults.standard.data(forKey: "cachedFavourites"),
+              let cached = try? JSONDecoder().decode([CachedFavouriteItem].self, from: data) else {
+            return []
+        }
+        return cached.map { $0.toSearchResult() }
+    }
+
     func loadCachedFavourites() {
         guard let data = UserDefaults.standard.data(forKey: cacheKey),
               let cached = try? JSONDecoder().decode([CachedFavouriteItem].self, from: data) else {
@@ -69,7 +88,7 @@ class FavouritesManager {
             return
         }
         favourites = cached.map { $0.toSearchResult() }
-        
+
         // Sync to widget - important for existing data
         saveToWidgetCache(favourites)
     }
@@ -401,7 +420,6 @@ class FavouritesManager {
         // Save to App Groups
         if let data = try? JSONEncoder().encode(widgetFavorites) {
             sharedDefaults.set(data, forKey: "widgetFavorites")
-            sharedDefaults.synchronize()
             
 
             
@@ -437,7 +455,6 @@ class FavouritesManager {
                     Logger.error("Failed to cache thumbnail for \(favorite.name)", category: .playback, error: error)
                 }
             }
-            defaults.synchronize()
             
             // Reload widget after images are cached
             await MainActor.run {

@@ -135,15 +135,21 @@ class SearchViewModel {
         suggestions = []
         hasSearched = true
         
-        Task {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             do {
-                let searchResults = try await networkManager.search(query: searchText, params: selectedFilter.params)
-                topResults = searchResults.topResults
-                results = searchResults.results
+                let searchResults = try await self.networkManager.search(query: self.searchText, params: self.selectedFilter.params)
+                await MainActor.run {
+                    self.topResults = searchResults.topResults
+                    self.results = searchResults.results
+                    self.isSearching = false
+                }
             } catch {
+                await MainActor.run {
+                    self.isSearching = false
+                }
                 Logger.error("Search failed", category: .network, error: error)
             }
-            isSearching = false
         }
     }
     

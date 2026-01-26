@@ -219,7 +219,6 @@ struct WavifyApp: App {
         // Clear the pending values
         defaults.removeObject(forKey: "pendingFavoriteId")
         defaults.removeObject(forKey: "pendingFavoriteType")
-        defaults.synchronize()
         
         Logger.debug("Handling widget favorite tap: \(itemType) - \(itemId)", category: .playback)
         

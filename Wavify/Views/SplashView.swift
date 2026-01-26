@@ -7,23 +7,23 @@
 
 import SwiftUI
 
-/// Simple splash screen with static logo that handles keyboard pre-warming
-/// Audio session is NOT configured here to avoid conflicts with AudioPlayer
+/// Simple splash screen with static logo that handles pre-warming of services
+/// Pre-warms: audio engine, network, and singleton managers
 struct SplashView: View {
     @Binding var isFinished: Bool
-    
+
     var body: some View {
         ZStack {
             // Same background as HomeView
             Color(hex: "1A1A1A")
                 .ignoresSafeArea()
-            
+
             // Same logo as HomeView loading state - static, no animation
             VStack(spacing: 20) {
                 Image(systemName: "music.note.house.fill")
                     .font(.system(size: 80))
                     .foregroundStyle(.white)
-                
+
                 Text("Wavify")
                     .font(.largeTitle)
                     .bold()
@@ -34,30 +34,26 @@ struct SplashView: View {
             performPrewarming()
         }
     }
-    
+
     private func performPrewarming() {
         Task {
-            // Only pre-warm keyboard (safe, no audio session conflicts)
-            await prewarmKeyboard()
-            
-            // Short delay to show splash
-            try? await Task.sleep(nanoseconds: 600_000_000) // 0.6s
-            
+            // Trigger singleton initialization (they now load data on background threads)
+            _ = EqualizerManager.shared
+            _ = FavouritesManager.shared
+
+            // Wait for audio engine to be fully initialized
+            await AudioEngineService.shared.waitForInitialization()
+
+            // Warm network on background (fire-and-forget)
+            Task.detached(priority: .utility) {
+                _ = NetworkManager.shared
+                _ = URLSession.shared.configuration
+            }
+
+            // Ensure minimum splash duration for smooth UX
+            try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s minimum
+
             isFinished = true
-        }
-    }
-    
-    private func prewarmKeyboard() async {
-        await MainActor.run {
-            let inputController = UIInputViewController()
-            _ = inputController.view
-            
-            let textChecker = UITextChecker()
-            _ = textChecker.completions(
-                forPartialWordRange: NSRange(location: 0, length: 1),
-                in: "a",
-                language: "en"
-            )
         }
     }
 }

@@ -623,35 +623,49 @@ struct NowPlayingView: View {
         }
         
         let videoId = song.videoId
-        let descriptor = FetchDescriptor<LocalSong>(
-            predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
-        )
-        isLiked = (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
+        // Move database query to background to avoid blocking UI
+        Task.detached(priority: .userInitiated) {
+            let descriptor = FetchDescriptor<LocalSong>(
+                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
+            )
+            let liked = (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
+            await MainActor.run {
+                self.isLiked = liked
+            }
+        }
     }
     
     private func toggleLike() {
         guard let song = audioPlayer.currentSong else { return }
         
-        let videoId = song.videoId
-        let descriptor = FetchDescriptor<LocalSong>(
-            predicate: #Predicate { $0.videoId == videoId }
-        )
-        
-        if let existingSong = try? modelContext.fetch(descriptor).first {
-            existingSong.isLiked.toggle()
-            isLiked = existingSong.isLiked
-        } else {
-            // Create new LocalSong with isLiked = true
-            let newSong = LocalSong(
-                videoId: song.videoId,
-                title: song.title,
-                artist: song.artist,
-                thumbnailUrl: song.thumbnailUrl,
-                duration: song.duration,
-                isLiked: true
+        // Move database operations to background to avoid blocking UI
+        Task.detached(priority: .userInitiated) {
+            let videoId = song.videoId
+            let descriptor = FetchDescriptor<LocalSong>(
+                predicate: #Predicate { $0.videoId == videoId }
             )
-            modelContext.insert(newSong)
-            isLiked = true
+            
+            let isLiked: Bool
+            if let existingSong = try? modelContext.fetch(descriptor).first {
+                existingSong.isLiked.toggle()
+                isLiked = existingSong.isLiked
+            } else {
+                // Create new LocalSong with isLiked = true
+                let newSong = LocalSong(
+                    videoId: song.videoId,
+                    title: song.title,
+                    artist: song.artist,
+                    thumbnailUrl: song.thumbnailUrl,
+                    duration: song.duration,
+                    isLiked: true
+                )
+                modelContext.insert(newSong)
+                isLiked = true
+            }
+            
+            await MainActor.run {
+                self.isLiked = isLiked
+            }
         }
     }
     
@@ -1121,11 +1135,13 @@ struct NowPlayingView: View {
             activityItems.append(url)
         }
         
+        // Create activity items on main thread (UI operation)
         let activityVC = UIActivityViewController(
             activityItems: activityItems,
             applicationActivities: nil
         )
         
+        // Find and present view controller on main thread - UI must be on main thread
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootViewController = windowScene.windows.first?.rootViewController {
             // Find the topmost presented view controller

@@ -20,52 +20,67 @@ final class AudioTapContext {
     var sampleRate: Double = 44100
     var channelCount: Int = 2
     var isValid: Bool = true
-    
+
     // Direct reference to the ring buffer for synchronous access
     let ringBuffer: CircularBuffer
-    
+
+    // Pre-allocated buffer to avoid runtime allocations in real-time callback
+    private var interleavedBuffer: [Float] = []
+
     init(ringBuffer: CircularBuffer) {
         self.ringBuffer = ringBuffer
     }
-    
+
     deinit {
         isValid = false
+    }
+
+    func getInterleavedBuffer(frameCount: Int) -> [Float] {
+        if interleavedBuffer.count != frameCount * 2 {
+            interleavedBuffer = [Float](repeating: 0, count: frameCount * 2)
+        }
+        return interleavedBuffer
     }
 }
 
 // MARK: - C-Style Tap Callbacks
 
-private let tapInitCallback: MTAudioProcessingTapInitCallback = { (tap, clientInfo, tapStorageOut) in
+private let tapInitCallback: MTAudioProcessingTapInitCallback = { tap, clientInfo, tapStorageOut in
     tapStorageOut.pointee = clientInfo
 }
 
-private let tapFinalizeCallback: MTAudioProcessingTapFinalizeCallback = { (tap) in
+private let tapFinalizeCallback: MTAudioProcessingTapFinalizeCallback = { tap in
     let storage = MTAudioProcessingTapGetStorage(tap)
     Unmanaged<AudioTapContext>.fromOpaque(storage).release()
 }
 
-private let tapPrepareCallback: MTAudioProcessingTapPrepareCallback = { (tap, maxFrames, processingFormat) in
+private let tapPrepareCallback: MTAudioProcessingTapPrepareCallback = { tap, _, processingFormat in
     let storage = MTAudioProcessingTapGetStorage(tap)
     let context = Unmanaged<AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
-    
-    let sampleRate = processingFormat.pointee.mSampleRate
-    let channelCount = Int(processingFormat.pointee.mChannelsPerFrame)
-    
-    context.sampleRate = sampleRate
-    context.channelCount = channelCount
-    
-    // CRITICAL: Notify AudioEngine of the format to prevent pitch shift/distortion
-    Task { @MainActor in
-        AudioEngineService.shared.reconfigure(sampleRate: sampleRate, channels: channelCount)
-    }
+
+    context.sampleRate = processingFormat.pointee.mSampleRate
+    context.channelCount = Int(processingFormat.pointee.mChannelsPerFrame)
+
+    // NOTE:
+    // We intentionally DO NOT reconfigure AudioEngine here.
+    // Engine format must be pre-configured before attaching the tap
+    // to avoid real-time thread stalls or silence.
 }
 
-private let tapUnprepareCallback: MTAudioProcessingTapUnprepareCallback = { (tap) in
-    // No-op for now
+private let tapUnprepareCallback: MTAudioProcessingTapUnprepareCallback = { _ in
+    // No-op
 }
 
-private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut) in
-    // 1. Get source audio from AVPlayer
+private let tapProcessCallback: MTAudioProcessingTapProcessCallback = {
+    tap,
+    numberFrames,
+    flags,
+    bufferListInOut,
+    numberFramesOut,
+    flagsOut
+    in
+
+    // 1. Pull audio from AVPlayer
     let status = MTAudioProcessingTapGetSourceAudio(
         tap,
         numberFrames,
@@ -74,52 +89,48 @@ private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, nu
         nil,
         numberFramesOut
     )
-    
+
     guard status == noErr else { return }
-    
-    // 2. Access Context
+
+    // 2. Access context
     let storage = MTAudioProcessingTapGetStorage(tap)
     let context = Unmanaged<AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
     guard context.isValid else { return }
-    
-    // 3. Process Buffers
+
     let bufferList = UnsafeMutableAudioBufferListPointer(bufferListInOut)
     let frameCount = Int(numberFrames)
-    
-    // Check if we have multiple buffers (Non-Interleaved/Planar) or single buffer (Interleaved)
+
+    // 3. Non-interleaved (planar)
     if bufferList.count >= 2,
        let leftData = bufferList[0].mData,
        let rightData = bufferList[1].mData {
-        
-        // Handle Non-Interleaved (Planar) -> Need to Interleave for RingBuffer
+
         let left = leftData.assumingMemoryBound(to: Float.self)
         let right = rightData.assumingMemoryBound(to: Float.self)
-        
-        // Temporary buffer for interleaving
-        // Note: allocating every frame is not ideal for realtime, but stack allocation is safe for small chunks
-        // numberFrames is usually 4096 or 8192 max
-        var interleaved = [Float](repeating: 0, count: frameCount * 2)
-        
+
+        var interleaved = context.getInterleavedBuffer(frameCount: frameCount)
+
         for i in 0..<frameCount {
             interleaved[i * 2] = left[i]
             interleaved[i * 2 + 1] = right[i]
         }
-        
-        // Write interleaved data
+
         context.ringBuffer.write(interleaved, count: frameCount * 2)
-        
-        // Silence input
+
+        // Silence AVPlayer output
         memset(leftData, 0, Int(bufferList[0].mDataByteSize))
         memset(rightData, 0, Int(bufferList[1].mDataByteSize))
-        
-    } else if let audioBuffer = bufferList.first, let data = audioBuffer.mData {
-        // Handle Interleaved (Standard) -> Just Copy
+    }
+    // 4. Interleaved
+    else if let audioBuffer = bufferList.first,
+            let data = audioBuffer.mData {
+
         let floatBuffer = data.assumingMemoryBound(to: Float.self)
         let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
-        
+
         context.ringBuffer.write(floatBuffer, count: sampleCount)
-        
-        // Silence input
+
+        // Silence AVPlayer output
         memset(data, 0, Int(audioBuffer.mDataByteSize))
     }
 }
@@ -129,18 +140,11 @@ private let tapProcessCallback: MTAudioProcessingTapProcessCallback = { (tap, nu
 /// Manages MTAudioProcessingTap to bridge AVPlayer -> AudioEngine
 @MainActor
 final class AudioTapProcessor {
-    
+
     private var tapContext: AudioTapContext?
     private var attachTask: Task<Void, Never>?
     private var currentAttachmentId: UUID?
-    
-    // MARK: - Initialization
-    
-    init() {
-        // No longer need to subscribe to legacy EQ settings
-        // AudioEngineService handles new EQ
-    }
-    
+
     deinit {
         attachTask?.cancel()
     }
@@ -149,43 +153,66 @@ final class AudioTapProcessor {
 
     func attachSync(to playerItem: AVPlayerItem) {
         attachTask?.cancel()
-        
-        // Pass the shared ring buffer to the context
-        let context = AudioTapContext(ringBuffer: AudioEngineService.shared.ringBuffer)
+
+        let context = AudioTapContext(
+            ringBuffer: AudioEngineService.shared.ringBuffer
+        )
         tapContext = context
-        
+
         let attachmentId = UUID()
         currentAttachmentId = attachmentId
-        
+
         let asset = playerItem.asset
         let tracks = asset.tracks(withMediaType: .audio)
-        
+
         if let audioTrack = tracks.first {
-            createAndAttachTap(to: playerItem, audioTrack: audioTrack, context: context)
+            createAndAttachTap(
+                to: playerItem,
+                audioTrack: audioTrack,
+                context: context
+            )
         } else {
             attachTask = Task(priority: .userInitiated) {
                 let asyncTracks = try? await asset.loadTracks(withMediaType: .audio)
-                guard self.currentAttachmentId == attachmentId, let asyncTracks = asyncTracks, let track = asyncTracks.first else { return }
-                self.createAndAttachTap(to: playerItem, audioTrack: track, context: context)
+                guard self.currentAttachmentId == attachmentId,
+                      let track = asyncTracks?.first else { return }
+
+                if let formatDescriptions = try? await track.load(.formatDescriptions),
+                   let formatDesc = formatDescriptions.first,
+                   let asbd =
+                        CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
+
+                    let sampleRate = asbd.pointee.mSampleRate
+                    let channels = Int(asbd.pointee.mChannelsPerFrame)
+
+                    if sampleRate > 0 && channels > 0 {
+                        AudioEngineService.shared.reconfigure(
+                            sampleRate: sampleRate,
+                            channels: channels
+                        )
+                    }
+                }
+
+                self.createAndAttachTap(
+                    to: playerItem,
+                    audioTrack: track,
+                    context: context
+                )
             }
         }
     }
-    
+
     func detach() {
         attachTask?.cancel()
         attachTask = nil
         currentAttachmentId = nil
         tapContext = nil
-        // Clears the bridge
+
         AudioEngineService.shared.ringBuffer.clear()
     }
-    
-    func resetFilters() {
-        // Handled by AudioEngineService now if needed
-    }
-    
-    // MARK: - Private Methods
-    
+
+    // MARK: - Private
+
     private func createAndAttachTap(
         to playerItem: AVPlayerItem,
         audioTrack: AVAssetTrack,
@@ -200,7 +227,7 @@ final class AudioTapProcessor {
             unprepare: tapUnprepareCallback,
             process: tapProcessCallback
         )
-        
+
         var tapRef: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(
             kCFAllocatorDefault,
@@ -208,18 +235,18 @@ final class AudioTapProcessor {
             kMTAudioProcessingTapCreationFlag_PostEffects,
             &tapRef
         )
-        
+
         guard status == noErr, let tap = tapRef else {
-            Logger.error("Failed to create Tap", category: .playback)
+            Logger.error("Failed to create audio tap", category: .playback)
             return
         }
-        
+
         let inputParameters = AVMutableAudioMixInputParameters(track: audioTrack)
         inputParameters.audioTapProcessor = tap
-        
+
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = [inputParameters]
-        
+
         playerItem.audioMix = audioMix
     }
 }

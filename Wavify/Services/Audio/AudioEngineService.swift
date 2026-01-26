@@ -58,57 +58,113 @@ class AudioEngineService: ObservableObject {
     private var settingsCancellable: AnyCancellable?
     
     // MARK: - Adaptive Bass State
-    
+
     private var isAdaptiveBassEnabled = true
     private var lastRms: Float = 0
     private var adaptiveBassTimer: Timer?
-    
+
+    // MARK: - Initialization State
+
+    /// Whether the audio engine graph has been fully set up
+    private var isInitialized = false
+
+    /// Continuation for callers waiting on initialization
+    private var initializationContinuations: [CheckedContinuation<Void, Never>] = []
+    private let initLock = NSLock()
+
     // MARK: - Initialization
-    
+
     init() {
-        createSourceNode()
-        setupGraph()
-        subscribeToEqualizerSettings()
+        // Defer heavy setup to background to avoid main thread blocking
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.createSourceNode()
+            self?.setupGraph()
+
+            // Mark as initialized and resume any waiting callers
+            self?.initLock.lock()
+            self?.isInitialized = true
+            let continuations = self?.initializationContinuations ?? []
+            self?.initializationContinuations.removeAll()
+            self?.initLock.unlock()
+
+            for continuation in continuations {
+                continuation.resume()
+            }
+
+            DispatchQueue.main.async {
+                self?.subscribeToEqualizerSettings()
+            }
+        }
+    }
+
+    /// Wait for the audio engine to be fully initialized
+    /// Returns immediately if already initialized
+    func waitForInitialization() async {
+        initLock.lock()
+        if isInitialized {
+            initLock.unlock()
+            return
+        }
+        initLock.unlock()
+
+        await withCheckedContinuation { continuation in
+            initLock.lock()
+            // Double-check after acquiring lock
+            if isInitialized {
+                initLock.unlock()
+                continuation.resume()
+                return
+            }
+            initializationContinuations.append(continuation)
+            initLock.unlock()
+        }
+    }
+
+    /// Whether the engine is ready to use
+    var isReady: Bool {
+        initLock.lock()
+        defer { initLock.unlock() }
+        return isInitialized
     }
     
     private func createSourceNode() {
-        // Create source node first to capture ringBuffer reference
+        // Create source node to read from ring buffer
         sourceNode = AVAudioSourceNode { [weak ringBuffer = ringBuffer] _, _, frameCount, audioBufferList in
             guard let ringBuffer = ringBuffer else { return noErr }
-            
+
             let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let totalSamples = Int(frameCount) * 2
-            
+
             // Temporary buffer for interleaved read
             var tempBuffer = [Float](repeating: 0, count: totalSamples)
-             
+
             let samplesRead = tempBuffer.withUnsafeMutableBufferPointer { ptr in
                 return ringBuffer.read(into: ptr.baseAddress!, count: totalSamples)
-             }
-             
-             if samplesRead == 0 {
-                 // Silence
-                 for buffer in buffers {
-                     memset(buffer.mData, 0, Int(buffer.mDataByteSize))
-                 }
-                 return noErr
-             }
-             
-             // De-interleave into output buffers
-             if let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
-                let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) {
-                 
-                 for i in 0..<Int(frameCount) {
-                     if i * 2 + 1 < samplesRead {
-                         left[i] = tempBuffer[i * 2]
-                         right[i] = tempBuffer[i * 2 + 1]
-                     } else {
-                         left[i] = 0
-                         right[i] = 0
-                     }
-                 }
-             }
-            
+            }
+
+            if samplesRead == 0 {
+                // Silence
+                for buffer in buffers {
+                    memset(buffer.mData, 0, Int(buffer.mDataByteSize))
+                }
+                return noErr
+            }
+
+            // De-interleave into output buffers
+            if let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
+               let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) {
+
+                for i in 0..<Int(frameCount) {
+                    if i * 2 + 1 < samplesRead {
+                        left[i] = tempBuffer[i * 2]
+                        right[i] = tempBuffer[i * 2 + 1]
+                    } else {
+                        left[i] = 0
+                        right[i] = 0
+                    }
+                }
+            }
+
             return noErr
         }
     }
@@ -277,7 +333,18 @@ class AudioEngineService: ObservableObject {
     func flush() {
         ringBuffer.clear()
     }
-    
+
+    /// Mute audio output (used during song transitions to prevent glitchy sounds)
+    /// Mutes at the final output stage to silence any audio buffered in intermediate nodes
+    func mute() {
+        engine.mainMixerNode.outputVolume = 0
+    }
+
+    /// Unmute audio output
+    func unmute() {
+        engine.mainMixerNode.outputVolume = 1
+    }
+
     // MARK: - Settings Updates
     
     private func subscribeToEqualizerSettings() {
