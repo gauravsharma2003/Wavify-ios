@@ -357,6 +357,7 @@ class PlaybackService {
         player?.play()
         isPlaying = true
         onPlayPauseChanged?(true)
+        updateNowPlayingPlaybackState(isPlaying: true)
     }
 
     func pause() {
@@ -364,6 +365,16 @@ class PlaybackService {
         // Keep AudioEngine running - stopping/starting causes glitches
         isPlaying = false
         onPlayPauseChanged?(false)
+        updateNowPlayingPlaybackState(isPlaying: false)
+    }
+
+    /// Updates only the playback state in Now Playing info (for play/pause sync)
+    private func updateNowPlayingPlaybackState(isPlaying: Bool) {
+        if var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+            nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+            nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        }
     }
     
     func togglePlayPause() {
@@ -438,7 +449,7 @@ class PlaybackService {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPMediaItemPropertyPlaybackDuration: duration
         ]
-        
+
         if let cachedArtwork = cachedArtwork, cachedSongId == song.id {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = cachedArtwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
@@ -451,8 +462,11 @@ class PlaybackService {
                             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                             self.cachedArtwork = artwork
                             self.cachedSongId = song.id
-                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                            // Merge artwork with current info to avoid overwriting playback state
+                            if var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+                                currentInfo[MPMediaItemPropertyArtwork] = artwork
+                                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+                            }
                         }
                     } else {
                         do {
@@ -463,8 +477,11 @@ class PlaybackService {
                                     let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                                     self.cachedArtwork = artwork
                                     self.cachedSongId = song.id
-                                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                                    // Merge artwork with current info to avoid overwriting playback state
+                                    if var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+                                        currentInfo[MPMediaItemPropertyArtwork] = artwork
+                                        MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+                                    }
                                 }
                             }
                         } catch {

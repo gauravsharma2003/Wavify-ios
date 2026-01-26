@@ -28,6 +28,9 @@ class HomeViewModel {
     var us100Songs: [SearchResult] { chartsManager.us100Songs }
     var languageCharts: [LanguageChart] { chartsManager.languageCharts }
     var hasHistory: Bool = false
+    
+    // Shorts section (computed from ShortsManager cache)
+    var shortsSongs: [SearchResult] { shortsManager.shortsSongs }
 
     // Track if initial load has completed (prevents loader on tab switch)
     private var hasLoadedInitially = false
@@ -43,6 +46,7 @@ class HomeViewModel {
     private let chartsManager = ChartsManager.shared
     private let likedBasedRecommendationsManager = LikedBasedRecommendationsManager.shared
     private let randomCategoryManager = RandomCategoryManager.shared
+    private let shortsManager = ShortsManager.shared
     
     func loadInitialContent(modelContext: ModelContext) async {
         // Skip if already loaded (prevents loader when switching tabs)
@@ -74,6 +78,10 @@ class HomeViewModel {
 
             group.addTask { @MainActor in
                 await self.randomCategoryManager.refreshInBackground()
+            }
+            
+            group.addTask { @MainActor in
+                await self.shortsManager.refreshInBackground()
             }
         }
 
@@ -107,6 +115,11 @@ class HomeViewModel {
             // Background refresh charts if needed (won't block UI)
             if chartsManager.needsRefresh {
                 await chartsManager.refreshInBackground()
+            }
+            
+            // Background refresh shorts if needed
+            if shortsManager.needsRefresh {
+                await shortsManager.refreshInBackground()
             }
         }
     }
@@ -149,6 +162,11 @@ class HomeViewModel {
             // 4. Force refresh random category
             group.addTask { @MainActor in
                 await self.randomCategoryManager.forceRefresh()
+            }
+            
+            // 5. Force refresh shorts
+            group.addTask { @MainActor in
+                await self.shortsManager.forceRefresh()
             }
         }
     }

@@ -68,6 +68,27 @@ final class BrowseAPIService {
         return try await browse(browseId: endpoint.browseId, params: endpoint.params)
     }
     
+    /// Load a continuation from a browse endpoint
+    func loadContinuation(token: String) async throws -> HomePage {
+        var body: [String: Any] = [
+            "continuation": token,
+            "context": YouTubeAPIContext.webContext
+        ]
+        
+        let urlString = "\(YouTubeAPIContext.baseURL)/browse?continuation=\(token)&type=next&prettyPrint=false"
+        guard let url = URL(string: urlString) else {
+            throw YouTubeMusicError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        YouTubeAPIContext.webHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let data = try await requestManager.execute(request, deduplicationKey: "browse_continuation_\(token)")
+        return try parseBrowseResponse(data)
+    }
+    
     /// Get language charts from FEmusic_charts endpoint
     /// Returns array of (name, playlistId, thumbnailUrl) for each language chart
     func getLanguageCharts() async throws -> [(name: String, playlistId: String, thumbnailUrl: String)] {
@@ -305,17 +326,40 @@ final class BrowseAPIService {
             throw YouTubeMusicError.parseError("Invalid browse response")
         }
         
+        // Extract and save visitorData for future requests
+        if let responseContext = json["responseContext"] as? [String: Any],
+           let visitorData = responseContext["visitorData"] as? String {
+            YouTubeAPIContext.visitorData = visitorData
+        }
+        
         var chips: [Chip] = []
         var sections: [HomeSection] = []
         var continuation: String? = nil
         
+        // Handle Continuation response structure (New fix!)
+        if let continuationContents = json["continuationContents"] as? [String: Any],
+           let sectionListContinuation = continuationContents["sectionListContinuation"] as? [String: Any] {
+            
+            // Parse Sections
+            if let sectionContents = sectionListContinuation["contents"] as? [[String: Any]] {
+                sections = parseHomeSections(sectionContents)
+            }
+            
+            // Parse Next Continuation Token
+            if let continuations = sectionListContinuation["continuations"] as? [[String: Any]],
+               let firstContinuation = continuations.first,
+               let nextData = firstContinuation["nextContinuationData"] as? [String: Any],
+               let token = nextData["continuation"] as? String {
+                continuation = token
+            }
+        }
         // Handle Single Column (Home, Charts)
-        if let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-           let tabs = singleColumn["tabs"] as? [[String: Any]],
-           let firstTab = tabs.first,
-           let tabContent = firstTab["tabRenderer"] as? [String: Any],
-           let content = tabContent["content"] as? [String: Any],
-           let sectionList = content["sectionListRenderer"] as? [String: Any] {
+        else if let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+                let tabs = singleColumn["tabs"] as? [[String: Any]],
+                let firstTab = tabs.first,
+                let tabContent = firstTab["tabRenderer"] as? [String: Any],
+                let content = tabContent["content"] as? [String: Any],
+                let sectionList = content["sectionListRenderer"] as? [String: Any] {
             
             // Parse Chips
             if let header = sectionList["header"] as? [String: Any],

@@ -143,6 +143,23 @@ struct HomeView: View {
                                     }
                                 }
                             }
+                            
+                            // Trending in Shorts Section (Last in order)
+                            if !viewModel.shortsSongs.isEmpty {
+                                ShortsCarouselView(
+                                    title: "Trending in Shorts",
+                                    subtitle: "Popular on YouTube Shorts",
+                                    songs: viewModel.shortsSongs,
+                                    likedSongIds: likedSongIds,
+                                    queueSongIds: audioPlayer.userQueueIds,
+                                    scrollResetId: scrollResetId,
+                                    onSongTap: handleResultTap,
+                                    onAddToPlaylist: handleAddToPlaylist,
+                                    onToggleLike: handleToggleLike,
+                                    onPlayNext: handlePlayNext,
+                                    onAddToQueue: handleAddToQueue
+                                )
+                            }
                         }
                         .padding(.vertical)
                         .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)

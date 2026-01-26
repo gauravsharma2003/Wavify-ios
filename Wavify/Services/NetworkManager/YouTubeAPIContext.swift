@@ -14,10 +14,19 @@ enum YouTubeAPIContext {
     
     static let baseURL = "https://music.youtube.com/youtubei/v1"
     
+    // Hardcoded working visitor data from successful incognito experiment
+    static let incognitoVisitorData = "CgtFZTRKTDZzemNxcyiH3N3LBjIKCgJJThIEGgAgPw%3D%3D"
+    
+    // Persistent visitor data across sessions
+    static var visitorData: String? {
+        get { UserDefaults.standard.string(forKey: "com.wavify.api.visitorData") ?? incognitoVisitorData }
+        set { UserDefaults.standard.set(newValue, forKey: "com.wavify.api.visitorData") }
+    }
+    
     // MARK: - Client Versions
     
-    static let webRemixVersion = "1.20251208.03.00"
-    static let androidVersion = "20.10.38"
+    static let webRemixVersion = "1.20260121.03.00"
+    static let androidVersion = "19.10.38"
     
     // MARK: - Headers
     
@@ -28,8 +37,11 @@ enum YouTubeAPIContext {
             "content-type": "application/json",
             "origin": "https://music.youtube.com",
             "referer": "https://music.youtube.com/",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-            "x-origin": "https://music.youtube.com"
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+            "x-origin": "https://music.youtube.com",
+            "x-youtube-client-name": "67",
+            "x-youtube-client-version": webRemixVersion,
+            "x-goog-visitor-id": visitorData ?? incognitoVisitorData
         ]
     }
     
@@ -59,7 +71,12 @@ enum YouTubeAPIContext {
         [
             "client": [
                 "clientName": "WEB_REMIX",
-                "clientVersion": webRemixVersion
+                "clientVersion": webRemixVersion,
+                "visitorData": visitorData ?? incognitoVisitorData,
+                "hl": "en",
+                "gl": "IN",
+                "platform": "DESKTOP",
+                "osName": "Macintosh"
             ]
         ]
     }
