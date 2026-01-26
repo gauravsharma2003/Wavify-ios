@@ -166,6 +166,19 @@ final class AudioTapProcessor {
         let tracks = asset.tracks(withMediaType: .audio)
 
         if let audioTrack = tracks.first {
+            // Check format and reconfigure engine if needed (sync path)
+            if let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription],
+               let formatDesc = formatDescriptions.first,
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
+                let sampleRate = asbd.pointee.mSampleRate
+                let channels = Int(asbd.pointee.mChannelsPerFrame)
+                if sampleRate > 0 && channels > 0 {
+                    AudioEngineService.shared.reconfigure(
+                        sampleRate: sampleRate,
+                        channels: channels
+                    )
+                }
+            }
             createAndAttachTap(
                 to: playerItem,
                 audioTrack: audioTrack,

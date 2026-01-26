@@ -28,8 +28,8 @@ class AudioEngineService: ObservableObject {
     private var sourceFormat: AVAudioFormat?
     
     // Shared ring buffer to receive data from AVPlayer tap
-    // Capacity: 2 seconds @ 44.1kHz stereo (approx 176k floats)
-    let ringBuffer = CircularBuffer(capacity: 44100 * 2 * 2)
+    // Capacity: 4 seconds @ 48kHz stereo (384k floats) - extra headroom for network fluctuations
+    let ringBuffer = CircularBuffer(capacity: 48000 * 2 * 4)
     
     // MARK: - DSP Nodes
     

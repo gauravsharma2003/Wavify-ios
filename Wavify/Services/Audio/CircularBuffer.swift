@@ -50,15 +50,22 @@ final class CircularBuffer {
     
     // MARK: - Real-time Methods
     
+    /// Track overflow/underrun for diagnostics
+    private var overflowCount: Int = 0
+    private var underrunCount: Int = 0
+    private var lastLogTime: UInt64 = 0
+
     /// Write data into the buffer. RETURNS TRUE if all data was written.
     /// Thread-safe for single-producer context (AudioTap).
     @discardableResult
     func write(_ data: UnsafePointer<Float>, count: Int) -> Bool {
         let availableSpace = capacity - (writeIndex - readIndex)
-        
+
         if availableSpace < count {
             // Buffer overflow - drop data or handle gracefully
             // In realtime audio, dropping is better than blocking
+            overflowCount += 1
+            logDiagnosticsIfNeeded()
             return false
         }
         
@@ -85,9 +92,11 @@ final class CircularBuffer {
     /// Thread-safe for single-consumer context (AVAudioSourceNode).
     func read(into outBuffer: UnsafeMutablePointer<Float>, count: Int) -> Int {
         let availableData = writeIndex - readIndex
-        
+
         if availableData <= 0 {
             // Buffer underrun - output silence
+            underrunCount += 1
+            logDiagnosticsIfNeeded()
             memset(outBuffer, 0, count * MemoryLayout<Float>.size)
             return 0
         }
@@ -117,10 +126,25 @@ final class CircularBuffer {
         return toRead
     }
     
+    /// Log diagnostics periodically (max once per second) to avoid spam
+    private func logDiagnosticsIfNeeded() {
+        let now = mach_absolute_time()
+        // Only log once per second (approximate)
+        if now - lastLogTime > 1_000_000_000 {
+            lastLogTime = now
+            if overflowCount > 0 || underrunCount > 0 {
+                print("[CircularBuffer] Overflow: \(overflowCount), Underrun: \(underrunCount), Fill: \(availableFrames)/\(capacity)")
+            }
+        }
+    }
+
     /// Clear buffer contents safely
     func clear() {
         os_unfair_lock_lock(stateLock)
         readIndex = 0
+        // Reset diagnostics for new song
+        overflowCount = 0
+        underrunCount = 0
         writeIndex = 0
         buffer.initialize(repeating: 0, count: capacity)
         os_unfair_lock_unlock(stateLock)
