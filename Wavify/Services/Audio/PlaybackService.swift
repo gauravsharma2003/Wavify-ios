@@ -66,6 +66,7 @@ class PlaybackService {
     var onSongEnded: (() -> Void)?
     var onReady: ((Double) -> Void)?
     var onFailed: ((Error?) -> Void)?
+    var onBufferingChanged: ((Bool) -> Void)?
     
     // MARK: - Initialization
     
@@ -183,6 +184,32 @@ class PlaybackService {
         }
         
         setupTimeObserver()
+        setupBufferObserver()
+    }
+    
+    // MARK: - Buffer Observer
+    
+    private var bufferEmptyObserver: NSKeyValueObservation?
+    private var bufferLikelyToKeepUpObserver: NSKeyValueObservation?
+    
+    private func setupBufferObserver() {
+        bufferEmptyObserver = playerItem?.observe(\.isPlaybackBufferEmpty, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if item.isPlaybackBufferEmpty {
+                    self.onBufferingChanged?(true)
+                }
+            }
+        }
+        
+        bufferLikelyToKeepUpObserver = playerItem?.observe(\.isPlaybackLikelyToKeepUp, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if item.isPlaybackLikelyToKeepUp {
+                    self.onBufferingChanged?(false)
+                }
+            }
+        }
     }
     
     private func handlePlayerFailure(error: Error?) {
@@ -331,18 +358,10 @@ class PlaybackService {
         isPlaying = true
         onPlayPauseChanged?(true)
     }
-    
+
     func pause() {
         player?.pause()
-        // We keep audio engine running briefly or stop it?
-        // Stopping it immediately might be fine, but starting it takes time.
-        // Let's stop it for battery's sake, but maybe we can keep it for short pauses?
-        // For robustness, let's keep it simple: stop implies stop.
-        // Actually, if we stop AudioEngine, we might lose tail sounds (reverb/echo).
-        // A better approach is to pause AVPlayer but keep Engine running if user might resume soon.
-        // But for minimizing bugs:
-        AudioEngineService.shared.stop()
-        
+        // Keep AudioEngine running - stopping/starting causes glitches
         isPlaying = false
         onPlayPauseChanged?(false)
     }
@@ -467,6 +486,12 @@ class PlaybackService {
         }
         statusObserver?.invalidate()
         statusObserver = nil
+        
+        bufferEmptyObserver?.invalidate()
+        bufferEmptyObserver = nil
+        
+        bufferLikelyToKeepUpObserver?.invalidate()
+        bufferLikelyToKeepUpObserver = nil
 
         // 1. Mute output first to prevent any glitchy sounds during cleanup
         AudioEngineService.shared.mute()

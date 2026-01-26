@@ -48,6 +48,7 @@ class AudioPlayer {
     var currentTime: Double = 0
     var duration: Double = 0
     var isLoading = false
+    var isBuffering = false
     
     // Queue state (delegated to QueueManager)
     var queue: [Song] {
@@ -141,12 +142,17 @@ class AudioPlayer {
         
         playbackService.onFailed = { [weak self] _ in
             self?.isLoading = false
+            self?.isBuffering = false
             // Invalidate cached playback URL so next attempt gets a fresh one
             if let videoId = self?.currentSong?.videoId {
                 Task {
                     await self?.networkManager.invalidatePlaybackCache(videoId: videoId)
                 }
             }
+        }
+        
+        playbackService.onBufferingChanged = { [weak self] buffering in
+            self?.isBuffering = buffering
         }
         
         // Retry callback - fetch fresh URL when playback fails (handles expired URLs)

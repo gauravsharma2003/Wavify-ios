@@ -25,7 +25,9 @@ final class AudioTapContext {
     let ringBuffer: CircularBuffer
 
     // Pre-allocated buffer to avoid runtime allocations in real-time callback
-    private var interleavedBuffer: [Float] = []
+    // Use UnsafeMutablePointer for true zero-copy access
+    private var interleavedBuffer: UnsafeMutablePointer<Float>?
+    private var bufferCapacity: Int = 0
 
     init(ringBuffer: CircularBuffer) {
         self.ringBuffer = ringBuffer
@@ -33,13 +35,29 @@ final class AudioTapContext {
 
     deinit {
         isValid = false
+        interleavedBuffer?.deallocate()
     }
 
-    func getInterleavedBuffer(frameCount: Int) -> [Float] {
-        if interleavedBuffer.count != frameCount * 2 {
-            interleavedBuffer = [Float](repeating: 0, count: frameCount * 2)
+    /// Interleave planar audio and write to ring buffer (allocation-free in steady state)
+    func interleaveAndWrite(left: UnsafePointer<Float>, right: UnsafePointer<Float>, frameCount: Int) {
+        let sampleCount = frameCount * 2
+
+        // Resize buffer if needed (only happens on first call or frame count change)
+        if bufferCapacity < sampleCount {
+            interleavedBuffer?.deallocate()
+            interleavedBuffer = UnsafeMutablePointer<Float>.allocate(capacity: sampleCount)
+            bufferCapacity = sampleCount
         }
-        return interleavedBuffer
+
+        guard let buffer = interleavedBuffer else { return }
+
+        // Interleave using pointer arithmetic (no Swift array overhead)
+        for i in 0..<frameCount {
+            buffer[i * 2] = left[i]
+            buffer[i * 2 + 1] = right[i]
+        }
+
+        ringBuffer.write(buffer, count: sampleCount)
     }
 }
 
@@ -108,14 +126,8 @@ private let tapProcessCallback: MTAudioProcessingTapProcessCallback = {
         let left = leftData.assumingMemoryBound(to: Float.self)
         let right = rightData.assumingMemoryBound(to: Float.self)
 
-        var interleaved = context.getInterleavedBuffer(frameCount: frameCount)
-
-        for i in 0..<frameCount {
-            interleaved[i * 2] = left[i]
-            interleaved[i * 2 + 1] = right[i]
-        }
-
-        context.ringBuffer.write(interleaved, count: frameCount * 2)
+        // Use allocation-free interleaving
+        context.interleaveAndWrite(left: left, right: right, frameCount: frameCount)
 
         // Silence AVPlayer output
         memset(leftData, 0, Int(bufferList[0].mDataByteSize))
@@ -165,19 +177,18 @@ final class AudioTapProcessor {
         let asset = playerItem.asset
         let tracks = asset.tracks(withMediaType: .audio)
 
-        if let audioTrack = tracks.first {
-            // Check format and reconfigure engine if needed (sync path)
-            if let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription],
-               let formatDesc = formatDescriptions.first,
-               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
-                let sampleRate = asbd.pointee.mSampleRate
-                let channels = Int(asbd.pointee.mChannelsPerFrame)
-                if sampleRate > 0 && channels > 0 {
-                    AudioEngineService.shared.reconfigure(
-                        sampleRate: sampleRate,
-                        channels: channels
-                    )
-                }
+        if let audioTrack = tracks.first,
+           let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription],
+           let formatDesc = formatDescriptions.first,
+           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
+            // Sync path: format available, reconfigure and attach
+            let sampleRate = asbd.pointee.mSampleRate
+            let channels = Int(asbd.pointee.mChannelsPerFrame)
+            if sampleRate > 0 && channels > 0 {
+                AudioEngineService.shared.reconfigure(
+                    sampleRate: sampleRate,
+                    channels: channels
+                )
             }
             createAndAttachTap(
                 to: playerItem,
@@ -185,6 +196,7 @@ final class AudioTapProcessor {
                 context: context
             )
         } else {
+            // Async path: either no tracks or no format descriptions available
             attachTask = Task(priority: .userInitiated) {
                 let asyncTracks = try? await asset.loadTracks(withMediaType: .audio)
                 guard self.currentAttachmentId == attachmentId,

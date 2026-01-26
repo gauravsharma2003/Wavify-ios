@@ -112,9 +112,6 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showEqualizerSheet) {
             EqualizerSheet()
         }
-        .overlay(alignment: .top) {
-            NetworkToastView()
-        }
         .background {
             // Hidden AirPlay Picker for programmatic triggering
             AirPlayRoutePickerView(showPicker: $showAirPlayPicker)

@@ -9,13 +9,24 @@ import SwiftUI
 
 struct NetworkToastView: View {
     @State private var networkMonitor = NetworkMonitor.shared
-    @State private var showToast: Bool = false
+    @State private var audioPlayer = AudioPlayer.shared
+    
+    // Connectivity states
+    @State private var showNoInternetToast: Bool = false
     @State private var isBackOnline: Bool = false
-    @State private var dismissTask: Task<Void, Never>?
+    @State private var noInternetDismissTask: Task<Void, Never>?
+    
+    // Slow connection states
+    @State private var showSlowNetworkToast: Bool = false
+    @State private var bufferingTimer: Task<Void, Never>?
+    
+    // Session state
+    static var hasDismissedSlowNetworkToast = false
     
     var body: some View {
         VStack {
-            if showToast {
+            if showNoInternetToast {
+                // No Internet Toast (High Priority)
                 HStack(spacing: 8) {
                     Image(systemName: isBackOnline ? "wifi" : "wifi.slash")
                         .font(.system(size: 14, weight: .semibold))
@@ -30,51 +41,136 @@ struct NetworkToastView: View {
                 .padding(.vertical, 10)
                 .glassEffect(.regular.interactive(), in: .capsule)
                 .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(2) // Ensure it stays on top of slow network toast if transitioning
+                
+            } else if showSlowNetworkToast {
+                // Slower Network Toast (Lower Priority)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.yellow)
+                    
+                    Text("Slower network speed")
+                        .font(.system(size: 14, weight: .semibold))
+                    
+                    // Close button
+                    Button {
+                        withAnimation {
+                            showSlowNetworkToast = false
+                            Self.hasDismissedSlowNetworkToast = true
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .padding(4)
+                            .background(.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .padding(.leading, 4)
+                }
+                .foregroundStyle(.primary)
+                .padding(.leading, 16)
+                .padding(.trailing, 8) // Less padding on right for button
+                .padding(.vertical, 8)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
             }
             
             Spacer()
         }
         .padding(.top, 40)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showToast)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showNoInternetToast)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showSlowNetworkToast)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isBackOnline)
+        // Monitor Network
         .onChange(of: networkMonitor.isConnected) { oldValue, newValue in
             handleConnectivityChange(isConnected: newValue)
+        }
+        // Monitor Buffering/Slow Network
+        .onChange(of: audioPlayer.isBuffering) { oldValue, isBuffering in
+             handleBufferingChange(isBuffering: isBuffering)
         }
         .onAppear {
             // Initial state check
             if !networkMonitor.isConnected {
-                showToast = true
+                showNoInternetToast = true
                 isBackOnline = false
+            } else if audioPlayer.isBuffering {
+                 handleBufferingChange(isBuffering: true)
             }
         }
     }
     
     private func handleConnectivityChange(isConnected: Bool) {
         // Cancel any pending dismiss task
-        dismissTask?.cancel()
-        dismissTask = nil
+        noInternetDismissTask?.cancel()
+        noInternetDismissTask = nil
         
         if isConnected {
             // Connection restored
-            if showToast {
+            if showNoInternetToast {
                 // Animate to "Back Online"
                 isBackOnline = true
                 
                 // Dismiss after 1 second
-                dismissTask = Task {
+                noInternetDismissTask = Task {
                     try? await Task.sleep(for: .seconds(1))
                     if !Task.isCancelled {
                         await MainActor.run {
-                            showToast = false
+                            showNoInternetToast = false
                             isBackOnline = false
+                            
+                            // Re-evaluate slow network toast after "No Internet" is gone
+                            if audioPlayer.isBuffering {
+                                handleBufferingChange(isBuffering: true)
+                            }
+                        }
+                    }
+                }
+            } else {
+                 // Even if toast wasn't shown, check slow network status
+                 if audioPlayer.isBuffering {
+                      handleBufferingChange(isBuffering: true)
+                 }
+            }
+        } else {
+            // Connection lost
+            isBackOnline = false
+            showNoInternetToast = true
+            
+            // Hide slow network toast if we lost internet completely
+            showSlowNetworkToast = false
+        }
+    }
+    
+    private func handleBufferingChange(isBuffering: Bool) {
+        // If user already dismissed it this session, don't show again
+        guard !Self.hasDismissedSlowNetworkToast else { return }
+        
+        // If "No Internet" is showing, don't show slow network toast
+        guard !showNoInternetToast else { return }
+        
+        bufferingTimer?.cancel()
+        bufferingTimer = nil
+        
+        if isBuffering {
+            // Wait for 3 seconds of continuous buffering before showing toast
+            bufferingTimer = Task {
+                try? await Task.sleep(for: .seconds(3))
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        // Double check conditions
+                        if !showNoInternetToast && !Self.hasDismissedSlowNetworkToast {
+                            showSlowNetworkToast = true
                         }
                     }
                 }
             }
         } else {
-            // Connection lost
-            isBackOnline = false
-            showToast = true
+            // Buffering resolved - hide toast
+            showSlowNetworkToast = false
         }
     }
 }
