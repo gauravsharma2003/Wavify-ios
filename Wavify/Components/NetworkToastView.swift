@@ -32,7 +32,7 @@ struct NetworkToastView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace))
                     
-                    Text(isBackOnline ? "Back Online" : "No Internet Connection")
+                    Text(isBackOnline ? "And... we're back!" : "The internet has left the chat.")
                         .font(.system(size: 14, weight: .semibold))
                         .contentTransition(.numericText())
                 }
