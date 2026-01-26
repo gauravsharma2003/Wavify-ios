@@ -46,11 +46,10 @@ struct NetworkToastView: View {
             } else if showSlowNetworkToast {
                 // Slower Network Toast (Lower Priority)
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    Image(systemName: "wifi.exclamationmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.yellow)
                     
-                    Text("Slower network speed")
+                    Text("Your internet is having a lazy day.")
                         .font(.system(size: 14, weight: .semibold))
                     
                     // Close button
@@ -63,7 +62,7 @@ struct NetworkToastView: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.secondary)
-                            .padding(4)
+                            .frame(width: 32, height: 32)
                             .background(.white.opacity(0.1))
                             .clipShape(Circle())
                     }
@@ -72,7 +71,7 @@ struct NetworkToastView: View {
                 .foregroundStyle(.primary)
                 .padding(.leading, 16)
                 .padding(.trailing, 8) // Less padding on right for button
-                .padding(.vertical, 8)
+                .padding(.vertical, 6) // Slightly reduce vertical padding to compensate for larger button
                 .glassEffect(.regular.interactive(), in: .capsule)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
