@@ -185,12 +185,14 @@ class PlaybackService {
 
         setupTimeObserver()
         setupBufferObserver()
+        setupTimeControlStatusObserver()
     }
     
     // MARK: - Buffer Observer
     
     private var bufferEmptyObserver: NSKeyValueObservation?
     private var bufferLikelyToKeepUpObserver: NSKeyValueObservation?
+    private var timeControlStatusObserver: NSKeyValueObservation?
     
     private func setupBufferObserver() {
         bufferEmptyObserver = playerItem?.observe(\.isPlaybackBufferEmpty, options: [.initial, .new]) { [weak self] item, _ in
@@ -206,6 +208,19 @@ class PlaybackService {
             Task { @MainActor in
                 guard let self = self else { return }
                 if item.isPlaybackLikelyToKeepUp {
+                    self.onBufferingChanged?(false)
+                }
+            }
+        }
+    }
+    
+    private func setupTimeControlStatusObserver() {
+        timeControlStatusObserver = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                // If the player actually starts playing, we are by definition not buffering (stalled).
+                // This acts as a failsafe if isPlaybackLikelyToKeepUp is delayed or missed.
+                if player.timeControlStatus == .playing {
                     self.onBufferingChanged?(false)
                 }
             }
@@ -350,6 +365,7 @@ class PlaybackService {
         }
 
         setupTimeObserver()
+        setupTimeControlStatusObserver()
     }
     
     func play() {
@@ -374,6 +390,8 @@ class PlaybackService {
         AudioEngineService.shared.stop()
         isPlaying = false
         onPlayPauseChanged?(false)
+        // Ensure buffering indicator is hidden when paused
+        onBufferingChanged?(false)
     }
     
     func togglePlayPause() {
@@ -508,6 +526,9 @@ class PlaybackService {
         
         bufferLikelyToKeepUpObserver?.invalidate()
         bufferLikelyToKeepUpObserver = nil
+        
+        timeControlStatusObserver?.invalidate()
+        timeControlStatusObserver = nil
 
         // 1. Mute output first to prevent any glitchy sounds during cleanup
         AudioEngineService.shared.mute()
