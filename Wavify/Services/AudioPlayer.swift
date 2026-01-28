@@ -101,6 +101,9 @@ class AudioPlayer {
 
     /// Flag to prevent duplicate song end handling
     private var isHandlingSongEnd = false
+    /// Timestamp of last handled song end — debounces double-triggers from
+    /// the fallback timer and AVPlayerItemDidPlayToEndTime firing for the same ending
+    private var lastSongEndHandledAt: Date = .distantPast
     
     // MARK: - Initialization
     
@@ -129,7 +132,10 @@ class AudioPlayer {
         playbackService.onSongEnded = { [weak self] in
             Task { @MainActor in
                 guard let self = self, !self.isHandlingSongEnd else { return }
+                // Debounce: ignore if a song end was already handled within the last second
+                if Date().timeIntervalSince(self.lastSongEndHandledAt) < 1.0 { return }
                 self.isHandlingSongEnd = true
+                self.lastSongEndHandledAt = Date()
                 await self.playNext()
                 self.isHandlingSongEnd = false
             }
@@ -265,7 +271,16 @@ class AudioPlayer {
                     }
                     return
                 }
+                // Debounce: ignore if a song end was already handled within the last second
+                // (prevents the fallback timer + notification double-trigger)
+                if Date().timeIntervalSince(self.lastSongEndHandledAt) < 1.0 {
+                    if backgroundTaskId != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTaskId)
+                    }
+                    return
+                }
                 self.isHandlingSongEnd = true
+                self.lastSongEndHandledAt = Date()
                 await self.playNext()
                 self.isHandlingSongEnd = false
 
@@ -516,11 +531,12 @@ class AudioPlayer {
         // Handle loop modes
         switch shuffleController.loopMode {
         case .one:
-            // Seek to start for instant looping
-            playbackService.seekToStart()
-            playbackService.play()
-            isPlaying = true
-            updateNowPlayingInfo()
+            // Reload the song fresh instead of seeking on the exhausted player item.
+            // Seeking back on a completed streaming item is unreliable — the URL
+            // may need re-buffering and the tap/engine state can become stale.
+            if let song = currentSong {
+                await playNewSong(song, refreshQueue: false)
+            }
             return
 
         case .all:
