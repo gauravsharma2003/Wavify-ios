@@ -47,11 +47,46 @@ struct SearchView: View {
                 prompt: "Songs, artists, albums..."
             )
             .searchSuggestions {
-                if !viewModel.suggestions.isEmpty {
+                if viewModel.searchText.isEmpty {
+                    ForEach(viewModel.searchHistory, id: \.self) { term in
+                        Button {
+                            viewModel.isSelectingSuggestion = true
+                            // Dismiss keyboard
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            
+                            // Defer search to allow keyboard animation
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                viewModel.performSearchFromSuggestion(text: term)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "clock")
+                                    .foregroundStyle(.secondary)
+                                
+                                Text(term)
+                                    .foregroundStyle(.primary)
+                                
+                                Spacer()
+                                
+                                Button {
+                                    viewModel.removeFromHistory(term)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                        .padding(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .listRowBackground(Color(hex: "1A1A1A"))
+                    }
+                } else if !viewModel.suggestions.isEmpty {
                     ForEach(viewModel.suggestions, id: \.self) { suggestion in
                         switch suggestion {
                         case .text(let text):
                             Button {
+                                viewModel.isSelectingSuggestion = true
                                 viewModel.suggestions = []
                                 // Resign first responder on main thread - UI must be on main thread
                                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -100,10 +135,14 @@ struct SearchView: View {
                                     }
                                 }
                             }
+                            .listRowBackground(Color(hex: "1A1A1A"))
                         }
                     }
+                    .listRowBackground(Color(hex: "1A1A1A"))
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color(hex: "1A1A1A"))
             .onSubmit(of: .search) {
                 viewModel.performSearch()
             }

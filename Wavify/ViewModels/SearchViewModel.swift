@@ -91,6 +91,9 @@ class SearchViewModel {
         
         guard !query.isEmpty else {
             suggestions = []
+            results = []
+            topResults = []
+            hasSearched = false
             return
         }
         
@@ -125,8 +128,16 @@ class SearchViewModel {
     
     // MARK: - Search
     
+    var isSelectingSuggestion = false
+    
+    // MARK: - Search
+    
     func performSearch() {
         guard !searchText.isEmpty else { return }
+        
+        // Block the implicit search trigger if we are selecting a suggestion
+        // This prevents double logging (once for typed text on resign board, once for suggestion)
+        guard !isSelectingSuggestion else { return }
         
         debounceTask?.cancel()
         suggestionTask?.cancel()
@@ -137,6 +148,12 @@ class SearchViewModel {
         
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
+            
+            // Add to history
+            await MainActor.run {
+                self.addToHistory(self.searchText)
+            }
+            
             do {
                 let searchResults = try await self.networkManager.search(query: self.searchText, params: self.selectedFilter.params)
                 await MainActor.run {
@@ -154,6 +171,9 @@ class SearchViewModel {
     }
     
     func performSearchFromSuggestion(text: String) {
+        // Reset flag since we are now explicitly searching for the suggestion
+        isSelectingSuggestion = false
+        
         justPerformedSearchFromSuggestion = true
         searchText = text
         performSearch()
@@ -163,5 +183,21 @@ class SearchViewModel {
         guard filter != selectedFilter else { return }
         selectedFilter = filter
         performSearch()
+    }
+    
+    // MARK: - History
+    
+    // MARK: - History
+    
+    var searchHistory: [String] = SearchHistoryManager.shared.getHistory()
+    
+    func addToHistory(_ term: String) {
+        SearchHistoryManager.shared.add(term: term)
+        searchHistory = SearchHistoryManager.shared.getHistory()
+    }
+    
+    func removeFromHistory(_ term: String) {
+        SearchHistoryManager.shared.remove(term: term)
+        searchHistory = SearchHistoryManager.shared.getHistory()
     }
 }
