@@ -484,17 +484,17 @@ class AudioPlayer {
             }
             return
         }
-        
+
+        // playbackService.play() triggers onPlayPauseChanged which sets
+        // isPlaying and calls updateNowPlayingInfo() — single update path
         playbackService.play()
-        isPlaying = true
-        updateNowPlayingInfo()
         LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
     }
-    
+
     func pause() {
+        // playbackService.pause() triggers onPlayPauseChanged which sets
+        // isPlaying and calls updateNowPlayingInfo() — single update path
         playbackService.pause()
-        isPlaying = false
-        updateNowPlayingInfo()
         // Save position when pausing for resume later
         LastPlayedSongManager.shared.updatePlaybackState(isPlaying: false, currentTime: currentTime)
     }

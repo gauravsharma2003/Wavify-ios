@@ -176,13 +176,13 @@ class PlaybackService {
 
                 case .failed:
                     self.handlePlayerFailure(error: item.error)
-                    
+
                 default:
                     break
                 }
             }
         }
-        
+
         setupTimeObserver()
         setupBufferObserver()
     }
@@ -342,39 +342,38 @@ class PlaybackService {
 
                 case .failed:
                     self.handlePlayerFailure(error: item.error)
-                    
+
                 default:
                     break
                 }
             }
         }
-        
+
         setupTimeObserver()
     }
     
     func play() {
+        // Flush stale samples before restarting the render pipeline
+        AudioEngineService.shared.flush()
         AudioEngineService.shared.start()
         player?.play()
         isPlaying = true
         onPlayPauseChanged?(true)
-        updateNowPlayingPlaybackState(isPlaying: true)
+        // Unmute after audio propagates through the pipeline
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+            AudioEngineService.shared.unmute()
+        }
     }
 
     func pause() {
         player?.pause()
-        // Keep AudioEngine running - stopping/starting causes glitches
+        // Stop the AudioEngine render pipeline so the system sees no active
+        // audio output and correctly reports the paused state on the lock screen.
+        AudioEngineService.shared.mute()
+        AudioEngineService.shared.stop()
         isPlaying = false
         onPlayPauseChanged?(false)
-        updateNowPlayingPlaybackState(isPlaying: false)
-    }
-
-    /// Updates only the playback state in Now Playing info (for play/pause sync)
-    private func updateNowPlayingPlaybackState(isPlaying: Bool) {
-        if var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
-            nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-            nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-        }
     }
     
     func togglePlayPause() {
