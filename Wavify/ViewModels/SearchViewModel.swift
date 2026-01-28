@@ -187,8 +187,6 @@ class SearchViewModel {
     
     // MARK: - History
     
-    // MARK: - History
-    
     var searchHistory: [String] = SearchHistoryManager.shared.getHistory()
     
     func addToHistory(_ term: String) {

@@ -545,31 +545,7 @@ struct NowPlayingView: View {
     // MARK: - Slim Progress View (for expanded mode)
     
     private var slimProgressView: some View {
-        VStack(spacing: 4) {
-            // Slim Slider
-            Slider(
-                value: Binding(
-                    get: { audioPlayer.currentTime },
-                    set: { audioPlayer.seek(to: $0) }
-                ),
-                in: 0...max(audioPlayer.duration, 1)
-            )
-            .tint(.white)
-            .scaleEffect(y: 0.8)
-            
-            // Time Labels
-            HStack {
-                Text(audioPlayer.currentTime.formattedTime)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                
-                Spacer()
-                
-                Text(audioPlayer.duration.formattedTime)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-        }
+        SlimProgressView(audioPlayer: audioPlayer)
     }
     
     // MARK: - Background
@@ -966,30 +942,7 @@ struct NowPlayingView: View {
     // MARK: - Progress View
     
     private var progressView: some View {
-        VStack(spacing: 8) {
-            // Slider
-            Slider(
-                value: Binding(
-                    get: { audioPlayer.currentTime },
-                    set: { audioPlayer.seek(to: $0) }
-                ),
-                in: 0...max(audioPlayer.duration, 1)
-            )
-            .tint(.white)
-            
-            // Time Labels
-            HStack {
-                Text(audioPlayer.currentTime.formattedTime)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                
-                Spacer()
-                
-                Text(audioPlayer.duration.formattedTime)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-        }
+        NowPlayingProgressSection(audioPlayer: audioPlayer)
     }
     
     // MARK: - Controls
