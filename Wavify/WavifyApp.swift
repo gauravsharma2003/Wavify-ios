@@ -63,6 +63,9 @@ struct WavifyApp: App {
                 
                 // Check for pending widget favorite tap
                 checkPendingWidgetFavorite()
+                
+                // Pre-warm keyboard for smoother search experience
+                await KeyboardManager.shared.prewarmKeyboard()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 // Check again when app becomes active (in case it was already running)
