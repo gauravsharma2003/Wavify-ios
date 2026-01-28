@@ -18,11 +18,14 @@ struct NowPlayingControlsView: View {
         HStack(spacing: 32) {
             // Like Button
             Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
                 onToggleLike()
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(isLiked ? .red : .secondary)
+                    .likeButtonAnimation(trigger: isLiked)
             }
             
             // Previous

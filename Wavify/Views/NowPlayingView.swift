@@ -997,12 +997,16 @@ struct NowPlayingView: View {
     private var controlsView: some View {
         HStack(spacing: 32) {
             // Like Button (moved from additional controls)
+            // Like Button (moved from additional controls)
             Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
                 toggleLike()
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(isLiked ? .red : .secondary)
+                    .likeButtonAnimation(trigger: isLiked)
             }
             
             // Previous
@@ -1041,12 +1045,15 @@ struct NowPlayingView: View {
         HStack(spacing: 30) {
             // Like Button
             Button {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
                 toggleLike()
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(isLiked ? .red : .white)
                     .frame(width: 44, height: 44)
+                    .likeButtonAnimation(trigger: isLiked)
             }
             
             // Share Button
