@@ -294,7 +294,7 @@ struct LyricsView: View {
     
     private var notFoundView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "text.bubble")
+            Image(systemName: "text.word.spacing")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
             

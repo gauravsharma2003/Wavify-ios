@@ -584,9 +584,9 @@ struct PlayerShell: View {
                     fetchLyrics()
                 }
             } label: {
-                Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                Image(systemName: showLyrics ? "text.word.spacing" : "text.word.spacing")
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(showLyrics ? .cyan : .white)
                     .frame(width: 44, height: 44)
             }
 
