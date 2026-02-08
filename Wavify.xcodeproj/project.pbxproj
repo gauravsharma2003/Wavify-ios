@@ -791,7 +791,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = DAC714D22F03FCB200B08888 /* Project object */;
 }

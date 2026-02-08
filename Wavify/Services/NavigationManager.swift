@@ -28,7 +28,27 @@ class NavigationManager {
     var libraryPath = NavigationPath()
     
     var selectedTab = 0
-    var showNowPlaying = false
+
+    /// Drives the morph transition: 0.0 = mini player, 1.0 = full screen
+    var playerExpansion: CGFloat = 0.0
+
+    /// Backward-compatible computed property
+    var showNowPlaying: Bool {
+        get { playerExpansion > 0 }
+        set { playerExpansion = newValue ? 1.0 : 0.0 }
+    }
+
+    func expandPlayer() {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.88)) {
+            playerExpansion = 1.0
+        }
+    }
+
+    func collapsePlayer() {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
+            playerExpansion = 0.0
+        }
+    }
     
     // Cooldown to prevent rapid re-navigation to same item (prevents zoom transition glitch)
     private var lastNavigatedId: String?
@@ -50,7 +70,7 @@ class NavigationManager {
     
     func navigateToArtist(id: String, name: String, thumbnail: String) {
         // Dismiss player if open
-        showNowPlaying = false
+        collapsePlayer()
         
         let destination = NavigationDestination.artist(id, name, thumbnail)
         
@@ -72,8 +92,8 @@ class NavigationManager {
         guard !isInCooldown(id: id) else { return }
         
         // Dismiss player if open
-        showNowPlaying = false
-        
+        collapsePlayer()
+
         let destination = NavigationDestination.album(id, name, artist, thumbnail)
         
         // Push to active tab's stack
@@ -94,8 +114,8 @@ class NavigationManager {
         guard !isInCooldown(id: id) else { return }
         
         // Dismiss player if open
-        showNowPlaying = false
-        
+        collapsePlayer()
+
         let destination = NavigationDestination.playlist(id, name, thumbnail)
         
         // Push to active tab's stack
@@ -133,8 +153,8 @@ class NavigationManager {
     
     func navigateToCategory(title: String, endpoint: BrowseEndpoint) {
         // Dismiss player if open
-        showNowPlaying = false
-        
+        collapsePlayer()
+
         let destination = NavigationDestination.category(title, endpoint)
         
         // Push to active tab's stack
@@ -153,7 +173,7 @@ class NavigationManager {
     func navigateToLocalPlaylist(_ playlist: LocalPlaylist) {
         // Switch to Library tab as local playlists live there
         selectedTab = 2
-        showNowPlaying = false
+        collapsePlayer()
         
         let destination = NavigationDestination.localPlaylist(playlist.persistentModelID)
         libraryPath.append(destination)

@@ -207,7 +207,7 @@ struct CompactSongRow: View {
                 Spacer()
                 
                 if isCurrentlyPlaying {
-                    Image(systemName: "waveform")
+                    Image(systemName: "waveform.low")
                         .font(.system(size: 14))
                         .foregroundStyle(.primary)
                         .symbolEffect(.variableColor.iterative)

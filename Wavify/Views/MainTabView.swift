@@ -23,13 +23,13 @@ struct MainTabView: View {
                         Label("Home", systemImage: "house.fill")
                     }
                     .tag(0)
-                
+
                 SearchView(audioPlayer: audioPlayer)
                     .tabItem {
                         Label("Search", systemImage: "magnifyingglass")
                     }
                     .tag(1)
-                
+
                 LibraryView(audioPlayer: audioPlayer)
                     .tabItem {
                         Label("Library", systemImage: "books.vertical.fill")
@@ -37,27 +37,17 @@ struct MainTabView: View {
                     .tag(2)
             }
             .tint(.white)
-            
-            // Mini Player
-            VStack(spacing: 0) {
-                Spacer()
-                
-                if audioPlayer.currentSong != nil {
-                    MiniPlayer(audioPlayer: audioPlayer) {
-                        navigationManager.showNowPlaying = true
-                    }
-                    .padding(.bottom, 58) // Tab bar height + extra spacing
+            .toolbar(navigationManager.playerExpansion > 0.95 ? .hidden : .visible, for: .tabBar)
+            .animation(.easeInOut(duration: 0.2), value: navigationManager.playerExpansion > 0.95)
+
+            // Unified Player Shell (mini ↔ full morph)
+            if audioPlayer.currentSong != nil {
+                PlayerShell(audioPlayer: audioPlayer, navigationManager: navigationManager)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .ignoresSafeArea(.keyboard)
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: audioPlayer.currentSong != nil)
-        }
-        .overlay {
-            if navigationManager.showNowPlaying {
-                NowPlayingView(audioPlayer: audioPlayer, navigationManager: navigationManager)
             }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: audioPlayer.currentSong != nil)
+        .ignoresSafeArea(.keyboard)
         .preferredColorScheme(.dark)
         .onAppear {
             setupAppearance()

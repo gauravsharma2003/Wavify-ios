@@ -370,7 +370,7 @@ struct MusicPlayerWidgetView: View {
             backgroundGradient
             
             VStack(spacing: 12) {
-                Image(systemName: "waveform.circle.fill")
+                Image(systemName: "waveform.low.circle.fill")
                     .font(.system(size: 48))
                     .foregroundStyle(.white.opacity(0.8))
                     .symbolRenderingMode(.hierarchical)

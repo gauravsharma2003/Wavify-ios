@@ -621,7 +621,7 @@ struct AlbumSongRow: View {
                         if isPlaying {
                             ZStack {
                                 Color.black.opacity(0.4)
-                                Image(systemName: "waveform")
+                                Image(systemName: "waveform.low")
                                     .font(.system(size: 20))
                                     .foregroundStyle(.white)
                                     .symbolEffect(.variableColor.iterative)
@@ -634,7 +634,7 @@ struct AlbumSongRow: View {
                     // Standard Track Number / Waveform
                     ZStack {
                         if isPlaying {
-                            Image(systemName: "waveform")
+                            Image(systemName: "waveform.low")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.white)
                                 .symbolEffect(.variableColor.iterative)
