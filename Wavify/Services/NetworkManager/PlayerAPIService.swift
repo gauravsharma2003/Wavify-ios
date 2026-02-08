@@ -48,8 +48,6 @@ final class PlayerAPIService {
         do {
             return try parsePlaybackResponse(data, videoId: videoId)
         } catch {
-            // If no direct URL in response, fall back to stream extractor for URL
-            // but still parse metadata from the response we already have
             Logger.log("[PlayerAPI] Direct URL not available, using stream extractor", category: .playback)
 
             let stream = try await YouTubeStreamExtractor.shared.resolveAudioURL(videoId: videoId)
@@ -191,8 +189,6 @@ final class PlayerAPIService {
         if let playabilityStatus = json["playabilityStatus"] as? [String: Any] {
             let status = playabilityStatus["status"] as? String ?? "unknown"
             guard status == "OK" else {
-                let reason = playabilityStatus["reason"] as? String ?? "Unknown"
-                Logger.warning("[PlayerAPI] Playability: \(status) - \(reason)", category: .playback)
                 throw YouTubeMusicError.invalidResponse
             }
         }
@@ -215,29 +211,17 @@ final class PlayerAPIService {
         if let streamingData = json["streamingData"] as? [String: Any],
            let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]] {
 
-            // Find best audio/mp4 format with direct URL (prefer itag 140 = AAC 128kbps)
             var bestFormat: (url: String, itag: Int, bitrate: Int)?
 
             for format in adaptiveFormats {
-                // Must be audio-only (no width = audio)
                 guard format["width"] == nil else { continue }
-
                 guard let mimeType = format["mimeType"] as? String,
-                      mimeType.contains("audio/mp4"),
-                      !mimeType.contains("webm") else { continue }
-
+                      mimeType.contains("audio/mp4"), !mimeType.contains("webm") else { continue }
                 guard let url = format["url"] as? String else { continue }
 
                 let itag = format["itag"] as? Int ?? 0
                 let bitrate = format["bitrate"] as? Int ?? 0
 
-                // Prefer itag 140 (AAC 128kbps) - universal iOS compatibility
-                if itag == 140 {
-                    bestFormat = (url, itag, bitrate)
-                    break
-                }
-
-                // Otherwise take highest bitrate
                 if bestFormat == nil || bitrate > bestFormat!.bitrate {
                     bestFormat = (url, itag, bitrate)
                 }
@@ -245,16 +229,10 @@ final class PlayerAPIService {
 
             if let best = bestFormat {
                 audioUrl = best.url
-                Logger.log("[PlayerAPI] Selected audio: itag \(best.itag), bitrate \(best.bitrate)", category: .playback)
-            } else {
-                Logger.warning("[PlayerAPI] No compatible audio/mp4 format with direct URL found", category: .playback)
             }
         }
 
-        // If no URL from this response, try YouTubeStreamExtractor as fallback
         if audioUrl.isEmpty {
-            Logger.log("[PlayerAPI] No direct URL, falling back to stream extractor", category: .playback)
-            // Will be resolved async by caller - throw to signal need for extractor
             throw YouTubeMusicError.parseError("No direct audio URL in response")
         }
 

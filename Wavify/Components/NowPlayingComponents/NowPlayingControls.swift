@@ -80,6 +80,7 @@ struct NowPlayingAdditionalControls: View {
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
                     .frame(width: 44, height: 44)
+                    .sleepButtonAnimation(trigger: sleepTimerManager.isActive)
             }
             
             // Share Button

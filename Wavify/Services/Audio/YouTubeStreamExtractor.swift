@@ -306,17 +306,13 @@ actor YouTubeStreamExtractor {
 
         // Parse audio formats
         return adaptiveFormats.compactMap { format -> AudioFormat? in
-            // Must be audio-only (no width means audio)
             guard format["width"] == nil else { return nil }
-
             guard let mimeType = format["mimeType"] as? String else { return nil }
 
-            // Must be mp4/m4a (AVPlayer compatible)
             let isCompatible = mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a")
             let isIncompatible = mimeType.contains("webm") || mimeType.contains("opus")
             guard isCompatible && !isIncompatible else { return nil }
 
-            // Must have either direct URL or signatureCipher
             let directUrl = format["url"] as? String
             let cipher = format["signatureCipher"] as? String
             guard directUrl != nil || cipher != nil else { return nil }
@@ -344,11 +340,7 @@ actor YouTubeStreamExtractor {
     }
 
     private func selectBestFormat(from formats: [AudioFormat]) -> AudioFormat? {
-        // Prefer itag 140 (AAC 128kbps mp4) - universal iOS compatibility
-        if let itag140 = formats.first(where: { $0.itag == 140 }) {
-            return itag140
-        }
-        // Fallback: highest bitrate audio/mp4
+        // Select highest bitrate audio/mp4 for best quality
         return formats.sorted { $0.bitrate > $1.bitrate }.first
     }
 
