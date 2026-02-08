@@ -229,7 +229,18 @@ class PlaybackService {
     
     private func handlePlayerFailure(error: Error?) {
         let errorDesc = error?.localizedDescription ?? "unknown"
-        Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDesc)", category: .playback)
+        // Log detailed error info for debugging
+        if let nsError = error as? NSError {
+            Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDesc) [code: \(nsError.code), domain: \(nsError.domain)]", category: .playback)
+            if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                Logger.warning("  Underlying error: \(underlying.localizedDescription) [code: \(underlying.code), domain: \(underlying.domain)]", category: .playback)
+            }
+            if let url = currentLoadParameters?.url {
+                Logger.warning("  URL host: \(url.host ?? "nil"), path prefix: \(String(url.path.prefix(30)))", category: .playback)
+            }
+        } else {
+            Logger.warning("Player failed (attempt \(self.retryCount + 1)/\(self.maxRetries + 1)) - \(errorDesc)", category: .playback)
+        }
         
         if self.retryCount < self.maxRetries {
             self.retryCount += 1

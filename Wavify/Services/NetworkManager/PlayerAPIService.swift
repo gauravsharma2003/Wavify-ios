@@ -17,27 +17,57 @@ final class PlayerAPIService {
     private init() {}
     
     // MARK: - Public API
-    
-    /// Get playback info for a video (audio URL, metadata)
+
+    /// Get playback info for a video (audio URL + metadata from single API call)
     func getPlaybackInfo(videoId: String) async throws -> PlaybackInfo {
         let body: [String: Any] = [
             "videoId": videoId,
-            "context": YouTubeAPIContext.androidContext
+            "context": YouTubeAPIContext.tvContext,
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+            "playbackContext": [
+                "contentPlaybackContext": [
+                    "html5Preference": "HTML5_PREF_WANTS"
+                ]
+            ]
         ]
-        
+
         let request = try requestManager.createRequest(
             endpoint: "player",
             body: body,
-            headers: YouTubeAPIContext.androidHeaders
+            headers: YouTubeAPIContext.tvHeaders,
+            baseURL: YouTubeAPIContext.playerBaseURL
         )
-        
+
         let data = try await requestManager.execute(
             request,
-            deduplicationKey: "player_\(videoId)",
-            cacheable: true
+            deduplicationKey: "playback_\(videoId)"
         )
-        
-        return try parsePlaybackResponse(data)
+
+        // Try parsing URL + metadata from single response
+        do {
+            return try parsePlaybackResponse(data, videoId: videoId)
+        } catch {
+            // If no direct URL in response, fall back to stream extractor for URL
+            // but still parse metadata from the response we already have
+            Logger.log("[PlayerAPI] Direct URL not available, using stream extractor", category: .playback)
+
+            let stream = try await YouTubeStreamExtractor.shared.resolveAudioURL(videoId: videoId)
+            let metadata = try parseMetadataOnly(data)
+
+            return PlaybackInfo(
+                audioUrl: stream.url.absoluteString,
+                videoId: metadata.videoId,
+                title: metadata.title,
+                duration: metadata.duration,
+                thumbnailUrl: metadata.thumbnailUrl,
+                artist: metadata.artist,
+                viewCount: metadata.viewCount,
+                artistId: metadata.artistId,
+                albumId: metadata.albumId,
+                playbackHeaders: stream.playbackHeaders
+            )
+        }
     }
     
     /// Get related songs for a video
@@ -71,7 +101,7 @@ final class PlayerAPIService {
     }
     
     // MARK: - Private Methods
-    
+
     private func getPlaylistId(videoId: String) async throws -> String {
         let body: [String: Any] = [
             "videoId": videoId,
@@ -125,54 +155,109 @@ final class PlayerAPIService {
     }
     
     // MARK: - Parsing
-    
-    private nonisolated func parsePlaybackResponse(_ data: Data) throws -> PlaybackInfo {
+
+    /// Parse metadata only (used when URL comes from stream extractor)
+    private nonisolated func parseMetadataOnly(_ data: Data) throws -> PlaybackInfo {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let playabilityStatus = json["playabilityStatus"] as? [String: Any],
-              let status = playabilityStatus["status"] as? String,
-              status == "OK",
-              let streamingData = json["streamingData"] as? [String: Any],
-              let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]],
-              let videoDetails = json["videoDetails"] as? [String: Any] else {
-            throw YouTubeMusicError.invalidResponse
-        }
-        
-        // Filter for audio-only formats that AVPlayer can handle (mp4/m4a only, NOT webm/opus)
-        // Also require direct URL (not signatureCipher which requires decryption)
-        let audioFormats = adaptiveFormats.filter { format in
-            // Must be audio-only (no width)
-            guard format["width"] == nil else { return false }
-
-            // Must have direct URL (not cipher-protected)
-            guard format["url"] as? String != nil else { return false }
-
-            // Must be mp4/m4a format (AVPlayer doesn't support webm/opus)
-            if let mimeType = format["mimeType"] as? String {
-                let isCompatible = mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a")
-                // Explicitly reject webm/opus which causes "unknown error"
-                let isIncompatible = mimeType.contains("webm") || mimeType.contains("opus")
-                return isCompatible && !isIncompatible
-            }
-            return false
-        }.sorted { format1, format2 in
-            let bitrate1 = format1["bitrate"] as? Int ?? 0
-            let bitrate2 = format2["bitrate"] as? Int ?? 0
-            return bitrate1 > bitrate2
-        }
-
-        guard let bestFormat = audioFormats.first,
-              let audioUrl = bestFormat["url"] as? String,
+              let videoDetails = json["videoDetails"] as? [String: Any],
               let videoId = videoDetails["videoId"] as? String,
               let title = videoDetails["title"] as? String,
               let lengthSeconds = videoDetails["lengthSeconds"] as? String,
               let author = videoDetails["author"] as? String else {
-            throw YouTubeMusicError.unsupportedFormat
+            throw YouTubeMusicError.invalidResponse
         }
-        
+
+        return PlaybackInfo(
+            audioUrl: "",
+            videoId: videoId,
+            title: title,
+            duration: lengthSeconds,
+            thumbnailUrl: ResponseParser.extractThumbnailFromVideoDetails(videoDetails),
+            artist: author,
+            viewCount: videoDetails["viewCount"] as? String ?? "0",
+            artistId: videoDetails["channelId"] as? String,
+            albumId: nil,
+            playbackHeaders: [:]
+        )
+    }
+
+    /// Parse both audio URL and metadata from player API response
+    private nonisolated func parsePlaybackResponse(_ data: Data, videoId requestedVideoId: String) throws -> PlaybackInfo {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw YouTubeMusicError.invalidResponse
+        }
+
+        // Check playability
+        if let playabilityStatus = json["playabilityStatus"] as? [String: Any] {
+            let status = playabilityStatus["status"] as? String ?? "unknown"
+            guard status == "OK" else {
+                let reason = playabilityStatus["reason"] as? String ?? "Unknown"
+                Logger.warning("[PlayerAPI] Playability: \(status) - \(reason)", category: .playback)
+                throw YouTubeMusicError.invalidResponse
+            }
+        }
+
+        // Parse metadata from videoDetails
+        guard let videoDetails = json["videoDetails"] as? [String: Any],
+              let videoId = videoDetails["videoId"] as? String,
+              let title = videoDetails["title"] as? String,
+              let lengthSeconds = videoDetails["lengthSeconds"] as? String,
+              let author = videoDetails["author"] as? String else {
+            throw YouTubeMusicError.invalidResponse
+        }
+
         let viewCount = videoDetails["viewCount"] as? String ?? "0"
         let artistId = videoDetails["channelId"] as? String
         let thumbnailUrl = ResponseParser.extractThumbnailFromVideoDetails(videoDetails)
-        
+
+        // Parse audio URL from streamingData
+        var audioUrl = ""
+        if let streamingData = json["streamingData"] as? [String: Any],
+           let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]] {
+
+            // Find best audio/mp4 format with direct URL (prefer itag 140 = AAC 128kbps)
+            var bestFormat: (url: String, itag: Int, bitrate: Int)?
+
+            for format in adaptiveFormats {
+                // Must be audio-only (no width = audio)
+                guard format["width"] == nil else { continue }
+
+                guard let mimeType = format["mimeType"] as? String,
+                      mimeType.contains("audio/mp4"),
+                      !mimeType.contains("webm") else { continue }
+
+                guard let url = format["url"] as? String else { continue }
+
+                let itag = format["itag"] as? Int ?? 0
+                let bitrate = format["bitrate"] as? Int ?? 0
+
+                // Prefer itag 140 (AAC 128kbps) - universal iOS compatibility
+                if itag == 140 {
+                    bestFormat = (url, itag, bitrate)
+                    break
+                }
+
+                // Otherwise take highest bitrate
+                if bestFormat == nil || bitrate > bestFormat!.bitrate {
+                    bestFormat = (url, itag, bitrate)
+                }
+            }
+
+            if let best = bestFormat {
+                audioUrl = best.url
+                Logger.log("[PlayerAPI] Selected audio: itag \(best.itag), bitrate \(best.bitrate)", category: .playback)
+            } else {
+                Logger.warning("[PlayerAPI] No compatible audio/mp4 format with direct URL found", category: .playback)
+            }
+        }
+
+        // If no URL from this response, try YouTubeStreamExtractor as fallback
+        if audioUrl.isEmpty {
+            Logger.log("[PlayerAPI] No direct URL, falling back to stream extractor", category: .playback)
+            // Will be resolved async by caller - throw to signal need for extractor
+            throw YouTubeMusicError.parseError("No direct audio URL in response")
+        }
+
         return PlaybackInfo(
             audioUrl: audioUrl,
             videoId: videoId,
@@ -182,7 +267,8 @@ final class PlayerAPIService {
             artist: author,
             viewCount: viewCount,
             artistId: artistId,
-            albumId: nil
+            albumId: nil,
+            playbackHeaders: [:]
         )
     }
     

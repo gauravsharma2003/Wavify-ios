@@ -29,7 +29,7 @@ struct NowPlayingControlsView: View {
             }
             
             // Previous
-            GlassPlayerButton(icon: "backward.fill", size: 24) {
+            GlassPlayerButton(icon: "arrowtriangle.backward.fill", size: 24) {
                 Task {
                     await audioPlayer.playPrevious()
                 }
@@ -41,7 +41,7 @@ struct NowPlayingControlsView: View {
             }
             
             // Next
-            GlassPlayerButton(icon: "forward.fill", size: 24) {
+            GlassPlayerButton(icon: "arrowtriangle.forward.fill", size: 24) {
                 Task {
                     await audioPlayer.playNext()
                 }

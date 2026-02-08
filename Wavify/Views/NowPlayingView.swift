@@ -963,7 +963,7 @@ struct NowPlayingView: View {
             }
             
             // Previous
-            GlassPlayerButton(icon: "backward.fill", size: 24) {
+            GlassPlayerButton(icon: "chevron.backward.chevron.backward.dotted", size: 22) {
                 Task {
                     await audioPlayer.playPrevious()
                 }
@@ -975,7 +975,7 @@ struct NowPlayingView: View {
             }
             
             // Next
-            GlassPlayerButton(icon: "forward.fill", size: 24) {
+            GlassPlayerButton(icon: "chevron.forward.dotted.chevron.forward", size: 22) {
                 Task {
                     await audioPlayer.playNext()
                 }

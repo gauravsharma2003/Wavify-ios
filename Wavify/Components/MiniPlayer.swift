@@ -108,7 +108,7 @@ struct MiniPlayer: View {
                         await audioPlayer.playNext()
                     }
                 } label: {
-                    Image(systemName: "forward.fill")
+                    Image(systemName: "chevron.forward.dotted.chevron.forward")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
                         .frame(width: 36, height: 44)

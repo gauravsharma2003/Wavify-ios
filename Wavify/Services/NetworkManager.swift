@@ -54,7 +54,7 @@ class NetworkManager {
 
     /// Invalidate cached playback info for a video (call on playback failure)
     func invalidatePlaybackCache(videoId: String) async {
-        await requestManager.clearCacheEntry(forKey: "player_\(videoId)")
+        await requestManager.clearCacheEntry(forKey: "playback_\(videoId)")
     }
     
     // MARK: - Browse API

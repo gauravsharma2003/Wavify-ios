@@ -313,6 +313,8 @@
 			);
 			mainGroup = DAC714D12F03FCB200B08888;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DAC714DB2F03FCB200B08888 /* Products */;
 			projectDirPath = "";
@@ -789,6 +791,7 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
 	};
 	rootObject = DAC714D22F03FCB200B08888 /* Project object */;
 }

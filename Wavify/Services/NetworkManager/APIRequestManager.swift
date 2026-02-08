@@ -126,9 +126,10 @@ actor APIRequestManager {
     nonisolated func createRequest(
         endpoint: String,
         body: [String: Any],
-        headers: [String: String]
+        headers: [String: String],
+        baseURL: String = YouTubeAPIContext.baseURL
     ) throws -> URLRequest {
-        guard let url = URL(string: "\(YouTubeAPIContext.baseURL)/\(endpoint)?prettyPrint=false") else {
+        guard let url = URL(string: "\(baseURL)/\(endpoint)?prettyPrint=false") else {
             throw YouTubeMusicError.parseError("Invalid URL")
         }
         

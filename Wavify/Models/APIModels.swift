@@ -89,6 +89,7 @@ struct PlaybackInfo {
     let viewCount: String
     let artistId: String?
     let albumId: String?
+    let playbackHeaders: [String: String]
 }
 
 // MARK: - Queue Song

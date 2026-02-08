@@ -113,7 +113,7 @@ class AudioPlayer {
         setupNotifications()
         restoreLastSession()
     }
-    
+
     private func setupPlaybackService() {
         playbackService.onPlayPauseChanged = { [weak self] playing in
             self?.isPlaying = playing
@@ -153,6 +153,7 @@ class AudioPlayer {
             if let videoId = self?.currentSong?.videoId {
                 Task {
                     await self?.networkManager.invalidatePlaybackCache(videoId: videoId)
+                    await YouTubeStreamExtractor.shared.invalidateCache(videoId: videoId)
                 }
             }
         }
@@ -170,8 +171,9 @@ class AudioPlayer {
 
             Task { @MainActor in
                 do {
-                    // Invalidate cache before fetching to ensure truly fresh URL
+                    // Invalidate all caches to ensure truly fresh URL
                     await self.networkManager.invalidatePlaybackCache(videoId: song.videoId)
+                    await YouTubeStreamExtractor.shared.invalidateCache(videoId: song.videoId)
                     Logger.log("Requesting fresh URL for retry: \(song.title)", category: .playback)
                     let playbackInfo = try await self.networkManager.getPlaybackInfo(videoId: song.videoId)
                     if let freshUrl = URL(string: playbackInfo.audioUrl) {
@@ -399,7 +401,7 @@ class AudioPlayer {
         // Start background task
         let taskId = UIApplication.shared.beginBackgroundTask { }
         defer { UIApplication.shared.endBackgroundTask(taskId) }
-        
+
         isLoading = true
         currentSong = song
 
@@ -414,24 +416,21 @@ class AudioPlayer {
             let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
 
             guard let url = URL(string: playbackInfo.audioUrl) else {
-                isLoading = false
-                return
+                throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid audio URL"])
             }
 
-            let apiDuration = Double(playbackInfo.duration) ?? 0
-            
-            // Update IDs if needed
-            // Always prefer playbackInfo.artistId (from channelId) as it's the correct artist channel
-            // Cached artistId might be wrong (e.g., album ID instead of artist ID)
+            let expectedDuration = Double(playbackInfo.duration) ?? Double(song.duration) ?? 0
+            duration = expectedDuration
+
+            // Update artist/album IDs from API response if needed
             if var updatedSong = currentSong {
                 let needsArtistIdUpdate = playbackInfo.artistId != nil && (
                     updatedSong.artistId == nil ||
-                    // Fix cached invalid artistId (album ID starts with MPREb_, artist ID starts with UC)
                     (updatedSong.artistId?.hasPrefix("MPREb_") == true) ||
                     (updatedSong.artistId?.hasPrefix("VL") == true)
                 )
                 let needsAlbumIdUpdate = updatedSong.albumId == nil && playbackInfo.albumId != nil
-                
+
                 if needsArtistIdUpdate || needsAlbumIdUpdate {
                     updatedSong = Song(
                         id: updatedSong.id,
@@ -446,29 +445,30 @@ class AudioPlayer {
                     self.currentSong = updatedSong
                 }
             }
-            
-            // Load audio
+
+            // Play via PlaybackService (AVPlayer) - supports background audio
+            Logger.log("Loading AVPlayer: \(url.host ?? "nil") | itag in URL: \(url.query?.contains("itag=140") == true ? "140" : "other")", category: .playback)
             playbackService.load(
                 url: url,
-                expectedDuration: apiDuration,
-                headers: YouTubeAPIContext.playbackHeaders
+                expectedDuration: expectedDuration
             )
-            duration = apiDuration
-            
+
+            Logger.log("Playing via native AVPlayer: \(song.title)", category: .playback)
+
             // Handle queue
             if refreshQueue {
                 await queueManager.loadRelatedSongs(videoId: song.videoId, replaceQueue: true, currentSong: song)
             } else {
                 queueManager.checkAndAppendIfNeeded(loopMode: shuffleController.loopMode, currentSong: song)
             }
-            
+
             updateNowPlayingInfo()
-            
+
             // Save to widget shared data with duration
             if let song = currentSong {
                 LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: duration)
             }
-            
+
         } catch {
             isLoading = false
             Logger.error("Failed to load playback info", category: .playback, error: error)
@@ -478,24 +478,18 @@ class AudioPlayer {
     func play() {
         // Check if we have a song but no audio loaded (restored session)
         if currentSong != nil && !playbackService.isAudioLoaded {
-            // Need to load the song first
             Task {
                 await resumeRestoredSession()
             }
             return
         }
 
-        // playbackService.play() triggers onPlayPauseChanged which sets
-        // isPlaying and calls updateNowPlayingInfo() — single update path
         playbackService.play()
         LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
     }
 
     func pause() {
-        // playbackService.pause() triggers onPlayPauseChanged which sets
-        // isPlaying and calls updateNowPlayingInfo() — single update path
         playbackService.pause()
-        // Save position when pausing for resume later
         LastPlayedSongManager.shared.updatePlaybackState(isPlaying: false, currentTime: currentTime)
     }
     
@@ -700,13 +694,11 @@ class AudioPlayer {
             let apiDuration = Double(playbackInfo.duration) ?? 0
             
             // Load audio with seek position
-            // Load audio with seek position
             playbackService.load(
                 url: url,
                 expectedDuration: apiDuration,
                 autoPlay: true,
-                seekTo: seekTo,
-                headers: YouTubeAPIContext.playbackHeaders
+                seekTo: seekTo
             )
             duration = apiDuration
             
@@ -728,7 +720,7 @@ class AudioPlayer {
     
     /// Save current playback position (called periodically and on pause)
     private func saveCurrentPosition() {
-        guard let song = currentSong else { return }
+        guard currentSong != nil else { return }
         LastPlayedSongManager.shared.updateCurrentTime(currentTime)
     }
 }

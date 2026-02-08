@@ -14,6 +14,9 @@ enum YouTubeAPIContext {
     
     static let baseURL = "https://music.youtube.com/youtubei/v1"
     
+    /// Player API uses regular YouTube endpoint (not music) for ANDROID_VR client
+    static let playerBaseURL = "https://www.youtube.com/youtubei/v1"
+    
     // Hardcoded working visitor data from successful incognito experiment
     static let incognitoVisitorData = "CgtFZTRKTDZzemNxcyiH3N3LBjIKCgJJThIEGgAgPw%3D%3D"
     
@@ -27,6 +30,7 @@ enum YouTubeAPIContext {
     
     static let webRemixVersion = "1.20260121.03.00"
     static let androidVersion = "19.10.38"
+    static let androidVRVersion = "1.71.26"
     
     // MARK: - Headers
     
@@ -57,12 +61,26 @@ enum YouTubeAPIContext {
         ]
     }
     
-    /// Headers suitable for AVURLAsset (playback) - excludes API-specific JSON headers
-    static var playbackHeaders: [String: String] {
+    
+    /// ANDROID_VR client User-Agent
+    static let androidVRUserAgent = "com.google.android.apps.youtube.vr.oculus/\(androidVRVersion) (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+
+    /// ANDROID_VR client headers - no PoT required, primary playback client
+    static var tvHeaders: [String: String] {
         [
-            "User-Agent": androidHeaders["User-Agent"] ?? "",
-            "Referer": androidHeaders["Referer"] ?? ""
+            "Content-Type": "application/json",
+            "User-Agent": androidVRUserAgent,
+            "X-Youtube-Client-Name": "28",
+            "X-Youtube-Client-Version": androidVRVersion,
+            "Origin": "https://www.youtube.com",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
         ]
+    }
+    
+    /// Default playback headers (IOS UA - matches primary extraction client)
+    /// Note: Prefer using PlaybackInfo.playbackHeaders for stream-specific headers
+    static var playbackHeaders: [String: String] {
+        YouTubeStreamExtractor.playbackHeaders
     }
     
     // MARK: - Request Contexts
@@ -88,6 +106,25 @@ enum YouTubeAPIContext {
                 "clientVersion": androidVersion,
                 "gl": "US",
                 "hl": "en"
+            ]
+        ]
+    }
+    
+    /// ANDROID_VR client context - no Proof of Origin Token required
+    static var tvContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "ANDROID_VR",
+                "clientVersion": androidVRVersion,
+                "deviceMake": "Oculus",
+                "deviceModel": "Quest 3",
+                "androidSdkVersion": 32,
+                "userAgent": androidVRUserAgent,
+                "osName": "Android",
+                "osVersion": "12L",
+                "hl": "en",
+                "timeZone": "UTC",
+                "utcOffsetMinutes": 0
             ]
         ]
     }
