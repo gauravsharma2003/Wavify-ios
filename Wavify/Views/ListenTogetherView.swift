@@ -15,6 +15,7 @@ struct ListenTogetherView: View {
     @State private var joinRoomCode = ""
     @State private var usernameInput = ListenTogetherClient.persistedUsername
     @State private var copiedRoomCode = false
+    @State private var heroIconSwapped = false
 
     private var hasUsername: Bool {
         !usernameInput.trimmingCharacters(in: .whitespaces).isEmpty
@@ -440,20 +441,32 @@ struct ListenTogetherView: View {
     private var disconnectedContent: some View {
         VStack(spacing: 0) {
             // Hero
-            VStack(spacing: 16) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 48, weight: .thin))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .symbolEffect(.pulse.byLayer)
+            VStack(spacing: 14) {
+                Image(systemName: heroIconSwapped ? "shareplay" : "music.note")
+                    .contentTransition(.symbolEffect(.replace))
+                    .font(.system(size: 64, weight: .thin))
+                    .foregroundStyle(.white)
                     .padding(.top, 48)
 
-                Text("Listen with friends across platforms")
-                    .font(.subheadline)
+                Text("Listen Together")
+                    .font(.system(size: 20, weight: .bold))
+
+                Text("Create or join a room to enjoy music\ntogether with friends in real time")
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 36)
             }
             .padding(.bottom, 36)
+            .onAppear {
+                guard !heroIconSwapped else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    withAnimation {
+                        heroIconSwapped = true
+                    }
+                }
+            }
 
             // Username
             VStack(spacing: 24) {
