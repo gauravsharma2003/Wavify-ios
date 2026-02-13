@@ -20,7 +20,7 @@ struct SearchView: View {
     
     // Add to playlist and liked status
     @State private var selectedSongForPlaylist: Song?
-    @State private var likedSongIds: Set<String> = []
+    @State private var likedSongsStore = LikedSongsStore.shared
     
     // Hero animation namespace for search
     @Namespace private var searchHeroAnimation
@@ -827,12 +827,7 @@ struct SearchView: View {
     }
     
     private func toggleLikeSong(_ song: Song) {
-        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
-        if isNowLiked {
-            likedSongIds.insert(song.videoId)
-        } else {
-            likedSongIds.remove(song.videoId)
-        }
+        likedSongsStore.toggleLike(for: song, in: modelContext)
     }
 }
 

@@ -24,7 +24,7 @@ struct ArtistDetailView: View {
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
-    @State private var likedSongIds: Set<String> = []
+    @State private var likedSongsStore = LikedSongsStore.shared
     
     // Hero animation namespace for albums and artists
     @Namespace private var artistHeroAnimation
@@ -303,7 +303,7 @@ struct ArtistDetailView: View {
                             .buttonStyle(.plain)
                             
                             SongOptionsMenu(
-                                isLiked: likedSongIds.contains(item.videoId ?? ""),
+                                isLiked: likedSongsStore.likedSongIds.contains(item.videoId ?? ""),
                                 isInQueue: {
                                     guard let videoId = item.videoId else { return false }
                                     let song = Song(from: item, artist: artistDetail?.name ?? initialName)
@@ -641,26 +641,11 @@ struct ArtistDetailView: View {
     // MARK: - Like Management
     
     private func loadLikedStatus() {
-        guard let items = artistDetail?.sections.first(where: { $0.type == .topSongs })?.items else { return }
-        
-        for item in items {
-            guard let videoId = item.videoId else { continue }
-            let descriptor = FetchDescriptor<LocalSong>(
-                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
-            )
-            if (try? modelContext.fetchCount(descriptor)) ?? 0 > 0 {
-                likedSongIds.insert(videoId)
-            }
-        }
+        likedSongsStore.loadIfNeeded(context: modelContext)
     }
-    
+
     private func toggleLikeSong(_ song: Song) {
-        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
-        if isNowLiked {
-            likedSongIds.insert(song.videoId)
-        } else {
-            likedSongIds.remove(song.videoId)
-        }
+        likedSongsStore.toggleLike(for: song, in: modelContext)
     }
 }
 

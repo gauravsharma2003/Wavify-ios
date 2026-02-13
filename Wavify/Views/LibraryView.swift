@@ -463,7 +463,7 @@ struct LibraryView: View {
     }
     
     private func toggleLike(_ song: LocalSong) {
-        song.isLiked.toggle()
+        LikedSongsStore.shared.toggleLike(localSong: song, in: modelContext)
     }
 }
 

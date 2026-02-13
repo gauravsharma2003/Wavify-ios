@@ -24,7 +24,7 @@ struct PlaylistDetailView: View {
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
-    @State private var likedSongIds: Set<String> = []
+    @State private var likedSongsStore = LikedSongsStore.shared
     
     private let networkManager = NetworkManager.shared
     
@@ -256,7 +256,7 @@ struct PlaylistDetailView: View {
                     index: index + 1,
                     song: song,
                     isPlaying: audioPlayer.currentSong?.id == song.id,
-                    isLiked: likedSongIds.contains(song.videoId),
+                    isLiked: likedSongsStore.likedSongIds.contains(song.videoId),
                     isInQueue: audioPlayer.isInQueue(song),
                     onTap: {
                         Task {
@@ -383,23 +383,10 @@ struct PlaylistDetailView: View {
     // MARK: - Like Management
     
     private func loadLikedStatus() {
-        for song in songs {
-            let videoId = song.videoId
-            let descriptor = FetchDescriptor<LocalSong>(
-                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
-            )
-            if (try? modelContext.fetchCount(descriptor)) ?? 0 > 0 {
-                likedSongIds.insert(videoId)
-            }
-        }
+        likedSongsStore.loadIfNeeded(context: modelContext)
     }
-    
+
     private func toggleLikeSong(_ song: Song) {
-        let isNowLiked = PlaylistManager.shared.toggleLike(for: song, in: modelContext)
-        if isNowLiked {
-            likedSongIds.insert(song.videoId)
-        } else {
-            likedSongIds.remove(song.videoId)
-        }
+        likedSongsStore.toggleLike(for: song, in: modelContext)
     }
 }

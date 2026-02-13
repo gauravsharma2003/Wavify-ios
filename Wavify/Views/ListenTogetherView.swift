@@ -442,6 +442,7 @@ struct ListenTogetherView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .font(.system(size: 64, weight: .thin))
                     .foregroundStyle(.white)
+                    .frame(height: 70)
                     .padding(.top, 48)
 
                 Text("Listen Together")

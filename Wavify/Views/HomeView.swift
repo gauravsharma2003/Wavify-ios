@@ -17,7 +17,7 @@ struct HomeView: View {
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
-    @State private var likedSongIds: Set<String> = []
+    @State private var likedSongsStore = LikedSongsStore.shared
     
     // Hero animation namespace for chart cards
     @Namespace private var chartHeroAnimation
@@ -47,7 +47,7 @@ struct HomeView: View {
                             if viewModel.favouriteItems.count >= 2 {
                                 YourFavouritesGridView(
                                     items: viewModel.favouriteItems,
-                                    likedSongIds: likedSongIds,
+                                    likedSongIds: likedSongsStore.likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
                                     namespace: chartHeroAnimation,
                                     refreshId: heroRefreshId,
@@ -70,7 +70,7 @@ struct HomeView: View {
                                     title: "You might like",
                                     subtitle: "Based on your listening",
                                     songs: viewModel.recommendedSongs,
-                                    likedSongIds: likedSongIds,
+                                    likedSongIds: likedSongsStore.likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
                                     scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap,
@@ -97,7 +97,7 @@ struct HomeView: View {
                                     title: "Based on your likes",
                                     subtitle: "Songs you might enjoy",
                                     songs: viewModel.likedBasedRecommendations,
-                                    likedSongIds: likedSongIds,
+                                    likedSongIds: likedSongsStore.likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
                                     scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap,
@@ -150,7 +150,7 @@ struct HomeView: View {
                                     title: "Trending in Shorts",
                                     subtitle: "Popular on YouTube Shorts",
                                     songs: viewModel.shortsSongs,
-                                    likedSongIds: likedSongIds,
+                                    likedSongIds: likedSongsStore.likedSongIds,
                                     queueSongIds: audioPlayer.userQueueIds,
                                     scrollResetId: scrollResetId,
                                     onSongTap: handleResultTap,
@@ -255,7 +255,7 @@ struct HomeView: View {
         }
         .task {
             // Load liked status on background context
-            await loadLikedStatus()
+            loadLikedStatus()
         }
         .sheet(item: $selectedSongForPlaylist) { song in
             AddToPlaylistSheet(song: song)
@@ -320,7 +320,7 @@ struct HomeView: View {
                 title: "Trending Songs",
                 subtitle: "Popular right now",
                 songs: viewModel.trendingSongs,
-                likedSongIds: likedSongIds,
+                likedSongIds: likedSongsStore.likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 scrollResetId: scrollResetId,
                 onSongTap: handleResultTap,
@@ -346,7 +346,7 @@ struct HomeView: View {
             LanguageChartsCarouselView(
                 charts: viewModel.languageCharts,
                 audioPlayer: audioPlayer,
-                likedSongIds: likedSongIds,
+                likedSongIds: likedSongsStore.likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 namespace: chartHeroAnimation,
                 scrollResetId: scrollResetId,
@@ -392,7 +392,7 @@ struct HomeView: View {
                 title: "Global Top 100",
                 subtitle: "Worldwide hits",
                 songs: viewModel.global100Songs,
-                likedSongIds: likedSongIds,
+                likedSongIds: likedSongsStore.likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 scrollResetId: scrollResetId,
                 onSongTap: handleResultTap,
@@ -408,7 +408,7 @@ struct HomeView: View {
             LanguageChartsCarouselView(
                 charts: viewModel.languageCharts,
                 audioPlayer: audioPlayer,
-                likedSongIds: likedSongIds,
+                likedSongIds: likedSongsStore.likedSongIds,
                 queueSongIds: audioPlayer.userQueueIds,
                 namespace: chartHeroAnimation,
                 scrollResetId: scrollResetId,
@@ -457,9 +457,7 @@ struct HomeView: View {
     }
     
     private func handleToggleLike(_ result: SearchResult) {
-        Task {
-            await toggleLikeSong(Song(from: result))
-        }
+        toggleLikeSong(Song(from: result))
     }
     
     private func handlePlayNext(_ result: SearchResult) {
@@ -472,18 +470,12 @@ struct HomeView: View {
     
     // MARK: - Like Management
     
-    private func loadLikedStatus() async {
-        let likedIds = await BackgroundDataManager.shared.getLikedSongIds()
-        likedSongIds = likedIds
+    private func loadLikedStatus() {
+        likedSongsStore.loadIfNeeded(context: modelContext)
     }
-    
-    private func toggleLikeSong(_ song: Song) async {
-        let isNowLiked = await BackgroundDataManager.shared.toggleLike(for: song)
-        if isNowLiked {
-            likedSongIds.insert(song.videoId)
-        } else {
-            likedSongIds.remove(song.videoId)
-        }
+
+    private func toggleLikeSong(_ song: Song) {
+        likedSongsStore.toggleLike(for: song, in: modelContext)
     }
 }
 

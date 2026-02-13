@@ -19,7 +19,12 @@ struct PlayerShell: View {
     // MARK: - Full player state (migrated from NowPlayingView)
 
     @State private var showQueue = false
-    @State private var isLiked = false
+    @State private var likedSongsStore = LikedSongsStore.shared
+
+    private var isLiked: Bool {
+        guard let videoId = audioPlayer.currentSong?.videoId else { return false }
+        return likedSongsStore.isLiked(videoId)
+    }
 
     // Dynamic colors
     @State private var primaryColor: Color = Color(white: 0.15)
@@ -1036,45 +1041,12 @@ struct PlayerShell: View {
     }
 
     private func checkLikeStatus() {
-        guard let song = audioPlayer.currentSong else {
-            isLiked = false
-            return
-        }
-        let videoId = song.videoId
-        Task.detached(priority: .userInitiated) {
-            let descriptor = FetchDescriptor<LocalSong>(
-                predicate: #Predicate { $0.videoId == videoId && $0.isLiked == true }
-            )
-            let liked = (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
-            await MainActor.run { self.isLiked = liked }
-        }
+        likedSongsStore.loadIfNeeded(context: modelContext)
     }
 
     private func toggleLike() {
         guard let song = audioPlayer.currentSong else { return }
-        Task.detached(priority: .userInitiated) {
-            let videoId = song.videoId
-            let descriptor = FetchDescriptor<LocalSong>(
-                predicate: #Predicate { $0.videoId == videoId }
-            )
-            let isLiked: Bool
-            if let existingSong = try? modelContext.fetch(descriptor).first {
-                existingSong.isLiked.toggle()
-                isLiked = existingSong.isLiked
-            } else {
-                let newSong = LocalSong(
-                    videoId: song.videoId,
-                    title: song.title,
-                    artist: song.artist,
-                    thumbnailUrl: song.thumbnailUrl,
-                    duration: song.duration,
-                    isLiked: true
-                )
-                modelContext.insert(newSong)
-                isLiked = true
-            }
-            await MainActor.run { self.isLiked = isLiked }
-        }
+        likedSongsStore.toggleLike(for: song, in: modelContext)
     }
 
     private func fetchLyrics() {
