@@ -609,38 +609,25 @@ struct PlayerShell: View {
 
     private var moreMenu: some View {
         Menu {
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                Label("Add to Playlist", systemImage: "text.badge.plus")
-            }
-
-            Button {
-                showEqualizerSheet = true
-            } label: {
-                Label("Equalizer", systemImage: "slider.horizontal.3")
-            }
-
-            Divider()
-
-            if let song = audioPlayer.currentSong, let artistId = song.artistId {
-                Button {
-                    navigationManager.collapsePlayer()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        navigationManager.navigateToArtist(
-                            id: artistId,
-                            name: song.artist,
-                            thumbnail: song.thumbnailUrl
-                        )
-                    }
-                } label: {
-                    Label("Go to Artist", systemImage: "music.mic")
-                }
-            }
-
+            // Go to Album + Go to Artist (renders at bottom)
             if let song = audioPlayer.currentSong {
-                Button {
-                    if let albumId = song.albumId {
+                if let artistId = song.artistId {
+                    Button {
+                        navigationManager.collapsePlayer()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            navigationManager.navigateToArtist(
+                                id: artistId,
+                                name: song.artist,
+                                thumbnail: song.thumbnailUrl
+                            )
+                        }
+                    } label: {
+                        Label("Go to Artist", systemImage: "music.mic")
+                    }
+                }
+
+                if let albumId = song.albumId {
+                    Button {
                         navigationManager.collapsePlayer()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             navigationManager.navigateToAlbum(
@@ -650,11 +637,19 @@ struct PlayerShell: View {
                                 thumbnail: song.thumbnailUrl
                             )
                         }
+                    } label: {
+                        Label("Go to Album", systemImage: "opticaldisc")
                     }
-                } label: {
-                    Label("Go to Album", systemImage: "opticaldisc")
                 }
-                .disabled(song.albumId == nil)
+            }
+
+            Divider()
+
+            // Like + Add to Playlist
+            Button {
+                showAddToPlaylist = true
+            } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
             }
 
             Button {
@@ -665,6 +660,16 @@ struct PlayerShell: View {
 
             Divider()
 
+            // Equalizer
+            Button {
+                showEqualizerSheet = true
+            } label: {
+                Label("Equalizer", systemImage: "slider.horizontal.3")
+            }
+
+            Divider()
+
+            // Listen Together
             Button {
                 navigationManager.collapsePlayer()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -677,21 +682,18 @@ struct PlayerShell: View {
                 )
             }
 
-            Divider()
+            // Radio (renders at top)
+            ControlGroup {
+                Button {
+                    startRadio()
+                } label: {
+                    Label("Start Radio", systemImage: "dot.radiowaves.left.and.right")
+                }
 
-            Section("From similar songs") {
-                ControlGroup {
-                    Button {
-                        startRadio()
-                    } label: {
-                        Label("Start", systemImage: "dot.radiowaves.left.and.right")
-                    }
-
-                    Button {
-                        createStation()
-                    } label: {
-                        Label("Save", systemImage: "music.note.square.stack.fill")
-                    }
+                Button {
+                    createStation()
+                } label: {
+                    Label("Save Radio", systemImage: "music.note.square.stack.fill")
                 }
             }
         } label: {
