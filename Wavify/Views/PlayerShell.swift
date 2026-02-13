@@ -1209,37 +1209,62 @@ struct QueueView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
-                        if index <= audioPlayer.currentIndex {
-                            CompactSongRow(
-                                song: song,
-                                isCurrentlyPlaying: index == audioPlayer.currentIndex
-                            ) {
-                                Task { await audioPlayer.playFromQueue(at: index) }
-                            }
-                        } else {
-                            SwipeableQueueRow(
-                                song: song,
-                                isNextSong: index == audioPlayer.currentIndex + 1,
-                                onRemove: { audioPlayer.removeFromQueue(at: index) },
-                                onPlayNext: {
-                                    if index == audioPlayer.currentIndex + 1 {
-                                        Task { await audioPlayer.playFromQueue(at: index) }
-                                    } else {
-                                        _ = audioPlayer.moveToPlayNext(fromIndex: index)
-                                    }
-                                },
-                                onTap: { Task { await audioPlayer.playFromQueue(at: index) } }
-                            )
+            List {
+                ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
+                    if index <= audioPlayer.currentIndex {
+                        CompactSongRow(
+                            song: song,
+                            isCurrentlyPlaying: index == audioPlayer.currentIndex
+                        ) {
+                            Task { await audioPlayer.playFromQueue(at: index) }
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .moveDisabled(true)
+                        .deleteDisabled(true)
+                    } else {
+                        SwipeableQueueRow(
+                            song: song,
+                            isNextSong: index == audioPlayer.currentIndex + 1,
+                            onRemove: { audioPlayer.removeFromQueue(at: index) },
+                            onPlayNext: {
+                                if index == audioPlayer.currentIndex + 1 {
+                                    Task { await audioPlayer.playFromQueue(at: index) }
+                                } else {
+                                    _ = audioPlayer.moveToPlayNext(fromIndex: index)
+                                }
+                            },
+                            onTap: { Task { await audioPlayer.playFromQueue(at: index) } }
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .moveDisabled(false)
+                        .deleteDisabled(true)
                     }
                 }
+                .onMove(perform: handleMove)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .background(Color(white: 0.06).ignoresSafeArea())
+            .environment(\.editMode, .constant(.active))
             .navigationTitle("Up Next")
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func handleMove(from source: IndexSet, to destination: Int) {
+        guard let fromIndex = source.first else { return }
+
+        if destination <= audioPlayer.currentIndex {
+            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: audioPlayer.currentIndex + 1)
+            Task {
+                await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1)
+            }
+        } else {
+            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: destination)
         }
     }
 }
@@ -1253,7 +1278,8 @@ private struct SwipeableQueueRow: View {
     let onPlayNext: () -> Void
     let onTap: () -> Void
 
-    @GestureState private var dragOffset: CGFloat = 0
+    @State private var offset: CGFloat = 0
+    @State private var isDragging = false
     @State private var passedThreshold = false
 
     private let threshold: CGFloat = 80
@@ -1274,7 +1300,7 @@ private struct SwipeableQueueRow: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.green)
-            .opacity(dragOffset < 0 ? 1 : 0)
+            .opacity(offset < 0 ? 1 : 0)
 
             // Left background (swipe right → red: Remove)
             HStack {
@@ -1290,7 +1316,7 @@ private struct SwipeableQueueRow: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(red: 0.85, green: 0.18, blue: 0.28))
-            .opacity(dragOffset > 0 ? 1 : 0)
+            .opacity(offset > 0 ? 1 : 0)
 
             // Row content
             HStack(spacing: 12) {
@@ -1324,46 +1350,68 @@ private struct SwipeableQueueRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color(white: 0.06))
-            .offset(x: dragOffset)
+            .offset(x: offset)
+            .contentShape(Rectangle())
+            .onTapGesture { onTap() }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        if !isDragging {
+                            let horizontal = abs(value.translation.width)
+                            let vertical = abs(value.translation.height)
+                            guard horizontal > vertical else { return }
+                            isDragging = true
+                        }
+                        guard isDragging else { return }
+
+                        offset = value.translation.width
+
+                        let isPastThreshold = abs(offset) >= threshold
+                        if isPastThreshold && !passedThreshold {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            passedThreshold = true
+                        } else if !isPastThreshold && passedThreshold {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            passedThreshold = false
+                        }
+                    }
+                    .onEnded { value in
+                        guard isDragging else {
+                            isDragging = false
+                            return
+                        }
+
+                        let finalOffset = value.translation.width
+                        if finalOffset < -threshold {
+                            // Swipe left → Play Next
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                offset = -UIScreen.main.bounds.width
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                onPlayNext()
+                                offset = 0
+                            }
+                        } else if finalOffset > threshold {
+                            // Swipe right → Remove
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                offset = UIScreen.main.bounds.width
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                onRemove()
+                                offset = 0
+                            }
+                        } else {
+                            // Snap back
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                                offset = 0
+                            }
+                        }
+
+                        isDragging = false
+                        passedThreshold = false
+                    }
+            )
         }
         .clipped()
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
-        .simultaneousGesture(swipeGesture)
-    }
-
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 20)
-            .updating($dragOffset) { value, state, _ in
-                let horizontal = abs(value.translation.width)
-                let vertical = abs(value.translation.height)
-                guard horizontal > vertical else { return }
-                state = value.translation.width
-
-                // Haptics at threshold
-                let isPast = abs(state) >= threshold
-                if isPast && !passedThreshold {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                } else if !isPast && passedThreshold {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
-            .onEnded { value in
-                let horizontal = abs(value.translation.width)
-                let vertical = abs(value.translation.height)
-                guard horizontal > vertical else { return }
-
-                let finalOffset = value.translation.width
-                if finalOffset > threshold {
-                    // Swipe right → Remove
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onRemove()
-                } else if finalOffset < -threshold {
-                    // Swipe left → Play Next
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onPlayNext()
-                }
-                passedThreshold = false
-            }
     }
 }
