@@ -631,7 +631,11 @@ class AudioPlayer {
     func isInQueue(_ song: Song) -> Bool {
         queueManager.isInQueue(song)
     }
-    
+
+    func replaceUpcomingQueue(with songs: [Song]) {
+        queueManager.replaceUpcoming(with: songs)
+    }
+
     // MARK: - Album/Playlist Playback
     
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {

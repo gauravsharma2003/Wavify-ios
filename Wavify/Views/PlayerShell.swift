@@ -660,11 +660,25 @@ struct PlayerShell: View {
 
             Divider()
 
-            Section("Create from similar songs") {
-                Button {
-                    createStation()
-                } label: {
-                    Label("Create Station", systemImage: "radio")
+            Section("Similar songs") {
+                ControlGroup {
+                    Button {
+                        startRadio()
+                    } label: {
+                        Label("Start", systemImage: "dot.radiowaves.left.and.right")
+                    }
+
+                    Button {
+                        addSimilarToQueue()
+                    } label: {
+                        Label("Add", systemImage: "text.badge.plus")
+                    }
+
+                    Button {
+                        createStation()
+                    } label: {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    }
                 }
             }
         } label: {
@@ -1084,6 +1098,46 @@ struct PlayerShell: View {
                 topController = presented
             }
             topController.present(activityVC, animated: true)
+        }
+    }
+
+    private func startRadio() {
+        guard let currentSong = audioPlayer.currentSong else { return }
+        Task {
+            do {
+                let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
+                guard !similarVideos.isEmpty else { return }
+
+                let radioSongs = Array(similarVideos.prefix(49)).map { Song(from: $0) }
+                audioPlayer.replaceUpcomingQueue(with: radioSongs)
+                ToastManager.shared.show(
+                    icon: "dot.radiowaves.left.and.right",
+                    text: "Radio's on. Up next just got a makeover."
+                )
+            } catch {
+                Logger.error("Failed to start radio", category: .network, error: error)
+            }
+        }
+    }
+
+    private func addSimilarToQueue() {
+        guard let currentSong = audioPlayer.currentSong else { return }
+        Task {
+            do {
+                let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
+                guard !similarVideos.isEmpty else { return }
+
+                let songs = Array(similarVideos.prefix(30)).map { Song(from: $0) }
+                for song in songs {
+                    _ = audioPlayer.addToQueue(song)
+                }
+                ToastManager.shared.show(
+                    icon: "text.badge.plus",
+                    text: "Similar songs added. Your queue just grew."
+                )
+            } catch {
+                Logger.error("Failed to add similar songs", category: .network, error: error)
+            }
         }
     }
 

@@ -10,16 +10,17 @@ import SwiftUI
 struct NetworkToastView: View {
     @State private var networkMonitor = NetworkMonitor.shared
     @State private var audioPlayer = AudioPlayer.shared
-    
+    @State private var toastManager = ToastManager.shared
+
     // Connectivity states
     @State private var showNoInternetToast: Bool = false
     @State private var isBackOnline: Bool = false
     @State private var noInternetDismissTask: Task<Void, Never>?
-    
+
     // Slow connection states
     @State private var showSlowNetworkToast: Bool = false
     @State private var bufferingTimer: Task<Void, Never>?
-    
+
     // Session state
     static var hasDismissedSlowNetworkToast = false
     
@@ -75,14 +76,30 @@ struct NetworkToastView: View {
                 .glassEffect(.regular.interactive(), in: .capsule)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
+
+            } else if let actionToast = toastManager.currentToast {
+                HStack(spacing: 8) {
+                    Image(systemName: actionToast.icon)
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Text(actionToast.text)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(0)
             }
-            
+
             Spacer()
         }
         .padding(.top, 40)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showNoInternetToast)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showSlowNetworkToast)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isBackOnline)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: toastManager.currentToast)
         // Monitor Network
         .onChange(of: networkMonitor.isConnected) { oldValue, newValue in
             handleConnectivityChange(isConnected: newValue)

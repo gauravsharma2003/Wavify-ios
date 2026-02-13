@@ -199,6 +199,19 @@ class QueueManager {
         }
     }
     
+    /// Replace all upcoming songs with new songs (keeps current song playing)
+    func replaceUpcoming(with songs: [Song]) {
+        guard currentIndex < queue.count else { return }
+
+        let songsUpToCurrent = Array(queue.prefix(currentIndex + 1))
+        let currentIds = Set(songsUpToCurrent.map { $0.id })
+        let filteredSongs = songs.filter { !currentIds.contains($0.id) }
+
+        userQueue = []
+        queue = songsUpToCurrent + filteredSongs
+        isPlayingFromAlbum = false
+    }
+
     /// Clear the entire queue
     func clear() {
         queue = []

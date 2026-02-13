@@ -36,6 +36,7 @@ final class LikedSongsStore {
         likedSongIds.contains(videoId)
     }
 
+    @discardableResult
     func toggleLike(for song: Song, in context: ModelContext) -> Bool {
         let videoId = song.videoId
         let descriptor = FetchDescriptor<LocalSong>(
