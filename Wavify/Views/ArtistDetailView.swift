@@ -706,10 +706,9 @@ private struct SwipeUpNextRow<Content: View>: View {
                 .offset(x: min(offset, 0))
         }
         .clipped()
-        .simultaneousGesture(
+        .highPriorityGesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { value in
-                    // Only capture left swipes that are more horizontal than vertical
                     if !isDragging {
                         let horizontal = abs(value.translation.width)
                         let vertical = abs(value.translation.height)

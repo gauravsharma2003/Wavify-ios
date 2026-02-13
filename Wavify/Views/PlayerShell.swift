@@ -1353,7 +1353,7 @@ private struct SwipeableQueueRow: View {
             .offset(x: offset)
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
-            .simultaneousGesture(
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 20)
                     .onChanged { value in
                         if !isDragging {
