@@ -52,6 +52,10 @@ class NetworkManager {
         try await playerService.getQueueSongs(playlistId: playlistId)
     }
 
+    func getSongAlbumInfo(videoId: String, title: String, artist: String) async throws -> (albumId: String, albumName: String)? {
+        try await playerService.getSongAlbumInfo(videoId: videoId, title: title, artist: artist)
+    }
+
     /// Invalidate cached playback info for a video (call on playback failure)
     func invalidatePlaybackCache(videoId: String) async {
         await requestManager.clearCacheEntry(forKey: "playback_\(videoId)")

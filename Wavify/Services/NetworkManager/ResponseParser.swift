@@ -248,6 +248,33 @@ enum ResponseParser {
         return nil
     }
     
+    static func extractAlbumInfoFromVideoRenderer(_ renderer: [String: Any]) -> (albumId: String, albumName: String)? {
+        if let byline = renderer["longBylineText"] as? [String: Any],
+           let runs = byline["runs"] as? [[String: Any]] {
+            for run in runs {
+                guard let text = run["text"] as? String,
+                      text != "•" && text != " • " && !text.isEmpty,
+                      let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                      let browseEndpoint = navEndpoint["browseEndpoint"] as? [String: Any],
+                      let browseId = browseEndpoint["browseId"] as? String else { continue }
+
+                // Check for MUSIC_PAGE_TYPE_ALBUM
+                if let configs = browseEndpoint["browseEndpointContextSupportedConfigs"] as? [String: Any],
+                   let musicConfig = configs["browseEndpointContextMusicConfig"] as? [String: Any],
+                   let pageType = musicConfig["pageType"] as? String,
+                   pageType == "MUSIC_PAGE_TYPE_ALBUM" {
+                    return (browseId, text)
+                }
+
+                // Fallback: check if browseId starts with MPREb_ (album prefix)
+                if browseId.hasPrefix("MPREb_") {
+                    return (browseId, text)
+                }
+            }
+        }
+        return nil
+    }
+
     static func extractThumbnailFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let thumbnail = renderer["thumbnail"] as? [String: Any],
            let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],

@@ -463,6 +463,19 @@ class AudioPlayer {
                 queueManager.checkAndAppendIfNeeded(loopMode: shuffleController.loopMode, currentSong: song)
             }
 
+            // Fetch album info if missing (runs concurrently, doesn't block playback)
+            if currentSong?.albumId == nil {
+                let videoId = song.videoId
+                let songTitle = song.title
+                let songArtist = song.artist
+                Task {
+                    if let albumInfo = try? await networkManager.getSongAlbumInfo(videoId: videoId, title: songTitle, artist: songArtist),
+                       currentSong?.videoId == videoId, currentSong?.albumId == nil {
+                        currentSong?.albumId = albumInfo.albumId
+                    }
+                }
+            }
+
             updateNowPlayingInfo()
 
             // Save to widget shared data with duration

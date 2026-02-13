@@ -638,6 +638,22 @@ struct PlayerShell: View {
                 }
             }
 
+            if let song = audioPlayer.currentSong, let albumId = song.albumId {
+                Button {
+                    navigationManager.collapsePlayer()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        navigationManager.navigateToAlbum(
+                            id: albumId,
+                            name: song.title,
+                            artist: song.artist,
+                            thumbnail: song.thumbnailUrl
+                        )
+                    }
+                } label: {
+                    Label("Go to Album", systemImage: "opticaldisc")
+                }
+            }
+
             Button {
                 toggleLike()
             } label: {
