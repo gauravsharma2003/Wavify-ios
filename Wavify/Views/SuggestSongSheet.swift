@@ -90,7 +90,7 @@ struct SuggestSongSheet: View {
                     }
                 }
             }
-            .background(Color(hex: "1A1A1A").ignoresSafeArea())
+            .background(Color.brandBackground.ignoresSafeArea())
             .navigationTitle("Suggest a Song")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

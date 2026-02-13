@@ -14,9 +14,16 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            // Same background as HomeView
-            Color(hex: "1A1A1A")
-                .ignoresSafeArea()
+            // Purple gradient matching HomeView
+            LinearGradient(
+                stops: [
+                    .init(color: Color.brandGradientTop, location: 0),
+                    .init(color: Color.brandBackground, location: 0.45)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
             // Same logo as HomeView loading state - static, no animation
             VStack(spacing: 20) {

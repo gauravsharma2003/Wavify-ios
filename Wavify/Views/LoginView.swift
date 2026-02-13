@@ -16,7 +16,7 @@ struct LoginView: View {
     var body: some View {
         ZStack {
             // Background
-            Color(hex: "1A1A1A")
+            Color.brandBackground
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {

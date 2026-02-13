@@ -300,8 +300,8 @@ struct HomeView: View {
     private var gradientBackground: some View {
         LinearGradient(
             stops: [
-                .init(color: Color(hex: "2D1B4E"), location: 0),
-                .init(color: Color(hex: "1A1A1A"), location: 0.45)
+                .init(color: Color.brandGradientTop, location: 0),
+                .init(color: Color.brandBackground, location: 0.45)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -487,6 +487,9 @@ struct HomeView: View {
 // MARK: - Extensions
 
 extension Color {
+    static let brandGradientTop = Color(red: 0.176, green: 0.106, blue: 0.306)  // Purple #2D1B4E
+    static let brandBackground = Color(red: 0.10, green: 0.10, blue: 0.10)  // #1A1A1A
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0

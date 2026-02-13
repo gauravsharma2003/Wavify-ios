@@ -79,7 +79,7 @@ struct SearchView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        .listRowBackground(Color(hex: "1A1A1A"))
+                        .listRowBackground(Color.brandBackground)
                     }
                 } else if !viewModel.suggestions.isEmpty {
                     ForEach(viewModel.suggestions, id: \.self) { suggestion in
@@ -135,22 +135,22 @@ struct SearchView: View {
                                     }
                                 }
                             }
-                            .listRowBackground(Color(hex: "1A1A1A"))
+                            .listRowBackground(Color.brandBackground)
                         }
                     }
-                    .listRowBackground(Color(hex: "1A1A1A"))
+                    .listRowBackground(Color.brandBackground)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color(hex: "1A1A1A").opacity(0))
+            .background(Color.brandBackground.opacity(0))
             .onSubmit(of: .search) {
                 viewModel.performSearch()
             }
             .background(
                 LinearGradient(
                     stops: [
-                        .init(color: Color(hex: "2D1B4E"), location: 0),
-                        .init(color: Color(hex: "1A1A1A"), location: 0.45)
+                        .init(color: Color.brandGradientTop, location: 0),
+                        .init(color: Color.brandBackground, location: 0.45)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -160,8 +160,8 @@ struct SearchView: View {
             .overlay(alignment: .top) {
                 LinearGradient(
                     stops: [
-                        .init(color: Color(hex: "2D1B4E").opacity(0.95), location: 0),
-                        .init(color: Color(hex: "2D1B4E").opacity(0.7), location: 0.5),
+                        .init(color: Color.brandGradientTop.opacity(0.95), location: 0),
+                        .init(color: Color.brandGradientTop.opacity(0.7), location: 0.5),
                         .init(color: .clear, location: 1.0)
                     ],
                     startPoint: .top,
