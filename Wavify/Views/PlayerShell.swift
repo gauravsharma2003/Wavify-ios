@@ -671,7 +671,7 @@ struct PlayerShell: View {
                     Button {
                         createStation()
                     } label: {
-                        Label("Save", systemImage: "music.note.list")
+                        Label("Save", systemImage: "music.note.square.stack.fill")
                     }
                 }
             }
