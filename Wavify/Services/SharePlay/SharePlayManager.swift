@@ -163,6 +163,7 @@ final class SharePlayManager {
 
     func broadcastPlaybackState(isPlaying: Bool, currentTime: Double) {
         guard isHost, isSessionActive, !isApplyingRemoteState else { return }
+        guard AudioPlayer.shared.currentSong != nil else { return }
         let action: PlaybackAction = isPlaying ? .play : .pause
         let positionMs = Int(currentTime * 1000)
         let serverTime = Int64(Date().timeIntervalSince1970 * 1000)
@@ -336,8 +337,28 @@ final class SharePlayManager {
 
         case "error":
             guard let p = try? decoder.decode(WSErrorPayload.self, from: payload) else { return }
-            errorMessage = p.message
             Logger.error("Server error: \(p.message)", category: .sharePlay)
+
+            // Benign errors — don't show to user
+            let benign = ["cannot play without a track", "no track"]
+            let msgLower = p.message.lowercased()
+            if benign.contains(where: { msgLower.contains($0) }) { return }
+
+            errorMessage = p.message
+
+            // If we're not in a session (connecting/joining), reset fully
+            if !isSessionActive {
+                connectionStatus = .disconnected
+                Task { await client.disconnect() }
+            }
+
+            // Auto-clear error after 5 seconds
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if self.errorMessage == p.message {
+                    self.errorMessage = nil
+                }
+            }
 
         case "pong":
             break // keep-alive acknowledged
