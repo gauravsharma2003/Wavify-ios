@@ -653,6 +653,15 @@ class AudioPlayer {
         queueManager.moveItem(fromOffsets: source, toOffset: destination)
     }
 
+    func removeFromQueue(at index: Int) {
+        queueManager.removeFromQueue(at: index)
+    }
+
+    /// Move song to play next. Returns false if already next (meaning: play it now)
+    func moveToPlayNext(fromIndex index: Int) -> Bool {
+        queueManager.moveToPlayNext(fromIndex: index)
+    }
+
     func replaceUpcomingQueue(with songs: [Song]) {
         queueManager.replaceUpcoming(with: songs)
     }

@@ -112,6 +112,23 @@ class QueueManager {
         queue.move(fromOffsets: source, toOffset: destination)
     }
 
+    /// Remove a song from the queue at a specific index (must be after currentIndex)
+    func removeFromQueue(at index: Int) {
+        guard index > currentIndex, index < queue.count else { return }
+        let song = queue.remove(at: index)
+        userQueue.removeAll { $0.id == song.id }
+    }
+
+    /// Move a song to play next (position currentIndex + 1)
+    /// Returns true if moved, false if already next (caller should play it instead)
+    func moveToPlayNext(fromIndex index: Int) -> Bool {
+        guard index > currentIndex, index < queue.count else { return false }
+        if index == currentIndex + 1 { return false } // Already next
+        let song = queue.remove(at: index)
+        queue.insert(song, at: currentIndex + 1)
+        return true
+    }
+
     // MARK: - Queue Navigation
 
     /// Move to next index in queue

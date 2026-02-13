@@ -1209,46 +1209,161 @@ struct QueueView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
-                    CompactSongRow(
-                        song: song,
-                        isCurrentlyPlaying: index == audioPlayer.currentIndex,
-                        showDragHandle: index > audioPlayer.currentIndex
-                    ) {
-                        Task {
-                            await audioPlayer.playFromQueue(at: index)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
+                        if index <= audioPlayer.currentIndex {
+                            CompactSongRow(
+                                song: song,
+                                isCurrentlyPlaying: index == audioPlayer.currentIndex
+                            ) {
+                                Task { await audioPlayer.playFromQueue(at: index) }
+                            }
+                        } else {
+                            SwipeableQueueRow(
+                                song: song,
+                                isNextSong: index == audioPlayer.currentIndex + 1,
+                                onRemove: { audioPlayer.removeFromQueue(at: index) },
+                                onPlayNext: {
+                                    if index == audioPlayer.currentIndex + 1 {
+                                        Task { await audioPlayer.playFromQueue(at: index) }
+                                    } else {
+                                        _ = audioPlayer.moveToPlayNext(fromIndex: index)
+                                    }
+                                },
+                                onTap: { Task { await audioPlayer.playFromQueue(at: index) } }
+                            )
                         }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .moveDisabled(index <= audioPlayer.currentIndex)
-                    .deleteDisabled(true)
                 }
-                .onMove(perform: handleMove)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .background(Color(white: 0.06).ignoresSafeArea())
-            .environment(\.editMode, .constant(.active))
             .navigationTitle("Up Next")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
+}
 
-    private func handleMove(from source: IndexSet, to destination: Int) {
-        guard let fromIndex = source.first else { return }
+// MARK: - Swipeable Queue Row
 
-        if destination <= audioPlayer.currentIndex {
-            // Dragged above currently playing → play this song now
-            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: audioPlayer.currentIndex + 1)
-            Task {
-                await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1)
+private struct SwipeableQueueRow: View {
+    let song: Song
+    let isNextSong: Bool
+    let onRemove: () -> Void
+    let onPlayNext: () -> Void
+    let onTap: () -> Void
+
+    @GestureState private var dragOffset: CGFloat = 0
+    @State private var passedThreshold = false
+
+    private let threshold: CGFloat = 80
+
+    var body: some View {
+        ZStack {
+            // Right background (swipe left ← green: Play Next)
+            HStack {
+                Spacer()
+                VStack(spacing: 4) {
+                    Image(systemName: isNextSong ? "play.fill" : "text.insert")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text(isNextSong ? "Play Now" : "Up Next")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.trailing, 24)
             }
-        } else {
-            // Normal reorder within upcoming songs
-            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: destination)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.green)
+            .opacity(dragOffset < 0 ? 1 : 0)
+
+            // Left background (swipe right → red: Remove)
+            HStack {
+                VStack(spacing: 4) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Remove")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.leading, 24)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(red: 0.85, green: 0.18, blue: 0.28))
+            .opacity(dragOffset > 0 ? 1 : 0)
+
+            // Row content
+            HStack(spacing: 12) {
+                CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle()
+                            .fill(Color(white: 0.15))
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.title)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(song.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(white: 0.06))
+            .offset(x: dragOffset)
         }
+        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .simultaneousGesture(swipeGesture)
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .updating($dragOffset) { value, state, _ in
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                guard horizontal > vertical else { return }
+                state = value.translation.width
+
+                // Haptics at threshold
+                let isPast = abs(state) >= threshold
+                if isPast && !passedThreshold {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                } else if !isPast && passedThreshold {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+            }
+            .onEnded { value in
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                guard horizontal > vertical else { return }
+
+                let finalOffset = value.translation.width
+                if finalOffset > threshold {
+                    // Swipe right → Remove
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    onRemove()
+                } else if finalOffset < -threshold {
+                    // Swipe left → Play Next
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    onPlayNext()
+                }
+                passedThreshold = false
+            }
     }
 }
