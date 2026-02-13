@@ -472,6 +472,10 @@ class AudioPlayer {
                     if let albumInfo = try? await networkManager.getSongAlbumInfo(videoId: videoId, title: songTitle, artist: songArtist),
                        currentSong?.videoId == videoId, currentSong?.albumId == nil {
                         currentSong?.albumId = albumInfo.albumId
+                        // Persist so it's available on next app launch
+                        if let updatedSong = currentSong {
+                            LastPlayedSongManager.shared.saveCurrentSong(updatedSong, isPlaying: isPlaying, currentTime: currentTime, totalDuration: duration)
+                        }
                     }
                 }
             }
@@ -705,6 +709,19 @@ class AudioPlayer {
                 replaceQueue: true,
                 currentSong: restoredSong
             )
+        }
+
+        // Fetch album info if missing from restored session
+        if restoredSong.albumId == nil {
+            Task {
+                if let albumInfo = try? await networkManager.getSongAlbumInfo(videoId: restoredSong.videoId, title: restoredSong.title, artist: restoredSong.artist),
+                   currentSong?.videoId == restoredSong.videoId, currentSong?.albumId == nil {
+                    currentSong?.albumId = albumInfo.albumId
+                    if let updatedSong = currentSong {
+                        LastPlayedSongManager.shared.saveCurrentSong(updatedSong, isPlaying: false, currentTime: currentTime, totalDuration: duration)
+                    }
+                }
+            }
         }
     }
     
