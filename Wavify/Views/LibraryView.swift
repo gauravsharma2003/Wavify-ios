@@ -16,6 +16,7 @@ struct LibraryView: View {
     
     var audioPlayer: AudioPlayer
     @State var navigationManager: NavigationManager = .shared
+    @State private var sharePlayManager = SharePlayManager.shared
     @State private var selectedSection: LibrarySection = .playlists
     @State private var showingCreatePlaylist = false
     @State private var newPlaylistName = ""
@@ -35,6 +36,46 @@ struct LibraryView: View {
         NavigationStack(path: $navigationManager.libraryPath) {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Listen Together
+                    NavigationLink(destination: ListenTogetherView()) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(.cyan)
+                                .frame(width: 36, height: 36)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Listen Together")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                Text(sharePlayManager.isSessionActive
+                                     ? "\(sharePlayManager.participantCount) listening"
+                                     : "Listen with friends")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            if sharePlayManager.isSessionActive {
+                                Circle()
+                                    .fill(.green)
+                                    .frame(width: 8, height: 8)
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .background {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(.white.opacity(0.06))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+
                     // Section Picker
                     Picker("Section", selection: $selectedSection) {
                         ForEach(LibrarySection.allCases, id: \.self) { section in
@@ -142,6 +183,8 @@ struct LibraryView: View {
                      } else {
                          ContentUnavailableView("Playlist Not Found", systemImage: "questionmark.folder")
                      }
+                case .listenTogether:
+                    ListenTogetherView()
                 }
             }
         }

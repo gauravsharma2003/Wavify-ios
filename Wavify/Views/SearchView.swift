@@ -218,6 +218,8 @@ struct SearchView: View {
                      } else {
                          ContentUnavailableView("Playlist Not Found", systemImage: "questionmark.folder")
                      }
+                case .listenTogether:
+                    ListenTogetherView()
                 }
             }
         }

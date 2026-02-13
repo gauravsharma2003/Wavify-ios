@@ -98,6 +98,7 @@ class AudioPlayer {
     private let shuffleController = ShuffleController()
     private let playbackService = PlaybackService()
     private let networkManager = NetworkManager.shared
+    private let sharePlayManager = SharePlayManager.shared
 
     /// Flag to prevent duplicate song end handling
     private var isHandlingSongEnd = false
@@ -469,6 +470,10 @@ class AudioPlayer {
                 LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: duration)
             }
 
+            // SharePlay: broadcast track change and queue state to guests
+            sharePlayManager.broadcastTrackChange(song: song)
+            sharePlayManager.broadcastQueueSync()
+
         } catch {
             isLoading = false
             Logger.error("Failed to load playback info", category: .playback, error: error)
@@ -476,6 +481,9 @@ class AudioPlayer {
     }
     
     func play() {
+        // SharePlay guest guard — only host or remote-applied commands can play
+        guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
+
         // Check if we have a song but no audio loaded (restored session)
         if currentSong != nil && !playbackService.isAudioLoaded {
             Task {
@@ -486,11 +494,14 @@ class AudioPlayer {
 
         playbackService.play()
         LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
+        sharePlayManager.broadcastPlaybackState(isPlaying: true, currentTime: currentTime)
     }
 
     func pause() {
+        guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
         playbackService.pause()
         LastPlayedSongManager.shared.updatePlaybackState(isPlaying: false, currentTime: currentTime)
+        sharePlayManager.broadcastPlaybackState(isPlaying: false, currentTime: currentTime)
     }
     
     func togglePlayPause() {
@@ -502,12 +513,15 @@ class AudioPlayer {
     }
     
     func seek(to time: Double) {
+        guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
         playbackService.seek(to: time)
         currentTime = time
         updateNowPlayingInfo()
+        sharePlayManager.broadcastSeek(to: time)
     }
     
     func playNext() async {
+        guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
         guard !queue.isEmpty else { return }
 
         // Handle shuffle mode
@@ -557,6 +571,7 @@ class AudioPlayer {
     }
     
     func playPrevious() async {
+        guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
         if currentTime > 3 {
             seek(to: 0)
         } else if shuffleController.isShuffleMode {

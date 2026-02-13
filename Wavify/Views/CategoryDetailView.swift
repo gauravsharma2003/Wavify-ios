@@ -114,6 +114,8 @@ struct CategoryDetailView: View {
                 } else {
                     ContentUnavailableView("Playlist Not Found", systemImage: "questionmark.folder")
                 }
+            case .listenTogether:
+                ListenTogetherView()
             }
         }
         .task {

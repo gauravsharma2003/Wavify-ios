@@ -12,6 +12,7 @@ import SwiftData
 struct PlayerShell: View {
     @Bindable var audioPlayer: AudioPlayer
     var navigationManager: NavigationManager
+    @State private var sharePlayManager = SharePlayManager.shared
 
     @Environment(\.modelContext) private var modelContext
 
@@ -446,6 +447,8 @@ struct PlayerShell: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(sharePlayManager.isGuest)
+                .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
                 // Next
                 Button {
@@ -458,6 +461,8 @@ struct PlayerShell: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(sharePlayManager.isGuest)
+                .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
             }
         }
         .padding(.leading, 16)
@@ -636,6 +641,20 @@ struct PlayerShell: View {
 
             Divider()
 
+            Button {
+                navigationManager.collapsePlayer()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    navigationManager.navigateToListenTogether()
+                }
+            } label: {
+                Label(
+                    sharePlayManager.isSessionActive ? "Listen Together (Active)" : "Listen Together",
+                    systemImage: "antenna.radiowaves.left.and.right"
+                )
+            }
+
+            Divider()
+
             Section("Create from similar songs") {
                 Button {
                     createStation()
@@ -668,9 +687,20 @@ struct PlayerShell: View {
 
             Spacer()
 
-            Text("Now Playing")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+            if sharePlayManager.isSessionActive {
+                HStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.cyan)
+                    Text(sharePlayManager.isHost ? "Hosting" : "Listening")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.cyan)
+                }
+            } else {
+                Text("Now Playing")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
@@ -804,6 +834,8 @@ struct PlayerShell: View {
 
     private var progressView: some View {
         NowPlayingProgressSection(audioPlayer: audioPlayer)
+            .disabled(sharePlayManager.isGuest)
+            .opacity(sharePlayManager.isGuest ? 0.6 : 1.0)
     }
 
     private var controlsView: some View {
@@ -821,14 +853,20 @@ struct PlayerShell: View {
             GlassPlayerButton(icon: "chevron.backward.chevron.backward.dotted", size: 22) {
                 Task { await audioPlayer.playPrevious() }
             }
+            .disabled(sharePlayManager.isGuest)
+            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
             LargePlayButton(isPlaying: audioPlayer.isPlaying) {
                 audioPlayer.togglePlayPause()
             }
+            .disabled(sharePlayManager.isGuest)
+            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
             GlassPlayerButton(icon: "chevron.forward.dotted.chevron.forward", size: 22) {
                 Task { await audioPlayer.playNext() }
             }
+            .disabled(sharePlayManager.isGuest)
+            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
             Button {
                 audioPlayer.toggleLoopMode()
@@ -837,6 +875,8 @@ struct PlayerShell: View {
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
             }
+            .disabled(sharePlayManager.isGuest)
+            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
         }
     }
 

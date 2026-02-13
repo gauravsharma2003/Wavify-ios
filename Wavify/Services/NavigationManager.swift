@@ -16,6 +16,7 @@ enum NavigationDestination: Hashable {
     case song(Song)
     case category(String, BrowseEndpoint) // title, endpoint
     case localPlaylist(PersistentIdentifier)
+    case listenTogether
 }
 
 @Observable
@@ -170,6 +171,12 @@ class NavigationManager {
         }
     }
     
+    func navigateToListenTogether() {
+        selectedTab = 2
+        collapsePlayer()
+        libraryPath.append(NavigationDestination.listenTogether)
+    }
+
     func navigateToLocalPlaylist(_ playlist: LocalPlaylist) {
         // Switch to Library tab as local playlists live there
         selectedTab = 2

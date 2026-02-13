@@ -15,6 +15,7 @@ struct SongOptionsMenu: View {
     var onToggleLike: () -> Void
     var onPlayNext: (() -> Void)? = nil
     var onAddToQueue: (() -> Void)? = nil
+    var onSuggestToHost: (() -> Void)? = nil
     
     var body: some View {
         Menu {
@@ -38,8 +39,18 @@ struct SongOptionsMenu: View {
                 .disabled(isInQueue || isPlaying)
             }
             
+            if let onSuggestToHost {
+                Divider()
+
+                Button {
+                    onSuggestToHost()
+                } label: {
+                    Label("Suggest to Host", systemImage: "shareplay")
+                }
+            }
+
             Divider()
-            
+
             Button {
                 onAddToPlaylist()
             } label: {

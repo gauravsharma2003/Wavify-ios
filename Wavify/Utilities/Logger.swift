@@ -18,7 +18,8 @@ enum LogCategory: String {
     case lyrics = "Lyrics"
     case charts = "Charts"
     case cache = "Cache"
-    
+    case sharePlay = "SharePlay"
+
     var osLogCategory: String {
         switch self {
         case .playback: return "Playback"
@@ -28,6 +29,7 @@ enum LogCategory: String {
         case .lyrics: return "Lyrics"
         case .charts: return "Charts"
         case .cache: return "Cache"
+        case .sharePlay: return "SharePlay"
         }
     }
 }
