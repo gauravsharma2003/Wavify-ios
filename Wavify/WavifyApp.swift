@@ -69,7 +69,7 @@ struct WavifyApp: App {
                 .animation(.spring(response: 0.65, dampingFraction: 0.82), value: animateIcon)
                 // Opacity below the spring .animation() → gets its own curve
                 .opacity(animateIcon ? 0 : 1)
-                .animation(.easeOut(duration: 0.2).delay(0.5), value: animateIcon)
+                .animation(.easeOut(duration: 0.15).delay(0.25), value: animateIcon)
 
             // App name — fades out and drops
             Text("Wavify")
@@ -109,12 +109,12 @@ struct WavifyApp: App {
             .onChange(of: splashFinished) { _, finished in
                 guard finished else { return }
                 animateIcon = true
-                // Reveal real toolbar icon as the overlay icon starts fading (0.5s delay on fade)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                // Reveal real toolbar icon after overlay icon has faded (0.25s delay + 0.15s fade)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                     NavigationManager.shared.splashIconLanded = true
                 }
-                // Remove overlay after fade completes (0.5s delay + 0.2s duration)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                // Remove overlay after fade completes (0.3s delay + 0.15s duration)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     showIconOverlay = false
                 }
             }

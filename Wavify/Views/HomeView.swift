@@ -178,6 +178,8 @@ struct HomeView: View {
                         .font(.headline)
                         .foregroundStyle(.white)
                         .opacity(navigationManager.splashIconLanded ? 1 : 0)
+                        .offset(y: navigationManager.splashIconLanded ? 0 : 6)
+                        .animation(.easeOut(duration: 0.25), value: navigationManager.splashIconLanded)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
