@@ -45,19 +45,15 @@ struct ListenTogetherView: View {
             }
             .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
         }
-        .background(Color.brandBackground.ignoresSafeArea())
-        .overlay(alignment: .top) {
+        .background {
             LinearGradient(
                 stops: [
-                    .init(color: Color.brandBackground.opacity(0.95), location: 0),
-                    .init(color: Color.brandBackground.opacity(0.7), location: 0.5),
-                    .init(color: .clear, location: 1.0)
+                    .init(color: Color.brandGradientTop, location: 0),
+                    .init(color: Color.brandBackground, location: 0.45)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 140)
-            .allowsHitTesting(false)
             .ignoresSafeArea()
         }
         .navigationTitle("Listen Together")

@@ -676,6 +676,15 @@ class AudioPlayer {
         
         // Update the now playing info so lock screen/control center shows correct info
         updateNowPlayingInfo()
+
+        // Populate the queue in background so "Up Next" is ready without waiting for play
+        Task {
+            await queueManager.loadRelatedSongs(
+                videoId: restoredSong.videoId,
+                replaceQueue: true,
+                currentSong: restoredSong
+            )
+        }
     }
     
     /// Resume playback of the restored session (called when user taps play on mini player)
