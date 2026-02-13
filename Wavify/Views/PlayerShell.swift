@@ -660,7 +660,7 @@ struct PlayerShell: View {
 
             Divider()
 
-            Section("Similar songs") {
+            Section("From similar songs") {
                 ControlGroup {
                     Button {
                         startRadio()
@@ -669,15 +669,9 @@ struct PlayerShell: View {
                     }
 
                     Button {
-                        addSimilarToQueue()
-                    } label: {
-                        Label("Add", systemImage: "text.badge.plus")
-                    }
-
-                    Button {
                         createStation()
                     } label: {
-                        Label("Save", systemImage: "square.and.arrow.down")
+                        Label("Save", systemImage: "music.note.list")
                     }
                 }
             }
@@ -1112,31 +1106,10 @@ struct PlayerShell: View {
                 audioPlayer.replaceUpcomingQueue(with: radioSongs)
                 ToastManager.shared.show(
                     icon: "dot.radiowaves.left.and.right",
-                    text: "Radio's on. Up next just got a makeover."
+                    text: "Radio mode. Your queue's in good hands."
                 )
             } catch {
                 Logger.error("Failed to start radio", category: .network, error: error)
-            }
-        }
-    }
-
-    private func addSimilarToQueue() {
-        guard let currentSong = audioPlayer.currentSong else { return }
-        Task {
-            do {
-                let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
-                guard !similarVideos.isEmpty else { return }
-
-                let songs = Array(similarVideos.prefix(30)).map { Song(from: $0) }
-                for song in songs {
-                    _ = audioPlayer.addToQueue(song)
-                }
-                ToastManager.shared.show(
-                    icon: "text.badge.plus",
-                    text: "Similar songs added. Your queue just grew."
-                )
-            } catch {
-                Logger.error("Failed to add similar songs", category: .network, error: error)
             }
         }
     }
@@ -1181,6 +1154,8 @@ struct PlayerShell: View {
                         playlist.songs.append(localSong)
                     }
 
+                    try? modelContext.save()
+
                     Task { await audioPlayer.playAlbum(songs: songsToPlay, startIndex: 0) }
 
                     navigationManager.collapsePlayer()
@@ -1213,32 +1188,46 @@ struct QueueView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
-                        CompactSongRow(
-                            song: song,
-                            isCurrentlyPlaying: index == audioPlayer.currentIndex
-                        ) {
-                            Task {
-                                await audioPlayer.playFromQueue(at: index)
-                            }
-                        }
-
-                        if index < audioPlayer.queue.count - 1 {
-                            Divider()
-                                .padding(.leading, 68)
+            List {
+                ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
+                    CompactSongRow(
+                        song: song,
+                        isCurrentlyPlaying: index == audioPlayer.currentIndex,
+                        showDragHandle: index > audioPlayer.currentIndex
+                    ) {
+                        Task {
+                            await audioPlayer.playFromQueue(at: index)
                         }
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .moveDisabled(index <= audioPlayer.currentIndex)
+                    .deleteDisabled(true)
                 }
-                .padding(.vertical)
+                .onMove(perform: handleMove)
             }
-            .background(
-                Color(white: 0.06)
-                    .ignoresSafeArea()
-            )
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(white: 0.06).ignoresSafeArea())
+            .environment(\.editMode, .constant(.active))
             .navigationTitle("Up Next")
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func handleMove(from source: IndexSet, to destination: Int) {
+        guard let fromIndex = source.first else { return }
+
+        if destination <= audioPlayer.currentIndex {
+            // Dragged above currently playing → play this song now
+            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: audioPlayer.currentIndex + 1)
+            Task {
+                await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1)
+            }
+        } else {
+            // Normal reorder within upcoming songs
+            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: destination)
         }
     }
 }

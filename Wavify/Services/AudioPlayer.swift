@@ -632,6 +632,10 @@ class AudioPlayer {
         queueManager.isInQueue(song)
     }
 
+    func moveQueueItem(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queueManager.moveItem(fromOffsets: source, toOffset: destination)
+    }
+
     func replaceUpcomingQueue(with songs: [Song]) {
         queueManager.replaceUpcoming(with: songs)
     }

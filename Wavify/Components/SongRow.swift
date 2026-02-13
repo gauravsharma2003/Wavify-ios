@@ -167,8 +167,9 @@ struct SongRow: View {
 struct CompactSongRow: View {
     let song: Song
     let isCurrentlyPlaying: Bool
+    var showDragHandle: Bool = false
     let onTap: () -> Void
-    
+
     var body: some View {
         Button(action: { onTap() }) {
             HStack(spacing: 12) {
@@ -191,21 +192,21 @@ struct CompactSongRow: View {
                             .stroke(.white, lineWidth: 2)
                     }
                 }
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
                         .font(.system(size: 14, weight: isCurrentlyPlaying ? .semibold : .regular))
                         .foregroundStyle(isCurrentlyPlaying ? .primary : .secondary)
                         .lineLimit(1)
-                    
+
                     Text(song.artist)
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
-                
+
                 Spacer()
-                
+
                 if isCurrentlyPlaying {
                     Image(systemName: "waveform.low")
                         .font(.system(size: 14))

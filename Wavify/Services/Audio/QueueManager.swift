@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 /// Manages the playback queue separate from playback controls
 @MainActor
@@ -104,8 +105,15 @@ class QueueManager {
         userQueue.removeAll { $0.id == songId }
     }
     
+    // MARK: - Queue Reordering
+
+    /// Move items in the queue (for drag-to-reorder)
+    func moveItem(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queue.move(fromOffsets: source, toOffset: destination)
+    }
+
     // MARK: - Queue Navigation
-    
+
     /// Move to next index in queue
     /// Returns the new index, or nil if at end
     func moveToNext() -> Int? {
