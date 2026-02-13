@@ -177,6 +177,7 @@ struct HomeView: View {
                     Image(systemName: "music.note.house.fill")
                         .font(.headline)
                         .foregroundStyle(.white)
+                        .opacity(navigationManager.splashIconLanded ? 1 : 0)
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)

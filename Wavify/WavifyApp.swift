@@ -11,6 +11,8 @@ import SwiftData
 @main
 struct WavifyApp: App {
     @State private var splashFinished = false
+    @State private var animateIcon = false
+    @State private var showIconOverlay = true
     
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -33,21 +35,89 @@ struct WavifyApp: App {
         }
     }()
     
+    // MARK: - Splash Animation Overlay
+
+    @ViewBuilder
+    private var splashAnimationOverlay: some View {
+        // y=0 = top of safe area (below Dynamic Island), so y≈22 = nav bar center
+        GeometryReader { geo in
+            let centerX = geo.size.width / 2
+            let centerY = geo.size.height / 2
+            let navBarCenterY: CGFloat = 22
+
+            // Background gradient — fills full screen via .ignoresSafeArea on itself
+            LinearGradient(
+                stops: [
+                    .init(color: Color.brandGradientTop, location: 0),
+                    .init(color: Color.brandBackground, location: 0.45)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            .opacity(animateIcon ? 0 : 1)
+            .animation(.easeOut(duration: 0.5).delay(0.1), value: animateIcon)
+
+            // Icon — flies from center to nav bar.
+            // .animation() scoping: position + scale get spring, opacity gets a delayed fade.
+            // The fade masks any size mismatch during the handoff to the real toolbar icon.
+            Image(systemName: "music.note.house.fill")
+                .font(.system(size: 80))
+                .foregroundStyle(.white)
+                .scaleEffect(animateIcon ? 0.22 : 1.0)
+                .position(x: centerX, y: animateIcon ? navBarCenterY : centerY - 27)
+                .animation(.spring(response: 0.65, dampingFraction: 0.82), value: animateIcon)
+                // Opacity below the spring .animation() → gets its own curve
+                .opacity(animateIcon ? 0 : 1)
+                .animation(.easeOut(duration: 0.2).delay(0.5), value: animateIcon)
+
+            // App name — fades out and drops
+            Text("Wavify")
+                .font(.largeTitle)
+                .bold()
+                .foregroundStyle(.white)
+                .opacity(animateIcon ? 0 : 1)
+                .offset(y: animateIcon ? 30 : 0)
+                .position(x: centerX, y: centerY + 50)
+                .animation(.easeOut(duration: 0.35), value: animateIcon)
+        }
+        .allowsHitTesting(!splashFinished)
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
+                // MainTabView mounts instantly when splash finishes (hidden behind overlay gradient)
                 if splashFinished {
                     MainTabView()
-                        .transition(.opacity)
-                } else {
+                }
+
+                // SplashView: just gradient + prewarming (no icon/text)
+                if !splashFinished {
                     SplashView(isFinished: $splashFinished)
-                        .transition(.opacity)
+                }
+
+                // Splash visual overlay: gradient + flying icon + text
+                // Owns the gradient so it controls the entire visual transition
+                if showIconOverlay {
+                    splashAnimationOverlay
                 }
             }
             .overlay(alignment: .top) {
                 NetworkToastView()
             }
-            .animation(.easeInOut(duration: 0.3), value: splashFinished)
+            .onChange(of: splashFinished) { _, finished in
+                guard finished else { return }
+                animateIcon = true
+                // Reveal real toolbar icon as the overlay icon starts fading (0.5s delay on fade)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    NavigationManager.shared.splashIconLanded = true
+                }
+                // Remove overlay after fade completes (0.5s delay + 0.2s duration)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    showIconOverlay = false
+                }
+            }
             .onOpenURL { url in
                 handleDeepLink(url)
             }

@@ -13,30 +13,16 @@ struct SplashView: View {
     @Binding var isFinished: Bool
 
     var body: some View {
-        ZStack {
-            // Purple gradient matching HomeView
-            LinearGradient(
-                stops: [
-                    .init(color: Color.brandGradientTop, location: 0),
-                    .init(color: Color.brandBackground, location: 0.45)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            // Same logo as HomeView loading state - static, no animation
-            VStack(spacing: 20) {
-                Image(systemName: "music.note.house.fill")
-                    .font(.system(size: 80))
-                    .foregroundStyle(.white)
-
-                Text("Wavify")
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundStyle(.white)
-            }
-        }
+        // Purple gradient matching HomeView — icon/text managed by WavifyApp overlay for fly-to-toolbar animation
+        LinearGradient(
+            stops: [
+                .init(color: Color.brandGradientTop, location: 0),
+                .init(color: Color.brandBackground, location: 0.45)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
         .onAppear {
             performPrewarming()
         }

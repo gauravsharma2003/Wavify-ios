@@ -23,6 +23,9 @@ enum NavigationDestination: Hashable {
 class NavigationManager {
     static let shared = NavigationManager()
     
+    // Set to true once splash icon animation lands on toolbar
+    var splashIconLanded = false
+
     // Paths for each tab
     var homePath = NavigationPath()
     var searchPath = NavigationPath()
