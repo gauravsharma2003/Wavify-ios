@@ -298,8 +298,15 @@ struct HomeView: View {
     // MARK: - Subviews
     
     private var gradientBackground: some View {
-        Color(hex: "1A1A1A")
-            .ignoresSafeArea()
+        LinearGradient(
+            stops: [
+                .init(color: Color(hex: "2D1B4E"), location: 0),
+                .init(color: Color(hex: "1A1A1A"), location: 0.45)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
     }
     
     @ViewBuilder

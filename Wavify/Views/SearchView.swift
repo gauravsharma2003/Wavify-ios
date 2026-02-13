@@ -142,17 +142,26 @@ struct SearchView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color(hex: "1A1A1A"))
+            .background(Color(hex: "1A1A1A").opacity(0))
             .onSubmit(of: .search) {
                 viewModel.performSearch()
             }
-            .background(Color(hex: "1A1A1A").ignoresSafeArea())
-            .overlay(alignment: .top) {
-                // Gradient blur at top
+            .background(
                 LinearGradient(
                     stops: [
-                        .init(color: Color(hex: "1A1A1A").opacity(0.95), location: 0),
-                        .init(color: Color(hex: "1A1A1A").opacity(0.7), location: 0.5),
+                        .init(color: Color(hex: "2D1B4E"), location: 0),
+                        .init(color: Color(hex: "1A1A1A"), location: 0.45)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(hex: "2D1B4E").opacity(0.95), location: 0),
+                        .init(color: Color(hex: "2D1B4E").opacity(0.7), location: 0.5),
                         .init(color: .clear, location: 1.0)
                     ],
                     startPoint: .top,

@@ -100,11 +100,10 @@ struct LibraryView: View {
             }
             .background(gradientBackground)
             .overlay(alignment: .top) {
-                // Gradient blur at top
                 LinearGradient(
                     stops: [
-                        .init(color: Color(hex: "1A1A1A").opacity(0.95), location: 0),
-                        .init(color: Color(hex: "1A1A1A").opacity(0.7), location: 0.5),
+                        .init(color: Color(hex: "2D1B4E").opacity(0.95), location: 0),
+                        .init(color: Color(hex: "2D1B4E").opacity(0.7), location: 0.5),
                         .init(color: .clear, location: 1.0)
                     ],
                     startPoint: .top,
@@ -191,8 +190,15 @@ struct LibraryView: View {
     }
     
     private var gradientBackground: some View {
-        Color(hex: "1A1A1A")
-            .ignoresSafeArea()
+        LinearGradient(
+            stops: [
+                .init(color: Color(hex: "2D1B4E"), location: 0),
+                .init(color: Color(hex: "1A1A1A"), location: 0.45)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
     }
     
     // MARK: - Playlists Section
