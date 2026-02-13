@@ -254,21 +254,24 @@ struct ArtistDetailView: View {
         }
     }
     
-    // Top Songs: 5 rows horizontal grid
+    // Top Songs: vertical list (up to 5 songs), swipeable for "Up Next"
     private func topSongsGrid(_ items: [ArtistItem]) -> some View {
         if items.isEmpty {
             return AnyView(EmptyView())
         }
-        
-        let rowCount = min(5, max(1, items.count))
-        let rows = Array(repeating: GridItem(.fixed(60), spacing: 8), count: rowCount)
-        let totalHeight = CGFloat(rowCount * 60 + (rowCount - 1) * 8)
-        let displayItems = Array(items.prefix(25).enumerated())
-        
+
+        let displayItems = Array(items.prefix(5).enumerated())
+
         return AnyView(
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(rows: rows, spacing: 16) {
-                    ForEach(displayItems, id: \.element.id) { index, item in
+            VStack(spacing: 0) {
+                ForEach(displayItems, id: \.element.id) { index, item in
+                    SwipeUpNextRow(
+                        onPlayNext: {
+                            guard item.videoId != nil else { return }
+                            let song = Song(from: item, artist: artistDetail?.name ?? initialName)
+                            audioPlayer.playNextSong(song)
+                        }
+                    ) {
                         HStack(spacing: 0) {
                             Button {
                                 playSong(item)
@@ -284,13 +287,13 @@ struct ArtistDetailView: View {
                                     }
                                     .frame(width: 50, height: 50)
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    
+
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(item.title)
                                             .font(.system(size: 14, weight: .medium))
                                             .foregroundStyle(.white)
                                             .lineLimit(1)
-                                        
+
                                         Text(item.subtitle ?? "")
                                             .font(.system(size: 12))
                                             .foregroundStyle(.secondary)
@@ -301,7 +304,7 @@ struct ArtistDetailView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            
+
                             SongOptionsMenu(
                                 isLiked: likedSongsStore.likedSongIds.contains(item.videoId ?? ""),
                                 isInQueue: {
@@ -335,13 +338,11 @@ struct ArtistDetailView: View {
                                 }
                             )
                         }
-                        .padding(.horizontal, 4)
-                        .frame(width: UIScreen.main.bounds.width - 48)
+                        .padding(.vertical, 6)
                     }
                 }
-                .padding(.horizontal)
             }
-            .frame(height: totalHeight)
+            .padding(.horizontal)
         )
     }
     
@@ -667,5 +668,90 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+// MARK: - Swipe Up Next Row
+
+private struct SwipeUpNextRow<Content: View>: View {
+    let onPlayNext: () -> Void
+    @ViewBuilder let content: Content
+
+    @State private var offset: CGFloat = 0
+    @State private var isDragging = false
+    @State private var passedThreshold = false
+
+    private let threshold: CGFloat = 80
+
+    var body: some View {
+        ZStack {
+            // Right background (swipe left ← green: Up Next)
+            HStack {
+                Spacer()
+                VStack(spacing: 4) {
+                    Image(systemName: "text.insert")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Up Next")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.trailing, 16)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.green)
+            .opacity(offset < 0 ? 1 : 0)
+
+            // Row content
+            content
+                .offset(x: min(offset, 0))
+        }
+        .clipped()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    // Only capture left swipes that are more horizontal than vertical
+                    if !isDragging {
+                        let horizontal = abs(value.translation.width)
+                        let vertical = abs(value.translation.height)
+                        guard horizontal > vertical, value.translation.width < 0 else { return }
+                        isDragging = true
+                    }
+                    guard isDragging else { return }
+
+                    offset = min(value.translation.width, 0)
+
+                    let isPastThreshold = abs(offset) >= threshold
+                    if isPastThreshold && !passedThreshold {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        passedThreshold = true
+                    } else if !isPastThreshold && passedThreshold {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        passedThreshold = false
+                    }
+                }
+                .onEnded { value in
+                    guard isDragging else {
+                        isDragging = false
+                        return
+                    }
+
+                    if value.translation.width < -threshold {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            offset = -UIScreen.main.bounds.width
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            onPlayNext()
+                            offset = 0
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                            offset = 0
+                        }
+                    }
+
+                    isDragging = false
+                    passedThreshold = false
+                }
+        )
     }
 }

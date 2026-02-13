@@ -48,28 +48,22 @@ struct ArtistTopSongsView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                            SwipeUpNextRow(
-                                onPlayNext: {
-                                    audioPlayer.playNextSong(song)
+                            AlbumSongRow(
+                                index: index + 1,
+                                song: song,
+                                isPlaying: audioPlayer.currentSong?.id == song.id,
+                                isLiked: likedSongsStore.likedSongIds.contains(song.videoId),
+                                showImage: true,
+                                onTap: {
+                                    playSong(song)
+                                },
+                                onAddToPlaylist: {
+                                    selectedSongForPlaylist = song
+                                },
+                                onToggleLike: {
+                                    toggleLikeSong(song)
                                 }
-                            ) {
-                                AlbumSongRow(
-                                    index: index + 1,
-                                    song: song,
-                                    isPlaying: audioPlayer.currentSong?.id == song.id,
-                                    isLiked: likedSongsStore.likedSongIds.contains(song.videoId),
-                                    showImage: true,
-                                    onTap: {
-                                        playSong(song)
-                                    },
-                                    onAddToPlaylist: {
-                                        selectedSongForPlaylist = song
-                                    },
-                                    onToggleLike: {
-                                        toggleLikeSong(song)
-                                    }
-                                )
-                            }
+                            )
 
                             if index < songs.count - 1 {
                                 Divider()
@@ -151,87 +145,3 @@ struct ArtistTopSongsView: View {
     }
 }
 
-// MARK: - Swipe Up Next Row
-
-private struct SwipeUpNextRow<Content: View>: View {
-    let onPlayNext: () -> Void
-    @ViewBuilder let content: Content
-
-    @State private var offset: CGFloat = 0
-    @State private var isDragging = false
-    @State private var passedThreshold = false
-
-    private let threshold: CGFloat = 80
-
-    var body: some View {
-        ZStack {
-            // Right background (swipe left ← green: Up Next)
-            HStack {
-                Spacer()
-                VStack(spacing: 4) {
-                    Image(systemName: "text.insert")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("Up Next")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.trailing, 24)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.green)
-            .opacity(offset < 0 ? 1 : 0)
-
-            // Row content
-            content
-                .background(Color(white: 0.05))
-                .offset(x: min(offset, 0)) // Only allow left swipe
-        }
-        .clipped()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20)
-                .onChanged { value in
-                    if !isDragging {
-                        let horizontal = abs(value.translation.width)
-                        let vertical = abs(value.translation.height)
-                        guard horizontal > vertical, value.translation.width < 0 else { return }
-                        isDragging = true
-                    }
-                    guard isDragging else { return }
-
-                    offset = min(value.translation.width, 0)
-
-                    let isPastThreshold = abs(offset) >= threshold
-                    if isPastThreshold && !passedThreshold {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        passedThreshold = true
-                    } else if !isPastThreshold && passedThreshold {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        passedThreshold = false
-                    }
-                }
-                .onEnded { value in
-                    guard isDragging else {
-                        isDragging = false
-                        return
-                    }
-
-                    if value.translation.width < -threshold {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            offset = -UIScreen.main.bounds.width
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            onPlayNext()
-                            offset = 0
-                        }
-                    } else {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                            offset = 0
-                        }
-                    }
-
-                    isDragging = false
-                    passedThreshold = false
-                }
-        )
-    }
-}
