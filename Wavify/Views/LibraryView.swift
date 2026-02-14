@@ -39,7 +39,7 @@ struct LibraryView: View {
                     // Listen Together
                     NavigationLink(destination: ListenTogetherView()) {
                         HStack(spacing: 14) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
+                            Image(systemName: "shareplay")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.cyan)
                                 .frame(width: 36, height: 36)

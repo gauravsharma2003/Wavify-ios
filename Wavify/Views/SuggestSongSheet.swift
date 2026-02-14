@@ -71,7 +71,7 @@ struct SuggestSongSheet: View {
 
                                     Spacer()
 
-                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                    Image(systemName: "shareplay")
                                         .font(.system(size: 14))
                                         .foregroundStyle(.cyan)
                                 }

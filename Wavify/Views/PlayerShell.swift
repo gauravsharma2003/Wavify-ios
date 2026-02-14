@@ -678,7 +678,7 @@ struct PlayerShell: View {
             } label: {
                 Label(
                     sharePlayManager.isSessionActive ? "Listen Together (Active)" : "Listen Together",
-                    systemImage: "antenna.radiowaves.left.and.right"
+                    systemImage: "shareplay"
                 )
             }
 
@@ -723,7 +723,7 @@ struct PlayerShell: View {
 
             if sharePlayManager.isSessionActive {
                 HStack(spacing: 6) {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
+                    Image(systemName: "shareplay")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.cyan)
                     Text(sharePlayManager.isHost ? "Hosting" : "Listening")
