@@ -1216,46 +1216,71 @@ struct QueueView: View {
     var audioPlayer: AudioPlayer
     @Environment(\.dismiss) private var dismiss
 
+    private var crossfadeEnabled: Bool {
+        CrossfadeSettings.shared.isEnabled
+    }
+
+    private var crossfadeActive: Bool {
+        audioPlayer.crossfadeEngine?.isActive == true
+    }
+
+    private var upcomingSongs: [(offset: Int, element: Song)] {
+        guard audioPlayer.currentIndex + 1 < audioPlayer.queue.count else { return [] }
+        return Array(audioPlayer.queue.dropFirst(audioPlayer.currentIndex + 1).enumerated())
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(Array(audioPlayer.queue.enumerated()), id: \.element.id) { index, song in
-                    if index <= audioPlayer.currentIndex {
-                        CompactSongRow(
-                            song: song,
-                            isCurrentlyPlaying: index == audioPlayer.currentIndex
-                        ) {
-                            Task { await audioPlayer.playFromQueue(at: index) }
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .moveDisabled(true)
-                        .deleteDisabled(true)
-                    } else {
-                        SwipeableQueueRow(
-                            song: song,
-                            isNextSong: index == audioPlayer.currentIndex + 1,
-                            onRemove: { audioPlayer.removeFromQueue(at: index) },
-                            onPlayNext: {
-                                if index == audioPlayer.currentIndex + 1 {
-                                    Task { await audioPlayer.playFromQueue(at: index) }
-                                } else {
-                                    _ = audioPlayer.moveToPlayNext(fromIndex: index)
-                                }
-                            },
-                            onTap: { Task { await audioPlayer.playFromQueue(at: index) } }
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .moveDisabled(false)
-                        .deleteDisabled(true)
+                // Past and current songs
+                ForEach(Array(audioPlayer.queue.prefix(audioPlayer.currentIndex + 1).enumerated()), id: \.element.id) { index, song in
+                    CompactSongRow(
+                        song: song,
+                        isCurrentlyPlaying: index == audioPlayer.currentIndex
+                    ) {
+                        Task { await audioPlayer.playFromQueue(at: index) }
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-                .onMove(perform: handleMove)
+                .moveDisabled(true)
+                .deleteDisabled(true)
+
+                // Crossfade indicator between current and next song
+                if crossfadeEnabled && !upcomingSongs.isEmpty {
+                    CrossfadeIndicatorRow(isActive: crossfadeActive)
+                }
+
+                // Upcoming songs
+                ForEach(upcomingSongs, id: \.element.id) { localIndex, song in
+                    let queueIndex = audioPlayer.currentIndex + 1 + localIndex
+                    let isLockedForCrossfade = crossfadeActive && localIndex == 0
+
+                    SwipeableQueueRow(
+                        song: song,
+                        isNextSong: localIndex == 0,
+                        isLocked: isLockedForCrossfade,
+                        onRemove: { audioPlayer.removeFromQueue(at: queueIndex) },
+                        onPlayNext: {
+                            if localIndex == 0 {
+                                Task { await audioPlayer.playFromQueue(at: queueIndex) }
+                            } else {
+                                _ = audioPlayer.moveToPlayNext(fromIndex: queueIndex)
+                            }
+                        },
+                        onTap: { Task { await audioPlayer.playFromQueue(at: queueIndex) } }
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .moveDisabled(isLockedForCrossfade)
+                    .deleteDisabled(true)
+                }
+                .onMove(perform: handleUpcomingMove)
             }
             .listStyle(.plain)
+            .listRowSpacing(0)
             .scrollContentBackground(.hidden)
             .background(Color(white: 0.06).ignoresSafeArea())
             .environment(\.editMode, .constant(.active))
@@ -1264,16 +1289,18 @@ struct QueueView: View {
         }
     }
 
-    private func handleMove(from source: IndexSet, to destination: Int) {
-        guard let fromIndex = source.first else { return }
+    private func handleUpcomingMove(from source: IndexSet, to destination: Int) {
+        let base = audioPlayer.currentIndex + 1
+        let adjustedSource = IndexSet(source.map { $0 + base })
+        let adjustedDestination = destination + base
 
-        if destination <= audioPlayer.currentIndex {
-            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: audioPlayer.currentIndex + 1)
+        if adjustedDestination <= audioPlayer.currentIndex {
+            audioPlayer.moveQueueItem(fromOffsets: adjustedSource, toOffset: audioPlayer.currentIndex + 1)
             Task {
                 await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1)
             }
         } else {
-            audioPlayer.moveQueueItem(fromOffsets: source, toOffset: destination)
+            audioPlayer.moveQueueItem(fromOffsets: adjustedSource, toOffset: adjustedDestination)
         }
     }
 }
@@ -1283,6 +1310,7 @@ struct QueueView: View {
 private struct SwipeableQueueRow: View {
     let song: Song
     let isNextSong: Bool
+    var isLocked: Bool = false
     let onRemove: () -> Void
     let onPlayNext: () -> Void
     let onTap: () -> Void
@@ -1295,37 +1323,39 @@ private struct SwipeableQueueRow: View {
 
     var body: some View {
         ZStack {
-            // Right background (swipe left ← green: Play Next)
-            HStack {
-                Spacer()
-                VStack(spacing: 4) {
-                    Image(systemName: isNextSong ? "play.fill" : "text.insert")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text(isNextSong ? "Play Now" : "Up Next")
-                        .font(.system(size: 11, weight: .medium))
+            if !isLocked {
+                // Right background (swipe left ← green: Play Next)
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        Image(systemName: isNextSong ? "play.fill" : "text.insert")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(isNextSong ? "Play Now" : "Up Next")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.trailing, 24)
                 }
-                .foregroundStyle(.white)
-                .padding(.trailing, 24)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.green)
-            .opacity(offset < 0 ? 1 : 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.green)
+                .opacity(offset < 0 ? 1 : 0)
 
-            // Left background (swipe right → red: Remove)
-            HStack {
-                VStack(spacing: 4) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("Remove")
-                        .font(.system(size: 11, weight: .medium))
+                // Left background (swipe right → red: Remove)
+                HStack {
+                    VStack(spacing: 4) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Remove")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.leading, 24)
+                    Spacer()
                 }
-                .foregroundStyle(.white)
-                .padding(.leading, 24)
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.85, green: 0.18, blue: 0.28))
+                .opacity(offset > 0 ? 1 : 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 0.85, green: 0.18, blue: 0.28))
-            .opacity(offset > 0 ? 1 : 0)
 
             // Row content
             HStack(spacing: 12) {
@@ -1355,6 +1385,12 @@ private struct SwipeableQueueRow: View {
                 }
 
                 Spacer()
+
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1363,7 +1399,7 @@ private struct SwipeableQueueRow: View {
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
             .highPriorityGesture(
-                DragGesture(minimumDistance: 20)
+                DragGesture(minimumDistance: isLocked ? .infinity : 20)
                     .onChanged { value in
                         if !isDragging {
                             let horizontal = abs(value.translation.width)
@@ -1422,5 +1458,92 @@ private struct SwipeableQueueRow: View {
             )
         }
         .clipped()
+    }
+}
+
+// MARK: - Crossfade Indicator Row
+
+private struct CrossfadeIndicatorRow: View {
+    let isActive: Bool  // preloading/ready/fading
+
+    @State private var shimmerPhase: CGFloat = -1
+
+    private var pipeColor: Color {
+        .white.opacity(isActive ? 0.4 : 0.15)
+    }
+
+    // Album art center: 12px row padding + 22px (half of 44px art)
+    private let pipeX: CGFloat = 34
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Continuous pipe running full height — never breaks
+            Rectangle()
+                .fill(pipeColor)
+                .frame(width: 1.5)
+                .padding(.leading, pipeX - 0.75)
+
+            // Crossfade box sitting on top of the pipe (z-order: drawn last = on top)
+            HStack(spacing: 6) {
+                Image(systemName: "wave.3.right")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Crossfade")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.white.opacity(isActive ? 0.9 : 0.45))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(white: 0.06)) // opaque base hides pipe behind box
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(isActive ? 0.12 : 0.06))
+                    }
+                    .overlay {
+                        if isActive {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            .clear,
+                                            .white.opacity(0.15),
+                                            .clear
+                                        ],
+                                        startPoint: UnitPoint(x: shimmerPhase, y: 0.5),
+                                        endPoint: UnitPoint(x: shimmerPhase + 0.6, y: 0.5)
+                                    )
+                                )
+                        }
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(isActive ? 0.25 : 0.1), lineWidth: 1)
+                    }
+            }
+            .padding(.leading, pipeX - 16)
+        }
+        .frame(height: 80)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .onChange(of: isActive) {
+            if isActive {
+                startShimmer()
+            }
+        }
+        .onAppear {
+            if isActive {
+                startShimmer()
+            }
+        }
+    }
+
+    private func startShimmer() {
+        shimmerPhase = -1
+        withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+            shimmerPhase = 1.4
+        }
     }
 }

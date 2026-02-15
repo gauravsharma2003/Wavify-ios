@@ -11,6 +11,7 @@ import AVFoundation
 import UIKit
 
 @MainActor
+@Observable
 final class CrossfadeEngine {
 
     // MARK: - State Machine
@@ -47,7 +48,7 @@ final class CrossfadeEngine {
 
     // MARK: - Tracking
 
-    private var preloadedSong: Song?
+    private(set) var preloadedSong: Song?
     private var preloadedDuration: Double = 0
     private var hasTriggeredPreload = false
     private var hasTriggeredFade = false

@@ -102,7 +102,7 @@ class AudioPlayer {
 
     // MARK: - Crossfade
 
-    private var crossfadeEngine: CrossfadeEngine?
+    private(set) var crossfadeEngine: CrossfadeEngine?
     private let crossfadeSettings = CrossfadeSettings.shared
 
     /// Flag to prevent duplicate song end handling
@@ -298,7 +298,6 @@ class AudioPlayer {
         if shuffleController.isShuffleMode {
             if let nextIndex = shuffleController.getNextShuffleIndex() {
                 queueManager.jumpToIndex(nextIndex)
-                queueManager.consumeFromUserQueue(songId: song.id)
             }
         } else {
             let nextIndex = currentIndex + 1
@@ -308,6 +307,8 @@ class AudioPlayer {
                 queueManager.loopToStart()
             }
         }
+        // Always consume from userQueue to prevent duplicates on next rebuild
+        queueManager.consumeFromUserQueue(songId: song.id)
     }
 
     // MARK: - Remote Command Center
@@ -770,6 +771,7 @@ class AudioPlayer {
     
     func playNextSong(_ song: Song) {
         queueManager.playNext(song)
+        crossfadeEngine?.queueDidChange()
     }
     
     func addToQueue(_ song: Song) -> Bool {
