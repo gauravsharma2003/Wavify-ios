@@ -237,9 +237,15 @@ class AudioPlayer {
             // Advance queue to the crossfaded song
             self.advanceQueueForCrossfade(to: song)
 
+            // Read actual playback position from the adopted player
+            // (it's been playing during the crossfade, so it's ahead of 0)
+            let actualTime = player.currentTime().seconds
+            let validTime = actualTime.isNaN ? 0 : actualTime
+
             // Update current song state
             self.currentSong = song
             self.duration = expectedDuration
+            self.currentTime = validTime
 
             // Adopt the player — PlaybackService takes over without stopping audio
             self.playbackService.adoptPlayer(player, playerItem: item, duration: expectedDuration)
@@ -247,7 +253,7 @@ class AudioPlayer {
             self.updateNowPlayingInfo()
 
             // Save to widget
-            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: expectedDuration)
+            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: validTime, totalDuration: expectedDuration)
 
             // Notify for play count tracking
             NotificationCenter.default.post(

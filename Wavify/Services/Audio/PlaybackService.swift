@@ -599,6 +599,11 @@ class PlaybackService {
         isPlaying = true
         hasFiredSongEnd = false
 
+        // Sync currentTime from the adopted player's actual position
+        // (it's been playing during crossfade, so it's not at 0)
+        let playerSeconds = adoptedPlayer.currentTime().seconds
+        currentTime = playerSeconds.isNaN ? 0 : playerSeconds
+
         // NOTE: Do NOT call audioTapProcessor.attachSync here.
         // The crossfade slot's tap is already attached to this playerItem
         // and writing to the correct ring buffer. Re-attaching would replace
