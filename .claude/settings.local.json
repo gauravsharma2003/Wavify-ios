@@ -12,7 +12,8 @@
       "WebFetch(domain:swiftui-lab.com)",
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:www.hackingwithswift.com)",
-      "WebFetch(domain:holyswift.app)"
+      "WebFetch(domain:holyswift.app)",
+      "Bash(grep:*)"
     ]
   }
 }

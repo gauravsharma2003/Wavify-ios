@@ -143,6 +143,30 @@ enum BiquadCoefficientCalculator {
         )
     }
     
+    /// Calculate coefficients for a low-pass filter (Butterworth when Q = 0.7071)
+    /// Used by StemDecomposer for bass isolation
+    static func lowPass(cutoff: Double, sampleRate: Double, q: Double = 0.7071) -> BiquadCoefficients {
+        let w0 = 2.0 * .pi * cutoff / sampleRate
+        let cosW0 = cos(w0)
+        let sinW0 = sin(w0)
+        let alpha = sinW0 / (2.0 * q)
+
+        let b1 = 1.0 - cosW0
+        let b0 = b1 / 2.0
+        let b2 = b0
+        let a0 = 1.0 + alpha
+        let a1 = -2.0 * cosW0
+        let a2 = 1.0 - alpha
+
+        return BiquadCoefficients(
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0
+        )
+    }
+
     /// Calculate coefficients for a 10-band EQ
     static func calculateEQCoefficients(
         bands: [(frequency: Float, gain: Float)],
@@ -202,6 +226,38 @@ final class BiquadFilter {
         interpolationProgress = 1.0
     }
     
+    /// Process a mono buffer in-place (used by StemDecomposer for mid/side signals)
+    func processMono(buffer: UnsafeMutablePointer<Float>, frameCount: Int) {
+        if currentCoeffs.isBypass && targetCoeffs.isBypass { return }
+
+        let interpStep: Float = 0.002
+
+        for i in 0..<frameCount {
+            if interpolationProgress < 1.0 {
+                interpolationProgress = min(1.0, interpolationProgress + interpStep)
+                currentCoeffs = currentCoeffs.interpolated(
+                    to: targetCoeffs,
+                    factor: Double(interpolationProgress)
+                )
+            }
+
+            let b0 = Float(currentCoeffs.b0)
+            let b1 = Float(currentCoeffs.b1)
+            let b2 = Float(currentCoeffs.b2)
+            let a1 = Float(currentCoeffs.a1)
+            let a2 = Float(currentCoeffs.a2)
+
+            let input = buffer[i]
+            let output = b0 * input + z1L
+            z1L = b1 * input - a1 * output + z2L + denormalPrevention
+            z2L = b2 * input - a2 * output
+            buffer[i] = output
+        }
+
+        if abs(z1L) < 1.0e-15 { z1L = 0 }
+        if abs(z2L) < 1.0e-15 { z2L = 0 }
+    }
+
     /// Process interleaved stereo buffer in-place
     func process(buffer: UnsafeMutablePointer<Float>, frameCount: Int) {
         // Skip if bypass

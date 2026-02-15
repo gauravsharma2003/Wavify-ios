@@ -26,9 +26,6 @@ class AudioEngineService: ObservableObject {
     let engine = AVAudioEngine()
     private var sourceNode: AVAudioSourceNode!
     private var sourceNodeB: AVAudioSourceNode!
-    private var sourceFormat: AVAudioFormat?
-    private var sourceFormatB: AVAudioFormat?
-
     // Shared ring buffers — slot A (primary) and slot B (crossfade standby)
     // Capacity: 4 seconds @ 48kHz stereo (384k floats)
     let ringBuffer = CircularBuffer(capacity: 48000 * 2 * 4)
@@ -53,6 +50,52 @@ class AudioEngineService: ObservableObject {
     /// The ring buffer used by the standby/incoming crossfade slot
     var standbyRingBuffer: CircularBuffer {
         activeSlot == .a ? ringBufferB : ringBuffer
+    }
+
+    // MARK: - Stem Crossfade Routing (Premium)
+
+    // 6 stem source nodes (3 per track slot: bass, vocal, instrument)
+    private var stemSrcA_bass: AVAudioSourceNode!
+    private var stemSrcA_vocal: AVAudioSourceNode!
+    private var stemSrcA_inst: AVAudioSourceNode!
+    private var stemSrcB_bass: AVAudioSourceNode!
+    private var stemSrcB_vocal: AVAudioSourceNode!
+    private var stemSrcB_inst: AVAudioSourceNode!
+
+    // 6 volume mixers for individual stem control
+    private let stemVolA_bass = AVAudioMixerNode()
+    private let stemVolA_vocal = AVAudioMixerNode()
+    private let stemVolA_inst = AVAudioMixerNode()
+    private let stemVolB_bass = AVAudioMixerNode()
+    private let stemVolB_vocal = AVAudioMixerNode()
+    private let stemVolB_inst = AVAudioMixerNode()
+
+    // Stem mixer collects all 6 stems → crossfadeMixer
+    private let stemMixer = AVAudioMixerNode()
+
+    // Stem ring buffers — smaller capacity (~2s @ 44100Hz stereo)
+    let stemBufferA_bass = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferA_vocal = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferA_inst = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferB_bass = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferB_vocal = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferB_inst = CircularBuffer(capacity: 44100 * 2 * 2)
+
+    /// Whether stem mode is currently active
+    private(set) var isStemModeActive = false
+
+    /// Get the stem ring buffers for the active slot
+    var activeStemBuffers: (bass: CircularBuffer, vocal: CircularBuffer, inst: CircularBuffer) {
+        activeSlot == .a
+            ? (stemBufferA_bass, stemBufferA_vocal, stemBufferA_inst)
+            : (stemBufferB_bass, stemBufferB_vocal, stemBufferB_inst)
+    }
+
+    /// Get the stem ring buffers for the standby slot
+    var standbyStemBuffers: (bass: CircularBuffer, vocal: CircularBuffer, inst: CircularBuffer) {
+        activeSlot == .a
+            ? (stemBufferB_bass, stemBufferB_vocal, stemBufferB_inst)
+            : (stemBufferA_bass, stemBufferA_vocal, stemBufferA_inst)
     }
 
     // MARK: - DSP Nodes
@@ -192,78 +235,18 @@ class AudioEngineService: ObservableObject {
     private func createSourceNode() {
         sourceNode = makeSourceNode(for: ringBuffer)
         sourceNodeB = makeSourceNode(for: ringBufferB)
-    }
-    
-    /// Reconfigures the active source node format. Must be called when AVPlayer format changes.
-    func reconfigure(sampleRate: Double, channels: Int) {
-        let newFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
 
-        // Determine which source node to reconfigure based on active slot
-        let targetNode = activeSlot == .a ? sourceNode! : sourceNodeB!
-        let currentFormat = activeSlot == .a ? sourceFormat : sourceFormatB
-
-        // Only reconfigure if format changed
-        if let current = currentFormat,
-           current.sampleRate == sampleRate,
-           current.channelCount == channels {
-            return
-        }
-
-        Logger.log("Reconfiguring Audio Engine for \(sampleRate)Hz \(channels)ch", category: .playback)
-
-        let wasRunning = engine.isRunning
-        if wasRunning { engine.stop() }
-
-        if activeSlot == .a {
-            sourceFormat = newFormat
-        } else {
-            sourceFormatB = newFormat
-        }
-
-        let targetMixer = activeSlot == .a ? volumeMixerA : volumeMixerB
-        engine.disconnectNodeOutput(targetNode)
-        engine.connect(targetNode, to: targetMixer, format: newFormat)
-
-        if wasRunning {
-            start()
-        }
-    }
-
-    /// Reconfigures the secondary (standby) source node for incoming crossfade track
-    func reconfigureSecondary(sampleRate: Double, channels: Int) {
-        let newFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
-
-        let targetNode = activeSlot == .a ? sourceNodeB! : sourceNode!
-        let currentFormat = activeSlot == .a ? sourceFormatB : sourceFormat
-
-        if let current = currentFormat,
-           current.sampleRate == sampleRate,
-           current.channelCount == channels {
-            return
-        }
-
-        Logger.log("Reconfiguring secondary source for \(sampleRate)Hz \(channels)ch", category: .playback)
-
-        let wasRunning = engine.isRunning
-        if wasRunning { engine.stop() }
-
-        if activeSlot == .a {
-            sourceFormatB = newFormat
-        } else {
-            sourceFormat = newFormat
-        }
-
-        let targetMixer = activeSlot == .a ? volumeMixerB : volumeMixerA
-        engine.disconnectNodeOutput(targetNode)
-        engine.connect(targetNode, to: targetMixer, format: newFormat)
-
-        if wasRunning {
-            start()
-        }
+        // Stem source nodes
+        stemSrcA_bass = makeSourceNode(for: stemBufferA_bass)
+        stemSrcA_vocal = makeSourceNode(for: stemBufferA_vocal)
+        stemSrcA_inst = makeSourceNode(for: stemBufferA_inst)
+        stemSrcB_bass = makeSourceNode(for: stemBufferB_bass)
+        stemSrcB_vocal = makeSourceNode(for: stemBufferB_vocal)
+        stemSrcB_inst = makeSourceNode(for: stemBufferB_inst)
     }
     
     private func setupGraph() {
-        // Attach nodes
+        // Attach normal path nodes
         engine.attach(sourceNode)
         engine.attach(sourceNodeB)
         engine.attach(volumeMixerA)
@@ -279,30 +262,69 @@ class AudioEngineService: ObservableObject {
         engine.attach(mainMixer)
         engine.attach(outputMixer)
 
+        // Attach stem path nodes (all pre-connected, silent when inactive)
+        engine.attach(stemSrcA_bass)
+        engine.attach(stemSrcA_vocal)
+        engine.attach(stemSrcA_inst)
+        engine.attach(stemSrcB_bass)
+        engine.attach(stemSrcB_vocal)
+        engine.attach(stemSrcB_inst)
+        engine.attach(stemVolA_bass)
+        engine.attach(stemVolA_vocal)
+        engine.attach(stemVolA_inst)
+        engine.attach(stemVolB_bass)
+        engine.attach(stemVolB_vocal)
+        engine.attach(stemVolB_inst)
+        engine.attach(stemMixer)
+
         // Format: Standard float32 stereo
         let outputFormat = engine.outputNode.inputFormat(forBus: 0)
 
-        // Initial defaults (will be updated by reconfigure)
-        let defaultFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)
-        sourceFormat = defaultFormat
-        sourceFormatB = defaultFormat
+        // Source nodes are locked at 44100Hz stereo — SRC happens in the tap callback
+        let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)
 
-        // --- Routing Graph ---
+        // --- Normal Routing Graph ---
         //
-        // sourceNode  -> volumeMixerA -> crossfadeMixer -> inputMixer -> [MainEQ, BassEQ] -> ...
-        // sourceNodeB -> volumeMixerB -> crossfadeMixer
-        //
-        // volumeMixerA starts at 1.0 (active), volumeMixerB starts at 0.0 (standby)
+        // sourceNode  -> volumeMixerA ──┐
+        // sourceNodeB -> volumeMixerB ──┤
+        //                                ├→ crossfadeMixer -> inputMixer -> [EQ chain]
+        //                    STEM PATH   │
+        // stemSrc_A_bass  -> stemVol_A_bass  ──┐
+        // stemSrc_A_vocal -> stemVol_A_vocal ──┤
+        // stemSrc_A_inst  -> stemVol_A_inst  ──┤
+        //                                      ├→ stemMixer ──→ crossfadeMixer
+        // stemSrc_B_bass  -> stemVol_B_bass  ──┤
+        // stemSrc_B_vocal -> stemVol_B_vocal ──┤
+        // stemSrc_B_inst  -> stemVol_B_inst  ──┘
 
-        // 1. Source nodes -> Volume mixers
-        engine.connect(sourceNode, to: volumeMixerA, format: defaultFormat)
-        engine.connect(sourceNodeB, to: volumeMixerB, format: defaultFormat)
+        // 1. Normal source nodes -> Volume mixers (locked at 44100Hz)
+        engine.connect(sourceNode, to: volumeMixerA, format: sourceFormat)
+        engine.connect(sourceNodeB, to: volumeMixerB, format: sourceFormat)
 
         // 2. Volume mixers -> Crossfade mixer
         engine.connect(volumeMixerA, to: crossfadeMixer, format: outputFormat)
         engine.connect(volumeMixerB, to: crossfadeMixer, format: outputFormat)
 
-        // 3. Crossfade mixer -> InputMixer (Handles Resampling)
+        // 3. Stem source nodes -> Stem volume mixers (locked at 44100Hz)
+        engine.connect(stemSrcA_bass, to: stemVolA_bass, format: sourceFormat)
+        engine.connect(stemSrcA_vocal, to: stemVolA_vocal, format: sourceFormat)
+        engine.connect(stemSrcA_inst, to: stemVolA_inst, format: sourceFormat)
+        engine.connect(stemSrcB_bass, to: stemVolB_bass, format: sourceFormat)
+        engine.connect(stemSrcB_vocal, to: stemVolB_vocal, format: sourceFormat)
+        engine.connect(stemSrcB_inst, to: stemVolB_inst, format: sourceFormat)
+
+        // 4. Stem volume mixers -> Stem mixer
+        engine.connect(stemVolA_bass, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolA_vocal, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolA_inst, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolB_bass, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolB_vocal, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolB_inst, to: stemMixer, format: outputFormat)
+
+        // 5. Stem mixer -> Crossfade mixer
+        engine.connect(stemMixer, to: crossfadeMixer, format: outputFormat)
+
+        // 6. Crossfade mixer -> InputMixer (Handles Resampling)
         engine.connect(crossfadeMixer, to: inputMixer, format: outputFormat)
 
         // 4. InputMixer -> Split to EQ Paths (Using Output Format)
@@ -330,6 +352,14 @@ class AudioEngineService: ObservableObject {
         // Initial crossfade volumes
         volumeMixerA.outputVolume = 1.0
         volumeMixerB.outputVolume = 0.0
+
+        // All stem volumes start at 0 (silent until premium transition)
+        stemVolA_bass.outputVolume = 0.0
+        stemVolA_vocal.outputVolume = 0.0
+        stemVolA_inst.outputVolume = 0.0
+        stemVolB_bass.outputVolume = 0.0
+        stemVolB_vocal.outputVolume = 0.0
+        stemVolB_inst.outputVolume = 0.0
 
         configureNodes()
     }
@@ -463,6 +493,63 @@ class AudioEngineService: ObservableObject {
     /// Unmute audio output
     func unmute() {
         engine.mainMixerNode.outputVolume = 1
+    }
+
+    // MARK: - Stem Crossfade Control
+
+    /// Set individual stem volumes during a premium transition.
+    /// Called by TransitionChoreographer at 60Hz.
+    func setStemVolumes(_ volumes: TransitionChoreographer.StemVolumes) {
+        switch activeSlot {
+        case .a:
+            // A is outgoing, B is incoming
+            stemVolA_bass.outputVolume = volumes.outBass
+            stemVolA_vocal.outputVolume = volumes.outVocal
+            stemVolA_inst.outputVolume = volumes.outInstrument
+            stemVolB_bass.outputVolume = volumes.inBass
+            stemVolB_vocal.outputVolume = volumes.inVocal
+            stemVolB_inst.outputVolume = volumes.inInstrument
+        case .b:
+            // B is outgoing, A is incoming
+            stemVolB_bass.outputVolume = volumes.outBass
+            stemVolB_vocal.outputVolume = volumes.outVocal
+            stemVolB_inst.outputVolume = volumes.outInstrument
+            stemVolA_bass.outputVolume = volumes.inBass
+            stemVolA_vocal.outputVolume = volumes.inVocal
+            stemVolA_inst.outputVolume = volumes.inInstrument
+        }
+    }
+
+    /// Activate stem mode: mute normal volume mixers, stems take over audio
+    func activateStemMode() {
+        isStemModeActive = true
+        // Quick fade normal mixers to 0 (stems will handle the audio)
+        volumeMixerA.outputVolume = 0.0
+        volumeMixerB.outputVolume = 0.0
+    }
+
+    /// Deactivate stem mode: restore normal volume mixers, silence all stems
+    func deactivateStemMode() {
+        isStemModeActive = false
+
+        // Silence all stems
+        stemVolA_bass.outputVolume = 0.0
+        stemVolA_vocal.outputVolume = 0.0
+        stemVolA_inst.outputVolume = 0.0
+        stemVolB_bass.outputVolume = 0.0
+        stemVolB_vocal.outputVolume = 0.0
+        stemVolB_inst.outputVolume = 0.0
+
+        // Clear stem ring buffers
+        stemBufferA_bass.clear()
+        stemBufferA_vocal.clear()
+        stemBufferA_inst.clear()
+        stemBufferB_bass.clear()
+        stemBufferB_vocal.clear()
+        stemBufferB_inst.clear()
+
+        // Restore normal routing
+        resetToSingleTrack()
     }
 
     // MARK: - Settings Updates

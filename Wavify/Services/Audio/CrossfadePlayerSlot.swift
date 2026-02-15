@@ -23,6 +23,9 @@ final class CrossfadePlayerSlot {
     private(set) var isReady = false
     private(set) var song: Song?
 
+    /// Expose the tap context for stem mode configuration
+    var tapContext: AudioTapContext? { audioTapProcessor.context }
+
     // MARK: - Callbacks
 
     var onReady: (() -> Void)?
@@ -47,24 +50,8 @@ final class CrossfadePlayerSlot {
                 guard let self = self else { return }
                 switch item.status {
                 case .readyToPlay:
-                    // Reconfigure the secondary source node for this track's format
-                    let asset = item.asset
-                    let tracks = asset.tracks(withMediaType: .audio)
-                    if let audioTrack = tracks.first,
-                       let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription],
-                       let formatDesc = formatDescriptions.first,
-                       let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
-                        let sampleRate = asbd.pointee.mSampleRate
-                        let channels = Int(asbd.pointee.mChannelsPerFrame)
-                        if sampleRate > 0 && channels > 0 {
-                            AudioEngineService.shared.reconfigureSecondary(
-                                sampleRate: sampleRate,
-                                channels: channels
-                            )
-                        }
-                    }
-
                     // Attach tap writing to the standby ring buffer
+                    // SRC is handled inside the tap callback — no engine reconfiguration needed
                     self.audioTapProcessor.attachSync(to: item, ringBuffer: ringBuffer)
                     self.isReady = true
                     self.onReady?()
@@ -105,6 +92,11 @@ final class CrossfadePlayerSlot {
         }
         statusObserver?.invalidate()
         statusObserver = nil
+
+        // Abandon the tap context WITHOUT clearing the ring buffer.
+        // After slot swap, this ring buffer becomes the active buffer — clearing it
+        // would cause an audio dropout when the next preload triggers cleanup().
+        audioTapProcessor.abandon()
 
         // Nil out local references without cleanup
         player = nil
