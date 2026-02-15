@@ -75,6 +75,21 @@ class ShuffleController {
     
     // MARK: - Navigation
     
+    /// Peek at the next index in shuffle order WITHOUT advancing the position
+    func peekNextShuffleIndex() -> Int? {
+        guard isShuffleMode && !shuffleIndices.isEmpty else { return nil }
+
+        let nextShuffleIndex = currentShuffleIndex + 1
+
+        if nextShuffleIndex < shuffleIndices.count {
+            return shuffleIndices[nextShuffleIndex]
+        } else if loopMode == .all {
+            return shuffleIndices[0]
+        }
+
+        return nil
+    }
+
     /// Get the next index in shuffle order
     /// Returns nil if at end and not looping
     func getNextShuffleIndex() -> Int? {

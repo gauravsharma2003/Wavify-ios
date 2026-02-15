@@ -13,6 +13,7 @@ struct PlayerShell: View {
     @Bindable var audioPlayer: AudioPlayer
     var navigationManager: NavigationManager
     @State private var sharePlayManager = SharePlayManager.shared
+    @State private var crossfadeSettings = CrossfadeSettings.shared
 
     @Environment(\.modelContext) private var modelContext
 
@@ -665,6 +666,14 @@ struct PlayerShell: View {
                 showEqualizerSheet = true
             } label: {
                 Label("Equalizer", systemImage: "slider.horizontal.3")
+            }
+
+            // Crossfade
+            Toggle(isOn: Binding(
+                get: { crossfadeSettings.isEnabled },
+                set: { crossfadeSettings.isEnabled = $0 }
+            )) {
+                Label("Crossfade", systemImage: "wave.3.right")
             }
 
             Divider()

@@ -35,7 +35,10 @@ class PlaybackService {
     
     // Audio processing tap for EQ
     private let audioTapProcessor = AudioTapProcessor()
-    
+
+    /// Which ring buffer the tap writes to (nil = default active buffer)
+    var targetRingBuffer: CircularBuffer?
+
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
@@ -151,7 +154,10 @@ class PlaybackService {
                         // All these are @MainActor, so batch them together
                         await MainActor.run {
                             // Attach EQ tap BEFORE starting playback
-                            self.audioTapProcessor.attachSync(to: item)
+                            self.audioTapProcessor.attachSync(
+                                to: item,
+                                ringBuffer: self.targetRingBuffer
+                            )
 
                             // Flush buffer right before starting to ensure no stale audio
                             AudioEngineService.shared.flush()
@@ -344,7 +350,10 @@ class PlaybackService {
                         await AudioEngineService.shared.waitForInitialization()
 
                         await MainActor.run {
-                            self.audioTapProcessor.attachSync(to: item)
+                            self.audioTapProcessor.attachSync(
+                                to: item,
+                                ringBuffer: self.targetRingBuffer
+                            )
 
                             // Flush buffer right before starting to ensure no stale audio
                             AudioEngineService.shared.flush()
@@ -523,29 +532,33 @@ class PlaybackService {
     }
     
     // MARK: - Cleanup
-    
-    func cleanup() {
+
+    /// - Parameter manageEngine: When false, skips AudioEngineService mute/stop/flush
+    ///   (used during crossfade handoff where the engine must keep running).
+    func cleanup(manageEngine: Bool = true) {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
         }
         statusObserver?.invalidate()
         statusObserver = nil
-        
+
         bufferEmptyObserver?.invalidate()
         bufferEmptyObserver = nil
-        
+
         bufferLikelyToKeepUpObserver?.invalidate()
         bufferLikelyToKeepUpObserver = nil
-        
+
         timeControlStatusObserver?.invalidate()
         timeControlStatusObserver = nil
 
-        // 1. Mute output first to prevent any glitchy sounds during cleanup
-        AudioEngineService.shared.mute()
+        if manageEngine {
+            // 1. Mute output first to prevent any glitchy sounds during cleanup
+            AudioEngineService.shared.mute()
 
-        // 2. Stop engine (stops reading from buffer)
-        AudioEngineService.shared.stop()
+            // 2. Stop engine (stops reading from buffer)
+            AudioEngineService.shared.stop()
+        }
 
         // 3. Pause player (stops decoding)
         player?.pause()
@@ -554,8 +567,10 @@ class PlaybackService {
         playerItem?.audioMix = nil
         audioTapProcessor.detach()
 
-        // 5. Flush buffer (clear any remaining stale samples)
-        AudioEngineService.shared.flush()
+        if manageEngine {
+            // 5. Flush buffer (clear any remaining stale samples)
+            AudioEngineService.shared.flush()
+        }
 
         player = nil
         playerItem = nil
@@ -563,6 +578,34 @@ class PlaybackService {
 
         cachedArtwork = nil
         cachedSongId = nil
+    }
+
+    // MARK: - Crossfade Adoption
+
+    /// Take ownership of an already-playing AVPlayer from a crossfade slot.
+    /// Sets up time/buffer/status observers without touching AudioEngineService.
+    /// The crossfade slot's tap is already attached to the playerItem and writing
+    /// to the correct (now-active) ring buffer — do NOT re-attach.
+    func adoptPlayer(_ adoptedPlayer: AVPlayer, playerItem adoptedItem: AVPlayerItem, duration expectedDuration: Double) {
+        // Clean up current player without stopping engine
+        cleanup(manageEngine: false)
+
+        player = adoptedPlayer
+        playerItem = adoptedItem
+        duration = expectedDuration
+        isPlaying = true
+        hasFiredSongEnd = false
+
+        // NOTE: Do NOT call audioTapProcessor.attachSync here.
+        // The crossfade slot's tap is already attached to this playerItem
+        // and writing to the correct ring buffer. Re-attaching would replace
+        // the audioMix with a new tap targeting the wrong buffer.
+
+        setupTimeObserver()
+        setupBufferObserver()
+        setupTimeControlStatusObserver()
+
+        onPlayPauseChanged?(true)
     }
     
     deinit {

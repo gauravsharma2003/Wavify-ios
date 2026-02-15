@@ -22,19 +22,43 @@ class AudioEngineService: ObservableObject {
     static let shared = AudioEngineService()
     
     // MARK: - Core Components
-    
+
     let engine = AVAudioEngine()
     private var sourceNode: AVAudioSourceNode!
+    private var sourceNodeB: AVAudioSourceNode!
     private var sourceFormat: AVAudioFormat?
-    
-    // Shared ring buffer to receive data from AVPlayer tap
-    // Capacity: 4 seconds @ 48kHz stereo (384k floats) - extra headroom for network fluctuations
+    private var sourceFormatB: AVAudioFormat?
+
+    // Shared ring buffers — slot A (primary) and slot B (crossfade standby)
+    // Capacity: 4 seconds @ 48kHz stereo (384k floats)
     let ringBuffer = CircularBuffer(capacity: 48000 * 2 * 4)
-    
+    let ringBufferB = CircularBuffer(capacity: 48000 * 2 * 4)
+
+    // MARK: - Crossfade Routing
+
+    enum ActiveSlot {
+        case a, b
+    }
+
+    private(set) var activeSlot: ActiveSlot = .a
+    private let volumeMixerA = AVAudioMixerNode()
+    private let volumeMixerB = AVAudioMixerNode()
+    private let crossfadeMixer = AVAudioMixerNode()
+
+    /// The ring buffer currently used by the primary playback path
+    var activeRingBuffer: CircularBuffer {
+        activeSlot == .a ? ringBuffer : ringBufferB
+    }
+
+    /// The ring buffer used by the standby/incoming crossfade slot
+    var standbyRingBuffer: CircularBuffer {
+        activeSlot == .a ? ringBufferB : ringBuffer
+    }
+
     // MARK: - DSP Nodes
-    
+
     // Converter Node (Critical for Resampling)
-    // Source -> inputMixer -> Rest of Graph
+    // crossfadeMixer -> inputMixer -> Rest of Graph
     private let inputMixer = AVAudioMixerNode()
     
     // Main signal path - 10 bands to match UI sliders
@@ -127,15 +151,14 @@ class AudioEngineService: ObservableObject {
         return isInitialized
     }
     
-    private func createSourceNode() {
-        // Create source node to read from ring buffer
-        sourceNode = AVAudioSourceNode { [weak ringBuffer = ringBuffer] _, _, frameCount, audioBufferList in
-            guard let ringBuffer = ringBuffer else { return noErr }
+    /// Creates an AVAudioSourceNode that reads from the given ring buffer
+    private func makeSourceNode(for buffer: CircularBuffer) -> AVAudioSourceNode {
+        AVAudioSourceNode { [weak buffer] _, _, frameCount, audioBufferList in
+            guard let ringBuffer = buffer else { return noErr }
 
             let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let totalSamples = Int(frameCount) * 2
 
-            // Temporary buffer for interleaved read
             var tempBuffer = [Float](repeating: 0, count: totalSamples)
 
             let samplesRead = tempBuffer.withUnsafeMutableBufferPointer { ptr in
@@ -143,17 +166,14 @@ class AudioEngineService: ObservableObject {
             }
 
             if samplesRead == 0 {
-                // Silence
                 for buffer in buffers {
                     memset(buffer.mData, 0, Int(buffer.mDataByteSize))
                 }
                 return noErr
             }
 
-            // De-interleave into output buffers
             if let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
                let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) {
-
                 for i in 0..<Int(frameCount) {
                     if i * 2 + 1 < samplesRead {
                         left[i] = tempBuffer[i * 2]
@@ -168,31 +188,75 @@ class AudioEngineService: ObservableObject {
             return noErr
         }
     }
+
+    private func createSourceNode() {
+        sourceNode = makeSourceNode(for: ringBuffer)
+        sourceNodeB = makeSourceNode(for: ringBufferB)
+    }
     
-    /// Reconfigures the source node format. Must be called when AVPlayer format changes.
+    /// Reconfigures the active source node format. Must be called when AVPlayer format changes.
     func reconfigure(sampleRate: Double, channels: Int) {
         let newFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
-        
+
+        // Determine which source node to reconfigure based on active slot
+        let targetNode = activeSlot == .a ? sourceNode! : sourceNodeB!
+        let currentFormat = activeSlot == .a ? sourceFormat : sourceFormatB
+
         // Only reconfigure if format changed
-        if let current = sourceFormat,
+        if let current = currentFormat,
            current.sampleRate == sampleRate,
            current.channelCount == channels {
             return
         }
-        
+
         Logger.log("Reconfiguring Audio Engine for \(sampleRate)Hz \(channels)ch", category: .playback)
-        
-        // Must stop engine to reconfigure connections
+
         let wasRunning = engine.isRunning
         if wasRunning { engine.stop() }
-        
-        sourceFormat = newFormat
-        
-        // Reconnect source node -> inputMixer with new format
-        // inputMixer handles the resampling to the graph format
-        engine.disconnectNodeOutput(sourceNode)
-        engine.connect(sourceNode, to: inputMixer, format: newFormat)
-        
+
+        if activeSlot == .a {
+            sourceFormat = newFormat
+        } else {
+            sourceFormatB = newFormat
+        }
+
+        let targetMixer = activeSlot == .a ? volumeMixerA : volumeMixerB
+        engine.disconnectNodeOutput(targetNode)
+        engine.connect(targetNode, to: targetMixer, format: newFormat)
+
+        if wasRunning {
+            start()
+        }
+    }
+
+    /// Reconfigures the secondary (standby) source node for incoming crossfade track
+    func reconfigureSecondary(sampleRate: Double, channels: Int) {
+        let newFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
+
+        let targetNode = activeSlot == .a ? sourceNodeB! : sourceNode!
+        let currentFormat = activeSlot == .a ? sourceFormatB : sourceFormat
+
+        if let current = currentFormat,
+           current.sampleRate == sampleRate,
+           current.channelCount == channels {
+            return
+        }
+
+        Logger.log("Reconfiguring secondary source for \(sampleRate)Hz \(channels)ch", category: .playback)
+
+        let wasRunning = engine.isRunning
+        if wasRunning { engine.stop() }
+
+        if activeSlot == .a {
+            sourceFormatB = newFormat
+        } else {
+            sourceFormat = newFormat
+        }
+
+        let targetMixer = activeSlot == .a ? volumeMixerB : volumeMixerA
+        engine.disconnectNodeOutput(targetNode)
+        engine.connect(targetNode, to: targetMixer, format: newFormat)
+
         if wasRunning {
             start()
         }
@@ -201,6 +265,10 @@ class AudioEngineService: ObservableObject {
     private func setupGraph() {
         // Attach nodes
         engine.attach(sourceNode)
+        engine.attach(sourceNodeB)
+        engine.attach(volumeMixerA)
+        engine.attach(volumeMixerB)
+        engine.attach(crossfadeMixer)
         engine.attach(inputMixer) // Resampler
         engine.attach(mainEQ)
         engine.attach(bassEQ)
@@ -210,43 +278,59 @@ class AudioEngineService: ObservableObject {
         engine.attach(limiter)
         engine.attach(mainMixer)
         engine.attach(outputMixer)
-        
+
         // Format: Standard float32 stereo
         let outputFormat = engine.outputNode.inputFormat(forBus: 0)
-        
+
         // Initial defaults (will be updated by reconfigure)
         let defaultFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)
         sourceFormat = defaultFormat
-        
+        sourceFormatB = defaultFormat
+
         // --- Routing Graph ---
         //
-        // Source(Var) -> InputMixer(Resampler) -> [MainEQ, BassEQ] -> ...
-        
-        // 1. Source -> InputMixer (Handles Format Conversion)
-        engine.connect(sourceNode, to: inputMixer, format: defaultFormat)
-        
-        // 2. InputMixer -> Split to EQ Paths (Using Output Format)
+        // sourceNode  -> volumeMixerA -> crossfadeMixer -> inputMixer -> [MainEQ, BassEQ] -> ...
+        // sourceNodeB -> volumeMixerB -> crossfadeMixer
+        //
+        // volumeMixerA starts at 1.0 (active), volumeMixerB starts at 0.0 (standby)
+
+        // 1. Source nodes -> Volume mixers
+        engine.connect(sourceNode, to: volumeMixerA, format: defaultFormat)
+        engine.connect(sourceNodeB, to: volumeMixerB, format: defaultFormat)
+
+        // 2. Volume mixers -> Crossfade mixer
+        engine.connect(volumeMixerA, to: crossfadeMixer, format: outputFormat)
+        engine.connect(volumeMixerB, to: crossfadeMixer, format: outputFormat)
+
+        // 3. Crossfade mixer -> InputMixer (Handles Resampling)
+        engine.connect(crossfadeMixer, to: inputMixer, format: outputFormat)
+
+        // 4. InputMixer -> Split to EQ Paths (Using Output Format)
         let points = [
             AVAudioConnectionPoint(node: mainEQ, bus: 0),
             AVAudioConnectionPoint(node: bassEQ, bus: 0)
         ]
         engine.connect(inputMixer, to: points, fromBus: 0, format: outputFormat)
-        
+
         // Parallel Bass Chain
         engine.connect(bassEQ, to: bassDistortion, format: outputFormat)
         engine.connect(bassDistortion, to: bassMixer, format: outputFormat)
-        
+
         // Main Chain
         engine.connect(mainEQ, to: mainMixer, format: outputFormat)
-        
+
         // Merge Bass into Main
         engine.connect(bassMixer, to: mainMixer, format: outputFormat)
-        
+
         // Dynamics Chain
         engine.connect(mainMixer, to: compressor, format: outputFormat)
         engine.connect(compressor, to: limiter, format: outputFormat)
         engine.connect(limiter, to: engine.mainMixerNode, format: outputFormat)
-        
+
+        // Initial crossfade volumes
+        volumeMixerA.outputVolume = 1.0
+        volumeMixerB.outputVolume = 0.0
+
         configureNodes()
     }
     
@@ -331,7 +415,43 @@ class AudioEngineService: ObservableObject {
     }
     
     func flush() {
-        ringBuffer.clear()
+        activeRingBuffer.clear()
+    }
+
+    /// Flush only the standby ring buffer (used after crossfade completes)
+    func flushStandby() {
+        standbyRingBuffer.clear()
+    }
+
+    // MARK: - Crossfade Volume Control
+
+    /// Set crossfade volumes based on active slot. outGain applies to outgoing, inGain to incoming.
+    func setCrossfadeVolumes(outGain: Float, inGain: Float) {
+        switch activeSlot {
+        case .a:
+            volumeMixerA.outputVolume = outGain
+            volumeMixerB.outputVolume = inGain
+        case .b:
+            volumeMixerB.outputVolume = outGain
+            volumeMixerA.outputVolume = inGain
+        }
+    }
+
+    /// Reset to single-track mode: active mixer at 1.0, standby at 0.0
+    func resetToSingleTrack() {
+        switch activeSlot {
+        case .a:
+            volumeMixerA.outputVolume = 1.0
+            volumeMixerB.outputVolume = 0.0
+        case .b:
+            volumeMixerB.outputVolume = 1.0
+            volumeMixerA.outputVolume = 0.0
+        }
+    }
+
+    /// Swap which slot is considered active (called after crossfade completes)
+    func swapActiveSlot() {
+        activeSlot = activeSlot == .a ? .b : .a
     }
 
     /// Mute audio output (used during song transitions to prevent glitchy sounds)

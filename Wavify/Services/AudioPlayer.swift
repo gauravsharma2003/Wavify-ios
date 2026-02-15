@@ -100,16 +100,22 @@ class AudioPlayer {
     private let networkManager = NetworkManager.shared
     private let sharePlayManager = SharePlayManager.shared
 
+    // MARK: - Crossfade
+
+    private var crossfadeEngine: CrossfadeEngine?
+    private let crossfadeSettings = CrossfadeSettings.shared
+
     /// Flag to prevent duplicate song end handling
     private var isHandlingSongEnd = false
     /// Timestamp of last handled song end — debounces double-triggers from
     /// the fallback timer and AVPlayerItemDidPlayToEndTime firing for the same ending
     private var lastSongEndHandledAt: Date = .distantPast
-    
+
     // MARK: - Initialization
-    
+
     private init() {
         setupPlaybackService()
+        setupCrossfadeEngine()
         setupRemoteCommandCenter()
         setupNotifications()
         restoreLastSession()
@@ -122,10 +128,15 @@ class AudioPlayer {
         }
         
         playbackService.onTimeUpdated = { [weak self] time in
-            self?.currentTime = time
+            guard let self = self else { return }
+            self.currentTime = time
             // Periodically save position (every 5 seconds)
             if Int(time) % 5 == 0 {
-                self?.saveCurrentPosition()
+                self.saveCurrentPosition()
+            }
+            // Feed crossfade engine for preload/fade timing
+            if self.crossfadeSettings.isEnabled {
+                self.crossfadeEngine?.startMonitoring(currentTime: time, duration: self.duration)
             }
         }
         
@@ -133,6 +144,8 @@ class AudioPlayer {
         playbackService.onSongEnded = { [weak self] in
             Task { @MainActor in
                 guard let self = self, !self.isHandlingSongEnd else { return }
+                // If crossfade engine is actively fading, it handles the transition
+                if self.crossfadeEngine?.isFading == true { return }
                 // Debounce: ignore if a song end was already handled within the last second
                 if Date().timeIntervalSince(self.lastSongEndHandledAt) < 1.0 { return }
                 self.isHandlingSongEnd = true
@@ -192,6 +205,111 @@ class AudioPlayer {
         }
     }
     
+    // MARK: - Crossfade Engine Setup
+
+    private func setupCrossfadeEngine() {
+        let engine = CrossfadeEngine()
+
+        engine.onPreloadNeeded = { [weak self] in
+            return self?.resolveNextSong()
+        }
+
+        engine.onFetchPlaybackURL = { [weak self] song in
+            guard let self = self else {
+                throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "AudioPlayer deallocated"])
+            }
+            let playbackInfo = try await self.networkManager.getPlaybackInfo(videoId: song.videoId)
+            guard let url = URL(string: playbackInfo.audioUrl) else {
+                throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid audio URL"])
+            }
+            let expectedDuration = Double(playbackInfo.duration) ?? Double(song.duration) ?? 0
+            return (url, expectedDuration)
+        }
+
+        engine.onCrossfadeCompleted = { [weak self] song, player, item, expectedDuration in
+            guard let self = self else { return }
+            Logger.log("Crossfade: completed, adopting \(song.title)", category: .playback)
+
+            // Advance queue to the crossfaded song
+            self.advanceQueueForCrossfade(to: song)
+
+            // Update current song state
+            self.currentSong = song
+            self.duration = expectedDuration
+
+            // Adopt the player — PlaybackService takes over without stopping audio
+            self.playbackService.adoptPlayer(player, playerItem: item, duration: expectedDuration)
+
+            self.updateNowPlayingInfo()
+
+            // Save to widget
+            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: expectedDuration)
+
+            // Notify for play count tracking
+            NotificationCenter.default.post(
+                name: .songDidStartPlaying,
+                object: nil,
+                userInfo: ["song": song]
+            )
+
+            // Ensure queue doesn't run out
+            self.queueManager.checkAndAppendIfNeeded(loopMode: self.shuffleController.loopMode, currentSong: song)
+
+            // SharePlay broadcast
+            self.sharePlayManager.broadcastTrackChange(song: song)
+        }
+
+        crossfadeEngine = engine
+    }
+
+    /// Peek at the next song respecting shuffle/loop WITHOUT advancing the queue
+    private func resolveNextSong() -> Song? {
+        guard !queue.isEmpty else { return nil }
+
+        // Loop one: don't crossfade into the same song
+        if shuffleController.loopMode == .one {
+            return nil
+        }
+
+        // Shuffle mode
+        if shuffleController.isShuffleMode {
+            if let nextIndex = shuffleController.peekNextShuffleIndex() {
+                return queue[safe: nextIndex]
+            }
+            return nil
+        }
+
+        // Normal mode
+        let nextIndex = currentIndex + 1
+        if nextIndex < queue.count {
+            return queue[safe: nextIndex]
+        }
+
+        // Loop all wraps around
+        if shuffleController.loopMode == .all {
+            return queue.first
+        }
+
+        return nil
+    }
+
+    /// Advance queue index to match the crossfaded song (without triggering playback)
+    private func advanceQueueForCrossfade(to song: Song) {
+        if shuffleController.isShuffleMode {
+            if let nextIndex = shuffleController.getNextShuffleIndex() {
+                queueManager.jumpToIndex(nextIndex)
+                queueManager.consumeFromUserQueue(songId: song.id)
+            }
+        } else {
+            let nextIndex = currentIndex + 1
+            if nextIndex < queue.count {
+                queueManager.jumpToIndex(nextIndex)
+            } else if shuffleController.loopMode == .all {
+                queueManager.loopToStart()
+            }
+        }
+    }
+
     // MARK: - Remote Command Center
     
     private func setupRemoteCommandCenter() {
@@ -274,6 +392,13 @@ class AudioPlayer {
                     }
                     return
                 }
+                // If crossfade engine is actively fading, it handles the transition
+                if self.crossfadeEngine?.isFading == true {
+                    if backgroundTaskId != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTaskId)
+                    }
+                    return
+                }
                 // Debounce: ignore if a song end was already handled within the last second
                 // (prevents the fallback timer + notification double-trigger)
                 if Date().timeIntervalSince(self.lastSongEndHandledAt) < 1.0 {
@@ -308,6 +433,7 @@ class AudioPlayer {
             Task { @MainActor in
                 switch type {
                 case .began:
+                    self?.crossfadeEngine?.cancelCrossfade()
                     self?.pause()
                 case .ended:
                     if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
@@ -541,6 +667,11 @@ class AudioPlayer {
         guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
         guard !queue.isEmpty else { return }
 
+        // Cancel any in-progress crossfade — user skip takes priority
+        if crossfadeEngine?.isActive == true {
+            crossfadeEngine?.cancelCrossfade()
+        }
+
         // Handle shuffle mode
         if shuffleController.isShuffleMode {
             if let nextIndex = shuffleController.getNextShuffleIndex() {
@@ -651,19 +782,24 @@ class AudioPlayer {
 
     func moveQueueItem(fromOffsets source: IndexSet, toOffset destination: Int) {
         queueManager.moveItem(fromOffsets: source, toOffset: destination)
+        crossfadeEngine?.queueDidChange()
     }
 
     func removeFromQueue(at index: Int) {
         queueManager.removeFromQueue(at: index)
+        crossfadeEngine?.queueDidChange()
     }
 
     /// Move song to play next. Returns false if already next (meaning: play it now)
     func moveToPlayNext(fromIndex index: Int) -> Bool {
-        queueManager.moveToPlayNext(fromIndex: index)
+        let result = queueManager.moveToPlayNext(fromIndex: index)
+        crossfadeEngine?.queueDidChange()
+        return result
     }
 
     func replaceUpcomingQueue(with songs: [Song]) {
         queueManager.replaceUpcoming(with: songs)
+        crossfadeEngine?.queueDidChange()
     }
 
     // MARK: - Album/Playlist Playback

@@ -163,11 +163,11 @@ final class AudioTapProcessor {
 
     // MARK: - Public API
 
-    func attachSync(to playerItem: AVPlayerItem) {
+    func attachSync(to playerItem: AVPlayerItem, ringBuffer: CircularBuffer? = nil) {
         attachTask?.cancel()
 
         let context = AudioTapContext(
-            ringBuffer: AudioEngineService.shared.ringBuffer
+            ringBuffer: ringBuffer ?? AudioEngineService.shared.activeRingBuffer
         )
         tapContext = context
 
@@ -231,9 +231,10 @@ final class AudioTapProcessor {
         attachTask?.cancel()
         attachTask = nil
         currentAttachmentId = nil
-        tapContext = nil
 
-        AudioEngineService.shared.ringBuffer.clear()
+        // Clear the ring buffer this tap was writing to
+        tapContext?.ringBuffer.clear()
+        tapContext = nil
     }
 
     // MARK: - Private
