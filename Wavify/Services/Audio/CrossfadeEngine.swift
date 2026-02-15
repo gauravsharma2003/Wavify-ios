@@ -52,8 +52,12 @@ final class CrossfadeEngine {
     /// Whether the current transition is using stem mode
     private var usingStemMode = false
 
-    /// Minimum side/mid ratio to use stem crossfade (below = mono, use simple)
-    private let stemThreshold: Double = 0.05
+    /// Side/mid ratio thresholds for graduated stereo detection
+    private let monoThreshold: Double = 0.02      // Below → simple crossfade
+    private let fullStereoThreshold: Double = 0.15 // Above → full stagger
+
+    /// Gain correction to normalize incoming track loudness to match outgoing
+    private var incomingGainCorrection: Float = 1.0
 
     // MARK: - Fade Timer (Simple mode)
 
@@ -72,6 +76,20 @@ final class CrossfadeEngine {
     private var hasTriggeredPreload = false
     private var hasTriggeredFade = false
 
+    // MARK: - Smart Transition
+
+    /// Whether an early transition was triggered by vocal drop detection
+    private var earlyTransitionTriggered = false
+    /// Minimum playback time before allowing smart early transition
+    private let smartTransitionMinPlayback: Double = 30.0
+
+    // MARK: - Beat Alignment
+
+    /// Beat-aligned fade trigger time (computed after analysis)
+    private var beatAlignedFadeTime: Double?
+    /// Total track duration (saved for beat alignment calculations)
+    private var trackDuration: Double = 0
+
     // MARK: - Callbacks (wired by AudioPlayer)
 
     /// Ask AudioPlayer for the next song to crossfade into
@@ -81,6 +99,8 @@ final class CrossfadeEngine {
     /// Notify AudioPlayer that crossfade completed — hand off to PlaybackService
     /// Parameters: (song, player, playerItem, expectedDuration)
     var onCrossfadeCompleted: ((Song, AVPlayer, AVPlayerItem, Double) -> Void)?
+    /// Get the active (outgoing) track's tap context for stem decomposition
+    var onGetActiveTapContext: (() -> AudioTapContext?)?
 
     // MARK: - Monitoring
 
@@ -90,6 +110,7 @@ final class CrossfadeEngine {
         guard duration > 0 else { return }
 
         fadeDuration = settings.fadeDuration
+        trackDuration = duration
 
         // Skip crossfade for short tracks (less than 3x fade duration)
         guard duration >= fadeDuration * 3 else { return }
@@ -102,9 +123,32 @@ final class CrossfadeEngine {
             triggerPreload()
         }
 
-        // Trigger fade at fadeDuration before end
-        if remaining <= fadeDuration && !hasTriggeredFade && (state == .ready) {
+        // Smart early transition: detect vocal drop-off in the approach window
+        if state == .ready && settings.isPremium && !hasTriggeredFade && !earlyTransitionTriggered
+            && currentTime > smartTransitionMinPlayback {
+            let idealFadeTime = duration - fadeDuration
+            let earlyWindowStart = idealFadeTime - 10.0
+            if currentTime >= earlyWindowStart && currentTime < idealFadeTime {
+                if activeDecomposer?.isVocalDropDetected == true {
+                    earlyTransitionTriggered = true
+                    hasTriggeredFade = true
+                    Logger.log("Crossfade: smart transition triggered at \(String(format: "%.1f", currentTime))s (vocal drop detected, ideal was \(String(format: "%.1f", idealFadeTime))s)", category: .playback)
+                    triggerFade()
+                    return
+                }
+            }
+        }
+
+        // Use beat-aligned fade time if available, otherwise standard timing
+        let effectiveFadeTime = beatAlignedFadeTime ?? fadeDuration
+
+        // Trigger fade at effectiveFadeTime before end
+        if remaining <= effectiveFadeTime && !hasTriggeredFade && (state == .ready) {
             hasTriggeredFade = true
+            if let beatTime = beatAlignedFadeTime {
+                Logger.log("Crossfade: beat-aligned trigger at \(String(format: "%.1f", currentTime))s (ideal: \(String(format: "%.1f", duration - fadeDuration))s)", category: .playback)
+                _ = beatTime // suppress unused warning
+            }
             triggerFade()
         }
     }
@@ -180,7 +224,8 @@ final class CrossfadeEngine {
         let activeDecomp = StemDecomposer(
             bassBuffer: activeStemBufs.bass,
             vocalBuffer: activeStemBufs.vocal,
-            instrumentBuffer: activeStemBufs.inst,
+            instrumentBuffer: activeStemBufs.atmos,
+            drumsBuffer: activeStemBufs.drums,
             fullMixBuffer: engine.activeRingBuffer
         )
 
@@ -188,7 +233,8 @@ final class CrossfadeEngine {
         let standbyDecomp = StemDecomposer(
             bassBuffer: standbyStemBufs.bass,
             vocalBuffer: standbyStemBufs.vocal,
-            instrumentBuffer: standbyStemBufs.inst,
+            instrumentBuffer: standbyStemBufs.atmos,
+            drumsBuffer: standbyStemBufs.drums,
             fullMixBuffer: engine.standbyRingBuffer
         )
 
@@ -201,29 +247,82 @@ final class CrossfadeEngine {
             tapContext.stemMode = true
         }
 
+        // Configure the active (outgoing) tap for stem decomposition
+        // fullMixBuffer ensures normal ring buffer continues receiving data
+        if let activeTapCtx = onGetActiveTapContext?() {
+            activeTapCtx.stemDecomposer = activeDecomp
+            activeTapCtx.stemMode = true
+        } else {
+            // Can't access active tap — fall back to simple crossfade
+            Logger.warning("Crossfade: no active tap context, falling back to simple", category: .playback)
+            usingStemMode = false
+            if let tapCtx = slot.tapContext { tapCtx.stemMode = false; tapCtx.stemDecomposer = nil }
+            self.activeDecomposer = nil
+            self.standbyDecomposer = nil
+            self.state = .ready
+            return
+        }
+
         // Wait briefly for analysis data to accumulate (~200ms worth of audio)
         Task {
             try? await Task.sleep(for: .milliseconds(300))
             guard self.state == .analyzing else { return }
 
-            // Check the standby decomposer's side/mid ratio
-            let ratio = standbyDecomp.sideMidRatio
-            if ratio >= stemThreshold {
-                usingStemMode = true
-                Logger.log("Crossfade: stem mode enabled (side/mid ratio: \(String(format: "%.3f", ratio)))", category: .playback)
+            // Compute loudness normalization using A-weighted RMS in dB domain
+            let activeRMS = activeDecomp.aWeightedRMS
+            let standbyRMS = standbyDecomp.aWeightedRMS
+            if standbyRMS > 0.001 && activeRMS > 0.001 {
+                let activeDB = 20.0 * log10(activeRMS)
+                let standbyDB = 20.0 * log10(standbyRMS)
+                let diffDB = min(6.0, max(-6.0, activeDB - standbyDB))
+                self.incomingGainCorrection = Float(pow(10.0, diffDB / 20.0))
+                Logger.log("Crossfade: loudness correction \(String(format: "%.2f", self.incomingGainCorrection)) (active: \(String(format: "%.1f", activeDB))dB, standby: \(String(format: "%.1f", standbyDB))dB, diff: \(String(format: "%.1f", diffDB))dB)", category: .playback)
             } else {
+                self.incomingGainCorrection = 1.0
+            }
+
+            // Check the standby decomposer's side/mid ratio with graduated detection
+            let ratio = standbyDecomp.sideMidRatio
+            if ratio < self.monoThreshold {
+                // Too mono for stem mode — fall back to simple crossfade
                 usingStemMode = false
-                // Disable stem mode on the tap
                 if let tapContext = slot.tapContext {
                     tapContext.stemMode = false
                     tapContext.stemDecomposer = nil
                 }
+                if let activeTapCtx = self.onGetActiveTapContext?() {
+                    activeTapCtx.stemMode = false
+                    activeTapCtx.stemDecomposer = nil
+                }
                 self.activeDecomposer = nil
                 self.standbyDecomposer = nil
                 Logger.log("Crossfade: mono content detected (ratio: \(String(format: "%.3f", ratio))), using simple fade", category: .playback)
+            } else {
+                usingStemMode = true
+                // Graduated stagger intensity based on stereo width
+                let intensity = Float((ratio - self.monoThreshold) / (self.fullStereoThreshold - self.monoThreshold))
+                self.choreographer.staggerIntensity = min(1.0, max(0.0, intensity))
+                Logger.log("Crossfade: stem mode enabled (side/mid ratio: \(String(format: "%.3f", ratio)), stagger: \(String(format: "%.2f", self.choreographer.staggerIntensity)))", category: .playback)
+            }
+
+            // Beat alignment: snap fade trigger to nearest downbeat
+            if activeDecomp.beatTracker.isConfident {
+                let idealTriggerTime = self.trackDuration - self.fadeDuration
+                if let downbeat = activeDecomp.beatTracker.nearestDownbeat(to: idealTriggerTime, tolerance: 2.0) {
+                    let alignedRemaining = self.trackDuration - downbeat
+                    self.beatAlignedFadeTime = alignedRemaining
+                    Logger.log("Crossfade: beat-aligned fade at \(String(format: "%.1f", alignedRemaining))s remaining (BPM: \(String(format: "%.0f", activeDecomp.beatTracker.estimatedBPM)), ideal: \(String(format: "%.1f", self.fadeDuration))s)", category: .playback)
+                }
             }
 
             self.state = .ready
+
+            // Start standby player early so stem buffers fill before the fade triggers
+            // volumeMixerB is at 0.0, so this is silent
+            if !self.slot.isPlaying {
+                self.slot.play()
+            }
+
             Logger.log("Crossfade: \(nextSong.title) ready for fade", category: .playback)
         }
     }
@@ -238,8 +337,10 @@ final class CrossfadeEngine {
             self?.cancelCrossfade()
         }
 
-        // Start the incoming track playing
-        slot.play()
+        // Start the incoming track playing (may already be playing from pre-fill)
+        if !slot.isPlaying {
+            slot.play()
+        }
 
         if usingStemMode && settings.isPremium {
             triggerStemFade()
@@ -277,7 +378,7 @@ final class CrossfadeEngine {
 
         // Equal-power crossfade curves
         let outGain = Float(cos(progress * .pi / 2))
-        let inGain = Float(sin(progress * .pi / 2))
+        let inGain = Float(sin(progress * .pi / 2)) * incomingGainCorrection
 
         AudioEngineService.shared.setCrossfadeVolumes(outGain: outGain, inGain: inGain)
 
@@ -291,7 +392,10 @@ final class CrossfadeEngine {
     private func triggerStemFade() {
         state = .stemFading
 
-        Logger.log("Crossfade: starting \(fadeDuration)s premium stem fade", category: .playback)
+        // Set the active fade profile from user's transition style preference
+        choreographer.activeProfile = TransitionChoreographer.profile(for: settings.transitionStyle)
+
+        Logger.log("Crossfade: starting \(fadeDuration)s premium stem fade (\(settings.transitionStyle.rawValue))", category: .playback)
 
         let engine = AudioEngineService.shared
 
@@ -303,9 +407,26 @@ final class CrossfadeEngine {
         engine.activateStemMode()
 
         // Configure choreographer
+        let gainCorrection = incomingGainCorrection
         choreographer.onStemVolumesUpdated = { [weak self] volumes in
             guard let self = self, self.state == .stemFading else { return }
-            engine.setStemVolumes(volumes)
+
+            // Drive vocal width bloom on the outgoing decomposer
+            self.activeDecomposer?.vocalWidthBloom = volumes.outVocalBloom
+
+            // Apply loudness normalization to incoming stems
+            let corrected = TransitionChoreographer.StemVolumes(
+                outDrums: volumes.outDrums,
+                outBass: volumes.outBass,
+                outVocal: volumes.outVocal,
+                outAtmosphere: volumes.outAtmosphere,
+                inDrums: volumes.inDrums * gainCorrection,
+                inBass: volumes.inBass * gainCorrection,
+                inVocal: volumes.inVocal * gainCorrection,
+                inAtmosphere: volumes.inAtmosphere * gainCorrection,
+                outVocalBloom: volumes.outVocalBloom
+            )
+            engine.setStemVolumes(corrected)
         }
 
         choreographer.onCompleted = { [weak self] in
@@ -338,6 +459,10 @@ final class CrossfadeEngine {
             if let tapContext = slot.tapContext {
                 tapContext.stemMode = false
                 tapContext.stemDecomposer = nil
+            }
+            if let activeTapCtx = onGetActiveTapContext?() {
+                activeTapCtx.stemMode = false
+                activeTapCtx.stemDecomposer = nil
             }
             activeDecomposer = nil
             standbyDecomposer = nil
@@ -383,6 +508,10 @@ final class CrossfadeEngine {
             if let tapContext = slot.tapContext {
                 tapContext.stemMode = false
                 tapContext.stemDecomposer = nil
+            }
+            if let activeTapCtx = onGetActiveTapContext?() {
+                activeTapCtx.stemMode = false
+                activeTapCtx.stemDecomposer = nil
             }
             activeDecomposer = nil
             standbyDecomposer = nil
@@ -430,6 +559,11 @@ final class CrossfadeEngine {
         hasTriggeredPreload = false
         hasTriggeredFade = false
         usingStemMode = false
+        incomingGainCorrection = 1.0
+        earlyTransitionTriggered = false
+        beatAlignedFadeTime = nil
+        trackDuration = 0
+        choreographer.incomingDrumStartOverride = nil
     }
 
     private func endBackgroundTask() {

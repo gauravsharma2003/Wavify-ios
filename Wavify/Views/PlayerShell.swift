@@ -876,9 +876,12 @@ struct PlayerShell: View {
     // MARK: - Progress & Controls
 
     private var progressView: some View {
-        NowPlayingProgressSection(audioPlayer: audioPlayer)
-            .disabled(sharePlayManager.isGuest)
-            .opacity(sharePlayManager.isGuest ? 0.6 : 1.0)
+        NowPlayingProgressSection(
+            audioPlayer: audioPlayer,
+            isCrossfadeActive: CrossfadeSettings.shared.isEnabled && audioPlayer.crossfadeEngine?.isActive == true
+        )
+        .disabled(sharePlayManager.isGuest)
+        .opacity(sharePlayManager.isGuest ? 0.6 : 1.0)
     }
 
     private var controlsView: some View {
@@ -932,9 +935,12 @@ struct PlayerShell: View {
                 .padding(.top, 4)
                 .padding(.bottom, 8)
 
-            SlimProgressView(audioPlayer: audioPlayer)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
+            SlimProgressView(
+                audioPlayer: audioPlayer,
+                isCrossfadeActive: CrossfadeSettings.shared.isEnabled && audioPlayer.crossfadeEngine?.isActive == true
+            )
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
 
             LyricsView(
                 lyricsState: lyricsState,

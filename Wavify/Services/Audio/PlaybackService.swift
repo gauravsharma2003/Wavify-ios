@@ -36,6 +36,9 @@ class PlaybackService {
     // Audio processing tap for EQ
     private let audioTapProcessor = AudioTapProcessor()
 
+    /// Expose the tap context so CrossfadeEngine can enable stem decomposition on the active track
+    var activeTapContext: AudioTapContext? { audioTapProcessor.context }
+
     /// Which ring buffer the tap writes to (nil = default active buffer)
     var targetRingBuffer: CircularBuffer?
 

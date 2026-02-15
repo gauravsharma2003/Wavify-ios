@@ -226,6 +226,10 @@ class AudioPlayer {
             return (url, expectedDuration)
         }
 
+        engine.onGetActiveTapContext = { [weak self] in
+            return self?.playbackService.activeTapContext
+        }
+
         engine.onCrossfadeCompleted = { [weak self] song, player, item, expectedDuration in
             guard let self = self else { return }
             Logger.log("Crossfade: completed, adopting \(song.title)", category: .playback)
@@ -662,6 +666,12 @@ class AudioPlayer {
         currentTime = time
         updateNowPlayingInfo()
         sharePlayManager.broadcastSeek(to: time)
+
+        // Cancel crossfade if user seeks backward past the trigger point
+        let remaining = duration - time
+        if remaining > 20, crossfadeEngine?.isActive == true, crossfadeEngine?.isFading == false {
+            crossfadeEngine?.cancelCrossfade()
+        }
     }
     
     func playNext() async {

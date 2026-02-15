@@ -18,9 +18,9 @@ import Combine
 /// Manages the high-fidelity audio processing pipeline
 @MainActor
 class AudioEngineService: ObservableObject {
-    
+
     static let shared = AudioEngineService()
-    
+
     // MARK: - Core Components
 
     let engine = AVAudioEngine()
@@ -54,48 +54,54 @@ class AudioEngineService: ObservableObject {
 
     // MARK: - Stem Crossfade Routing (Premium)
 
-    // 6 stem source nodes (3 per track slot: bass, vocal, instrument)
+    // 8 stem source nodes (4 per track slot: drums, bass, vocal, atmosphere)
+    private var stemSrcA_drums: AVAudioSourceNode!
     private var stemSrcA_bass: AVAudioSourceNode!
     private var stemSrcA_vocal: AVAudioSourceNode!
-    private var stemSrcA_inst: AVAudioSourceNode!
+    private var stemSrcA_atmos: AVAudioSourceNode!
+    private var stemSrcB_drums: AVAudioSourceNode!
     private var stemSrcB_bass: AVAudioSourceNode!
     private var stemSrcB_vocal: AVAudioSourceNode!
-    private var stemSrcB_inst: AVAudioSourceNode!
+    private var stemSrcB_atmos: AVAudioSourceNode!
 
-    // 6 volume mixers for individual stem control
+    // 8 volume mixers for individual stem control
+    private let stemVolA_drums = AVAudioMixerNode()
     private let stemVolA_bass = AVAudioMixerNode()
     private let stemVolA_vocal = AVAudioMixerNode()
-    private let stemVolA_inst = AVAudioMixerNode()
+    private let stemVolA_atmos = AVAudioMixerNode()
+    private let stemVolB_drums = AVAudioMixerNode()
     private let stemVolB_bass = AVAudioMixerNode()
     private let stemVolB_vocal = AVAudioMixerNode()
-    private let stemVolB_inst = AVAudioMixerNode()
+    private let stemVolB_atmos = AVAudioMixerNode()
 
-    // Stem mixer collects all 6 stems → crossfadeMixer
+    // Stem mixer collects all 8 stems → crossfadeMixer
     private let stemMixer = AVAudioMixerNode()
 
     // Stem ring buffers — smaller capacity (~2s @ 44100Hz stereo)
+    let stemBufferA_drums = CircularBuffer(capacity: 44100 * 2 * 2)
     let stemBufferA_bass = CircularBuffer(capacity: 44100 * 2 * 2)
     let stemBufferA_vocal = CircularBuffer(capacity: 44100 * 2 * 2)
-    let stemBufferA_inst = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferA_atmos = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferB_drums = CircularBuffer(capacity: 44100 * 2 * 2)
     let stemBufferB_bass = CircularBuffer(capacity: 44100 * 2 * 2)
     let stemBufferB_vocal = CircularBuffer(capacity: 44100 * 2 * 2)
-    let stemBufferB_inst = CircularBuffer(capacity: 44100 * 2 * 2)
+    let stemBufferB_atmos = CircularBuffer(capacity: 44100 * 2 * 2)
 
     /// Whether stem mode is currently active
     private(set) var isStemModeActive = false
 
     /// Get the stem ring buffers for the active slot
-    var activeStemBuffers: (bass: CircularBuffer, vocal: CircularBuffer, inst: CircularBuffer) {
+    var activeStemBuffers: (drums: CircularBuffer, bass: CircularBuffer, vocal: CircularBuffer, atmos: CircularBuffer) {
         activeSlot == .a
-            ? (stemBufferA_bass, stemBufferA_vocal, stemBufferA_inst)
-            : (stemBufferB_bass, stemBufferB_vocal, stemBufferB_inst)
+            ? (stemBufferA_drums, stemBufferA_bass, stemBufferA_vocal, stemBufferA_atmos)
+            : (stemBufferB_drums, stemBufferB_bass, stemBufferB_vocal, stemBufferB_atmos)
     }
 
     /// Get the stem ring buffers for the standby slot
-    var standbyStemBuffers: (bass: CircularBuffer, vocal: CircularBuffer, inst: CircularBuffer) {
+    var standbyStemBuffers: (drums: CircularBuffer, bass: CircularBuffer, vocal: CircularBuffer, atmos: CircularBuffer) {
         activeSlot == .a
-            ? (stemBufferB_bass, stemBufferB_vocal, stemBufferB_inst)
-            : (stemBufferA_bass, stemBufferA_vocal, stemBufferA_inst)
+            ? (stemBufferB_drums, stemBufferB_bass, stemBufferB_vocal, stemBufferB_atmos)
+            : (stemBufferA_drums, stemBufferA_bass, stemBufferA_vocal, stemBufferA_atmos)
     }
 
     // MARK: - DSP Nodes
@@ -103,27 +109,27 @@ class AudioEngineService: ObservableObject {
     // Converter Node (Critical for Resampling)
     // crossfadeMixer -> inputMixer -> Rest of Graph
     private let inputMixer = AVAudioMixerNode()
-    
+
     // Main signal path - 10 bands to match UI sliders
     private let mainEQ = AVAudioUnitEQ(numberOfBands: 10)
     private let mainMixer = AVAudioMixerNode()
-    
+
     // Parallel Bass path
     private let bassEQ = AVAudioUnitEQ(numberOfBands: 2)
     private let bassDistortion = AVAudioUnitDistortion()
     private let bassMixer = AVAudioMixerNode()
-    
+
     // Dynamics
     private let compressor = AVAudioUnitDynamicsProcessor()
     private let limiter = AVAudioUnitDynamicsProcessor()
-    
+
     // Output
     private let outputMixer = AVAudioMixerNode()
-    
+
     // MARK: - Integration
-    
+
     private var settingsCancellable: AnyCancellable?
-    
+
     // MARK: - Adaptive Bass State
 
     private var isAdaptiveBassEnabled = true
@@ -193,7 +199,7 @@ class AudioEngineService: ObservableObject {
         defer { initLock.unlock() }
         return isInitialized
     }
-    
+
     /// Creates an AVAudioSourceNode that reads from the given ring buffer
     private func makeSourceNode(for buffer: CircularBuffer) -> AVAudioSourceNode {
         AVAudioSourceNode { [weak buffer] _, _, frameCount, audioBufferList in
@@ -236,15 +242,17 @@ class AudioEngineService: ObservableObject {
         sourceNode = makeSourceNode(for: ringBuffer)
         sourceNodeB = makeSourceNode(for: ringBufferB)
 
-        // Stem source nodes
+        // Stem source nodes (4 per slot: drums, bass, vocal, atmosphere)
+        stemSrcA_drums = makeSourceNode(for: stemBufferA_drums)
         stemSrcA_bass = makeSourceNode(for: stemBufferA_bass)
         stemSrcA_vocal = makeSourceNode(for: stemBufferA_vocal)
-        stemSrcA_inst = makeSourceNode(for: stemBufferA_inst)
+        stemSrcA_atmos = makeSourceNode(for: stemBufferA_atmos)
+        stemSrcB_drums = makeSourceNode(for: stemBufferB_drums)
         stemSrcB_bass = makeSourceNode(for: stemBufferB_bass)
         stemSrcB_vocal = makeSourceNode(for: stemBufferB_vocal)
-        stemSrcB_inst = makeSourceNode(for: stemBufferB_inst)
+        stemSrcB_atmos = makeSourceNode(for: stemBufferB_atmos)
     }
-    
+
     private func setupGraph() {
         // Attach normal path nodes
         engine.attach(sourceNode)
@@ -263,18 +271,22 @@ class AudioEngineService: ObservableObject {
         engine.attach(outputMixer)
 
         // Attach stem path nodes (all pre-connected, silent when inactive)
+        engine.attach(stemSrcA_drums)
         engine.attach(stemSrcA_bass)
         engine.attach(stemSrcA_vocal)
-        engine.attach(stemSrcA_inst)
+        engine.attach(stemSrcA_atmos)
+        engine.attach(stemSrcB_drums)
         engine.attach(stemSrcB_bass)
         engine.attach(stemSrcB_vocal)
-        engine.attach(stemSrcB_inst)
+        engine.attach(stemSrcB_atmos)
+        engine.attach(stemVolA_drums)
         engine.attach(stemVolA_bass)
         engine.attach(stemVolA_vocal)
-        engine.attach(stemVolA_inst)
+        engine.attach(stemVolA_atmos)
+        engine.attach(stemVolB_drums)
         engine.attach(stemVolB_bass)
         engine.attach(stemVolB_vocal)
-        engine.attach(stemVolB_inst)
+        engine.attach(stemVolB_atmos)
         engine.attach(stemMixer)
 
         // Format: Standard float32 stereo
@@ -289,13 +301,15 @@ class AudioEngineService: ObservableObject {
         // sourceNodeB -> volumeMixerB ──┤
         //                                ├→ crossfadeMixer -> inputMixer -> [EQ chain]
         //                    STEM PATH   │
-        // stemSrc_A_bass  -> stemVol_A_bass  ──┐
+        // stemSrc_A_drums -> stemVol_A_drums ──┐
+        // stemSrc_A_bass  -> stemVol_A_bass  ──┤
         // stemSrc_A_vocal -> stemVol_A_vocal ──┤
-        // stemSrc_A_inst  -> stemVol_A_inst  ──┤
+        // stemSrc_A_atmos -> stemVol_A_atmos ──┤
         //                                      ├→ stemMixer ──→ crossfadeMixer
+        // stemSrc_B_drums -> stemVol_B_drums ──┤
         // stemSrc_B_bass  -> stemVol_B_bass  ──┤
         // stemSrc_B_vocal -> stemVol_B_vocal ──┤
-        // stemSrc_B_inst  -> stemVol_B_inst  ──┘
+        // stemSrc_B_atmos -> stemVol_B_atmos ──┘
 
         // 1. Normal source nodes -> Volume mixers (locked at 44100Hz)
         engine.connect(sourceNode, to: volumeMixerA, format: sourceFormat)
@@ -306,20 +320,24 @@ class AudioEngineService: ObservableObject {
         engine.connect(volumeMixerB, to: crossfadeMixer, format: outputFormat)
 
         // 3. Stem source nodes -> Stem volume mixers (locked at 44100Hz)
+        engine.connect(stemSrcA_drums, to: stemVolA_drums, format: sourceFormat)
         engine.connect(stemSrcA_bass, to: stemVolA_bass, format: sourceFormat)
         engine.connect(stemSrcA_vocal, to: stemVolA_vocal, format: sourceFormat)
-        engine.connect(stemSrcA_inst, to: stemVolA_inst, format: sourceFormat)
+        engine.connect(stemSrcA_atmos, to: stemVolA_atmos, format: sourceFormat)
+        engine.connect(stemSrcB_drums, to: stemVolB_drums, format: sourceFormat)
         engine.connect(stemSrcB_bass, to: stemVolB_bass, format: sourceFormat)
         engine.connect(stemSrcB_vocal, to: stemVolB_vocal, format: sourceFormat)
-        engine.connect(stemSrcB_inst, to: stemVolB_inst, format: sourceFormat)
+        engine.connect(stemSrcB_atmos, to: stemVolB_atmos, format: sourceFormat)
 
         // 4. Stem volume mixers -> Stem mixer
+        engine.connect(stemVolA_drums, to: stemMixer, format: outputFormat)
         engine.connect(stemVolA_bass, to: stemMixer, format: outputFormat)
         engine.connect(stemVolA_vocal, to: stemMixer, format: outputFormat)
-        engine.connect(stemVolA_inst, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolA_atmos, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolB_drums, to: stemMixer, format: outputFormat)
         engine.connect(stemVolB_bass, to: stemMixer, format: outputFormat)
         engine.connect(stemVolB_vocal, to: stemMixer, format: outputFormat)
-        engine.connect(stemVolB_inst, to: stemMixer, format: outputFormat)
+        engine.connect(stemVolB_atmos, to: stemMixer, format: outputFormat)
 
         // 5. Stem mixer -> Crossfade mixer
         engine.connect(stemMixer, to: crossfadeMixer, format: outputFormat)
@@ -354,26 +372,28 @@ class AudioEngineService: ObservableObject {
         volumeMixerB.outputVolume = 0.0
 
         // All stem volumes start at 0 (silent until premium transition)
+        stemVolA_drums.outputVolume = 0.0
         stemVolA_bass.outputVolume = 0.0
         stemVolA_vocal.outputVolume = 0.0
-        stemVolA_inst.outputVolume = 0.0
+        stemVolA_atmos.outputVolume = 0.0
+        stemVolB_drums.outputVolume = 0.0
         stemVolB_bass.outputVolume = 0.0
         stemVolB_vocal.outputVolume = 0.0
-        stemVolB_inst.outputVolume = 0.0
+        stemVolB_atmos.outputVolume = 0.0
 
         configureNodes()
     }
-    
+
     private func configureNodes() {
         // --- 1. Main EQ Initial Setup (Flat) ---
         let standardFrequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        
+
         for (i, freq) in standardFrequencies.enumerated() {
             let band = mainEQ.bands[i]
             band.frequency = freq
             band.bypass = false // Active but 0 gain initially
             band.gain = 0
-            
+
             // Band types matching standard graphic EQ behavior
             if i == 0 {
                 band.filterType = .lowShelf
@@ -384,24 +404,24 @@ class AudioEngineService: ObservableObject {
                 band.bandwidth = 1.0 // Standard Q
             }
         }
-        
+
         // --- 2. Bass Path Setup ---
         // Band 0: Low Pass to isolate bass (cutoff 120Hz)
         bassEQ.bands[0].filterType = .lowPass
         bassEQ.bands[0].frequency = 120
         bassEQ.bands[0].bypass = false
-        
+
         // Band 1: Boost for harmonics input
         bassEQ.bands[1].filterType = .lowShelf
         bassEQ.bands[1].frequency = 60
         bassEQ.bands[1].gain = 0 // Adaptive/Preset will control this
         bassEQ.bands[1].bypass = false
-        
+
         // Harmonic Generation (Distortion)
         bassDistortion.loadFactoryPreset(.multiCellphoneConcert)
         bassDistortion.preGain = -6
         bassDistortion.wetDryMix = 20
-        
+
         // --- 3. Compressor (Vocal Protection) ---
         compressor.threshold = -18
         compressor.headRoom = 6
@@ -409,7 +429,7 @@ class AudioEngineService: ObservableObject {
         compressor.attackTime = 0.002
         compressor.releaseTime = 0.08
         compressor.masterGain = 0
-        
+
         // --- 4. Limiter (Safety) ---
         limiter.threshold = -2.0
         limiter.headRoom = 1.0
@@ -417,33 +437,33 @@ class AudioEngineService: ObservableObject {
         limiter.attackTime = 0.001
         limiter.releaseTime = 0.05
         limiter.masterGain = 0
-        
+
         // --- 5. Mix Levels ---
         mainMixer.outputVolume = 1.0
         bassMixer.outputVolume = 0.0
-        
+
         // Update with current settings (if any)
         updateSettings(EqualizerManager.shared.settings)
     }
-    
+
     // MARK: - Lifecycle Management
-    
+
     func start() {
         guard !engine.isRunning else { return }
         do {
             try engine.start()
-            
+
             startAdaptiveBassMonitoring()
         } catch {
             Logger.error("Failed to start AudioEngine", category: .playback, error: error)
         }
     }
-    
+
     func stop() {
         engine.stop()
         stopAdaptiveBassMonitoring()
     }
-    
+
     func flush() {
         activeRingBuffer.clear()
     }
@@ -503,57 +523,132 @@ class AudioEngineService: ObservableObject {
         switch activeSlot {
         case .a:
             // A is outgoing, B is incoming
+            stemVolA_drums.outputVolume = volumes.outDrums
             stemVolA_bass.outputVolume = volumes.outBass
             stemVolA_vocal.outputVolume = volumes.outVocal
-            stemVolA_inst.outputVolume = volumes.outInstrument
+            stemVolA_atmos.outputVolume = volumes.outAtmosphere
+            stemVolB_drums.outputVolume = volumes.inDrums
             stemVolB_bass.outputVolume = volumes.inBass
             stemVolB_vocal.outputVolume = volumes.inVocal
-            stemVolB_inst.outputVolume = volumes.inInstrument
+            stemVolB_atmos.outputVolume = volumes.inAtmosphere
         case .b:
             // B is outgoing, A is incoming
+            stemVolB_drums.outputVolume = volumes.outDrums
             stemVolB_bass.outputVolume = volumes.outBass
             stemVolB_vocal.outputVolume = volumes.outVocal
-            stemVolB_inst.outputVolume = volumes.outInstrument
+            stemVolB_atmos.outputVolume = volumes.outAtmosphere
+            stemVolA_drums.outputVolume = volumes.inDrums
             stemVolA_bass.outputVolume = volumes.inBass
             stemVolA_vocal.outputVolume = volumes.inVocal
-            stemVolA_inst.outputVolume = volumes.inInstrument
+            stemVolA_atmos.outputVolume = volumes.inAtmosphere
         }
     }
 
-    /// Activate stem mode: mute normal volume mixers, stems take over audio
+    /// Timer for stem mode ramp transitions
+    private var stemRampTimer: DispatchSourceTimer?
+
+    /// Activate stem mode: 50ms equal-power ramp from normal mixers to stems
     func activateStemMode() {
         isStemModeActive = true
-        // Quick fade normal mixers to 0 (stems will handle the audio)
-        volumeMixerA.outputVolume = 0.0
-        volumeMixerB.outputVolume = 0.0
+        stemRampTimer?.cancel()
+
+        let steps = 50
+        var step = 0
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            step += 1
+            let progress = Float(step) / Float(steps)
+            // Equal-power ramp: normal down via cos, stems come up via choreographer
+            let normalGain = cos(progress * .pi / 2)
+            self.volumeMixerA.outputVolume = normalGain
+            self.volumeMixerB.outputVolume = normalGain
+            if step >= steps {
+                self.volumeMixerA.outputVolume = 0.0
+                self.volumeMixerB.outputVolume = 0.0
+                self.stemRampTimer?.cancel()
+                self.stemRampTimer = nil
+            }
+        }
+        timer.resume()
+        stemRampTimer = timer
     }
 
-    /// Deactivate stem mode: restore normal volume mixers, silence all stems
+    /// Deactivate stem mode: 50ms ramp from stems back to normal mixers
     func deactivateStemMode() {
-        isStemModeActive = false
+        stemRampTimer?.cancel()
 
-        // Silence all stems
-        stemVolA_bass.outputVolume = 0.0
-        stemVolA_vocal.outputVolume = 0.0
-        stemVolA_inst.outputVolume = 0.0
-        stemVolB_bass.outputVolume = 0.0
-        stemVolB_vocal.outputVolume = 0.0
-        stemVolB_inst.outputVolume = 0.0
+        // Capture current stem volumes to ramp from
+        let initAD = stemVolA_drums.outputVolume
+        let initAB = stemVolA_bass.outputVolume
+        let initAV = stemVolA_vocal.outputVolume
+        let initAA = stemVolA_atmos.outputVolume
+        let initBD = stemVolB_drums.outputVolume
+        let initBB = stemVolB_bass.outputVolume
+        let initBV = stemVolB_vocal.outputVolume
+        let initBA = stemVolB_atmos.outputVolume
 
-        // Clear stem ring buffers
-        stemBufferA_bass.clear()
-        stemBufferA_vocal.clear()
-        stemBufferA_inst.clear()
-        stemBufferB_bass.clear()
-        stemBufferB_vocal.clear()
-        stemBufferB_inst.clear()
+        let steps = 50
+        var step = 0
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            step += 1
+            let progress = Float(step) / Float(steps)
+            // Ramp normal mixers back up
+            let normalGain = sin(progress * .pi / 2)
+            // Stems ramp down with absolute scaling from initial values
+            let stemScale = cos(progress * .pi / 2)
 
-        // Restore normal routing
-        resetToSingleTrack()
+            self.volumeMixerA.outputVolume = normalGain
+            self.volumeMixerB.outputVolume = normalGain
+
+            self.stemVolA_drums.outputVolume = initAD * stemScale
+            self.stemVolA_bass.outputVolume = initAB * stemScale
+            self.stemVolA_vocal.outputVolume = initAV * stemScale
+            self.stemVolA_atmos.outputVolume = initAA * stemScale
+            self.stemVolB_drums.outputVolume = initBD * stemScale
+            self.stemVolB_bass.outputVolume = initBB * stemScale
+            self.stemVolB_vocal.outputVolume = initBV * stemScale
+            self.stemVolB_atmos.outputVolume = initBA * stemScale
+
+            if step >= steps {
+                self.isStemModeActive = false
+                // Silence all stems
+                self.stemVolA_drums.outputVolume = 0.0
+                self.stemVolA_bass.outputVolume = 0.0
+                self.stemVolA_vocal.outputVolume = 0.0
+                self.stemVolA_atmos.outputVolume = 0.0
+                self.stemVolB_drums.outputVolume = 0.0
+                self.stemVolB_bass.outputVolume = 0.0
+                self.stemVolB_vocal.outputVolume = 0.0
+                self.stemVolB_atmos.outputVolume = 0.0
+
+                // Clear stem ring buffers
+                self.stemBufferA_drums.clear()
+                self.stemBufferA_bass.clear()
+                self.stemBufferA_vocal.clear()
+                self.stemBufferA_atmos.clear()
+                self.stemBufferB_drums.clear()
+                self.stemBufferB_bass.clear()
+                self.stemBufferB_vocal.clear()
+                self.stemBufferB_atmos.clear()
+
+                // Restore normal routing
+                self.resetToSingleTrack()
+
+                self.stemRampTimer?.cancel()
+                self.stemRampTimer = nil
+            }
+        }
+        timer.resume()
+        stemRampTimer = timer
     }
 
     // MARK: - Settings Updates
-    
+
     private func subscribeToEqualizerSettings() {
         settingsCancellable = EqualizerManager.shared.settingsDidChange
             .receive(on: DispatchQueue.main)
@@ -561,7 +656,7 @@ class AudioEngineService: ObservableObject {
                 self?.updateSettings(settings)
             }
     }
-    
+
     func updateSettings(_ settings: EqualizerSettings) {
         guard settings.isEnabled else {
             // Bypass all
@@ -569,23 +664,23 @@ class AudioEngineService: ObservableObject {
             bassMixer.outputVolume = 0
             return
         }
-        
+
         // 1. Apply UI gains to Main EQ
         // Safely map up to available bands
         for (i, bandSetting) in settings.bands.enumerated() {
             guard i < mainEQ.bands.count else { break }
             mainEQ.bands[i].gain = bandSetting.gain
         }
-        
+
         // 2. Intelligent Bass Processing
         // Analyze low end gains (32Hz, 64Hz, 125Hz)
         let lowEndGain = (settings.bands[0].gain + settings.bands[1].gain) / 2.0
-        
+
         if lowEndGain > 3.0 || settings.selectedPreset == .megaBass {
             // High bass requested -> Engage Parallel Bass
             bassMixer.outputVolume = 0.25 // 25% mix
             bassEQ.bands[1].gain = 6.0 // Drive harmonics
-            
+
             // Compensate Main EQ to avoid mud (don't double boost)
             // If user asked for +4dB, the parallel path adds perceived bass.
             // We can slightly reduce the direct low shelf to keep it clean.
@@ -595,16 +690,16 @@ class AudioEngineService: ObservableObject {
             bassMixer.outputVolume = 0.05 // Subtle warmth
             bassEQ.bands[1].gain = 0
         }
-        
-        
+
+
     }
-    
+
     // MARK: - Adaptive Bass Logic
-    
+
     private func startAdaptiveBassMonitoring() {
         // Placeholder for future adaptive logic
     }
-    
+
     private func stopAdaptiveBassMonitoring() {
         adaptiveBassTimer?.invalidate()
         adaptiveBassTimer = nil

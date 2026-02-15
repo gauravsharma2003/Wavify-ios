@@ -23,6 +23,9 @@ final class CrossfadePlayerSlot {
     private(set) var isReady = false
     private(set) var song: Song?
 
+    /// Whether the player is currently playing
+    var isPlaying: Bool { player?.rate != 0 }
+
     /// Expose the tap context for stem mode configuration
     var tapContext: AudioTapContext? { audioTapProcessor.context }
 
