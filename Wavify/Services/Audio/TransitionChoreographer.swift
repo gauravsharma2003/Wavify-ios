@@ -81,6 +81,7 @@ final class TransitionChoreographer {
 
     static func profile(for style: TransitionStyle) -> FadeProfile {
         switch style {
+        case .auto:   return smoothProfile  // CrossfadeEngine overrides dynamically
         case .smooth: return smoothProfile
         case .djMix:  return djMixProfile
         case .drop:   return dropProfile

@@ -90,6 +90,20 @@ final class CrossfadeEngine {
     /// Total track duration (saved for beat alignment calculations)
     private var trackDuration: Double = 0
 
+    // MARK: - Energy Profiling (Feature 1)
+
+    enum EnergyProfile: String {
+        case highToHigh, highToLow, lowToHigh, lowToLow
+    }
+
+    private var autoEnergyProfile: EnergyProfile?
+    private var adjustedFadeDuration: Double?
+
+    // MARK: - Taste Learning (Feature 3)
+
+    private let learner = TransitionLearner()
+    private var currentTransitionKey: (energy: String, profile: String)?
+
     // MARK: - Callbacks (wired by AudioPlayer)
 
     /// Ask AudioPlayer for the next song to crossfade into
@@ -139,8 +153,9 @@ final class CrossfadeEngine {
             }
         }
 
-        // Use beat-aligned fade time if available, otherwise standard timing
-        let effectiveFadeTime = beatAlignedFadeTime ?? fadeDuration
+        // Use beat-aligned fade time if available, then adjusted duration, then default
+        let baseFadeTime = adjustedFadeDuration ?? fadeDuration
+        let effectiveFadeTime = beatAlignedFadeTime ?? baseFadeTime
 
         // Trigger fade at effectiveFadeTime before end
         if remaining <= effectiveFadeTime && !hasTriggeredFade && (state == .ready) {
@@ -305,13 +320,62 @@ final class CrossfadeEngine {
                 Logger.log("Crossfade: stem mode enabled (side/mid ratio: \(String(format: "%.3f", ratio)), stagger: \(String(format: "%.2f", self.choreographer.staggerIntensity)))", category: .playback)
             }
 
+            // Energy profiling: classify initial energy from drum+bass RMS
+            let activeEnergy = activeDecomp.averageDrumBassEnergy
+            let standbyEnergy = standbyDecomp.averageDrumBassEnergy
+            let energyThreshold = 0.126  // ≈ -18dB linear
+            let activeHigh = activeEnergy > energyThreshold
+            let standbyHigh = standbyEnergy > energyThreshold
+
+            let profile: EnergyProfile
+            if activeHigh && standbyHigh {
+                profile = .highToHigh
+            } else if activeHigh && !standbyHigh {
+                profile = .highToLow
+            } else if !activeHigh && standbyHigh {
+                profile = .lowToHigh
+            } else {
+                profile = .lowToLow
+            }
+            self.autoEnergyProfile = profile
+
+            // Set adjusted fade duration (2× for high→low transitions)
+            var durationMultiplier = 1.0
+            if profile == .highToLow {
+                durationMultiplier = 2.0
+            }
+            self.adjustedFadeDuration = self.fadeDuration * durationMultiplier
+
+            Logger.log("Crossfade: energy profile \(profile.rawValue) (active: \(String(format: "%.3f", activeEnergy)), standby: \(String(format: "%.3f", standbyEnergy)), duration: \(String(format: "%.1f", self.adjustedFadeDuration ?? self.fadeDuration))s)", category: .playback)
+
+            // Key detection: detect keys and adjust duration by compatibility
+            let activeKey = activeDecomp.detectedKey
+            let standbyKey = standbyDecomp.detectedKey
+            if activeKey.confidence > 0.7 && standbyKey.confidence > 0.7 {
+                let interval = ChromaKeyDetector.interval(from: activeKey.key, to: standbyKey.key)
+                let compat = ChromaKeyDetector.compatibility(interval: interval)
+                let keyMultiplier: Double
+                switch compat {
+                case "compatible": keyMultiplier = 1.25
+                case "clashing":   keyMultiplier = 0.75
+                default:           keyMultiplier = 1.0
+                }
+                self.adjustedFadeDuration = min(15.0, max(4.0, (self.adjustedFadeDuration ?? self.fadeDuration) * keyMultiplier))
+
+                let keyNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+                let activeKeyName = "\(keyNames[activeKey.key % 12])\(activeKey.key < 12 ? " maj" : " min")"
+                let standbyKeyName = "\(keyNames[standbyKey.key % 12])\(standbyKey.key < 12 ? " maj" : " min")"
+                Logger.log("Crossfade: key detection — active: \(activeKeyName) (conf: \(String(format: "%.2f", activeKey.confidence))), standby: \(standbyKeyName) (conf: \(String(format: "%.2f", standbyKey.confidence))), interval: \(interval) (\(compat)), adjusted duration: \(String(format: "%.1f", self.adjustedFadeDuration ?? self.fadeDuration))s", category: .playback)
+            }
+
             // Beat alignment: snap fade trigger to nearest downbeat
             if activeDecomp.beatTracker.isConfident {
-                let idealTriggerTime = self.trackDuration - self.fadeDuration
+                let baseDuration = self.adjustedFadeDuration ?? self.fadeDuration
+                let idealTriggerTime = self.trackDuration - baseDuration
                 if let downbeat = activeDecomp.beatTracker.nearestDownbeat(to: idealTriggerTime, tolerance: 2.0) {
                     let alignedRemaining = self.trackDuration - downbeat
                     self.beatAlignedFadeTime = alignedRemaining
-                    Logger.log("Crossfade: beat-aligned fade at \(String(format: "%.1f", alignedRemaining))s remaining (BPM: \(String(format: "%.0f", activeDecomp.beatTracker.estimatedBPM)), ideal: \(String(format: "%.1f", self.fadeDuration))s)", category: .playback)
+                    Logger.log("Crossfade: beat-aligned fade at \(String(format: "%.1f", alignedRemaining))s remaining (BPM: \(String(format: "%.0f", activeDecomp.beatTracker.estimatedBPM)), ideal: \(String(format: "%.1f", baseDuration))s)", category: .playback)
                 }
             }
 
@@ -392,16 +456,129 @@ final class CrossfadeEngine {
     private func triggerStemFade() {
         state = .stemFading
 
-        // Set the active fade profile from user's transition style preference
-        choreographer.activeProfile = TransitionChoreographer.profile(for: settings.transitionStyle)
+        // Feature 1: Auto-select fade profile from energy classification
+        var selectedProfile: TransitionChoreographer.FadeProfile
+        var selectedProfileName: String
 
-        Logger.log("Crossfade: starting \(fadeDuration)s premium stem fade (\(settings.transitionStyle.rawValue))", category: .playback)
+        if settings.transitionStyle == .auto {
+            // Refine energy classification with full accumulated data
+            if let activeDecomp = activeDecomposer, let standbyDecomp = standbyDecomposer {
+                let activeEnergy = activeDecomp.averageDrumBassEnergy
+                let standbyEnergy = standbyDecomp.averageDrumBassEnergy
+                let energyThreshold = 0.126
+                let activeHigh = activeEnergy > energyThreshold
+                let standbyHigh = standbyEnergy > energyThreshold
+
+                let refined: EnergyProfile
+                if activeHigh && standbyHigh {
+                    refined = .highToHigh
+                } else if activeHigh && !standbyHigh {
+                    refined = .highToLow
+                } else if !activeHigh && standbyHigh {
+                    refined = .lowToHigh
+                } else {
+                    refined = .lowToLow
+                }
+                autoEnergyProfile = refined
+
+                // Map energy profile → default fade profile
+                switch refined {
+                case .highToHigh:
+                    selectedProfile = TransitionChoreographer.djMixProfile
+                    selectedProfileName = "djMix"
+                case .highToLow:
+                    selectedProfile = TransitionChoreographer.smoothProfile
+                    selectedProfileName = "smooth"
+                case .lowToHigh:
+                    selectedProfile = TransitionChoreographer.dropProfile
+                    selectedProfileName = "drop"
+                case .lowToLow:
+                    selectedProfile = TransitionChoreographer.smoothProfile
+                    selectedProfileName = "smooth"
+                }
+
+                // Feature 3: Query taste learning for alternative
+                if let alternative = learner.shouldUseAlternative(energy: refined.rawValue, proposedProfile: selectedProfileName) {
+                    Logger.log("Crossfade: taste learning overriding \(selectedProfileName) for \(refined.rawValue)", category: .playback)
+                    selectedProfile = alternative
+                    // Determine name from alternative profile (for tracking)
+                    if alternative.outDrums.end == TransitionChoreographer.djMixProfile.outDrums.end {
+                        selectedProfileName = "djMix"
+                    } else if alternative.outDrums.end == TransitionChoreographer.dropProfile.outDrums.end {
+                        selectedProfileName = "drop"
+                    } else {
+                        selectedProfileName = "smooth"
+                    }
+                }
+
+                currentTransitionKey = (energy: refined.rawValue, profile: selectedProfileName)
+            } else {
+                selectedProfile = TransitionChoreographer.smoothProfile
+                selectedProfileName = "smooth"
+            }
+        } else {
+            selectedProfile = TransitionChoreographer.profile(for: settings.transitionStyle)
+            selectedProfileName = settings.transitionStyle.rawValue
+        }
+
+        // Feature 5: Adaptive fade curve adjustments (computed once)
+        if let activeDecomp = activeDecomposer, let standbyDecomp = standbyDecomposer {
+            var adjOutVocals = selectedProfile.outVocals
+            var adjInDrums = selectedProfile.inDrums
+            var adjOutBass = selectedProfile.outBass
+            var adjInBass = selectedProfile.inBass
+
+            // Adjustment 1: Outgoing vocals already quiet → shorten outVocals window
+            let recentVocal = activeDecomp.recentVocalRMS
+            let avgVocal = activeDecomp.averageVocalRMS
+            if avgVocal > 0.001 && recentVocal < avgVocal * 0.5 {
+                let shortenedEnd = adjOutVocals.start + (adjOutVocals.end - adjOutVocals.start) * 0.7
+                adjOutVocals = TransitionChoreographer.FadeWindow(start: adjOutVocals.start, end: shortenedEnd)
+                Logger.log("Crossfade: adaptive — outgoing vocals quiet, shortening vocal window", category: .playback)
+            }
+
+            // Adjustment 2: Incoming drums low energy → delay inDrums start
+            if standbyDecomp.recentDrumBassEnergy < 0.05 {
+                let delayedStart = min(adjInDrums.end - 0.05, adjInDrums.start + 0.15)
+                adjInDrums = TransitionChoreographer.FadeWindow(start: delayedStart, end: adjInDrums.end)
+                Logger.log("Crossfade: adaptive — incoming drums quiet, delaying drum entry", category: .playback)
+            }
+
+            // Adjustment 3: Bass frequency overlap → tighten bass crossover
+            if activeDecomp.averageDrumBassEnergy > 0.05 && standbyDecomp.averageDrumBassEnergy > 0.05 {
+                let outBassMid = (adjOutBass.start + adjOutBass.end) / 2
+                let inBassMid = (adjInBass.start + adjInBass.end) / 2
+                let tighten = 0.3
+                adjOutBass = TransitionChoreographer.FadeWindow(
+                    start: adjOutBass.start + (outBassMid - adjOutBass.start) * tighten,
+                    end: adjOutBass.end - (adjOutBass.end - outBassMid) * tighten
+                )
+                adjInBass = TransitionChoreographer.FadeWindow(
+                    start: adjInBass.start + (inBassMid - adjInBass.start) * tighten,
+                    end: adjInBass.end - (adjInBass.end - inBassMid) * tighten
+                )
+                Logger.log("Crossfade: adaptive — both tracks have bass, tightening crossover", category: .playback)
+            }
+
+            // Construct adjusted profile
+            selectedProfile = TransitionChoreographer.FadeProfile(
+                outDrums: selectedProfile.outDrums,
+                outAtmosphere: selectedProfile.outAtmosphere,
+                outBass: adjOutBass,
+                outVocals: adjOutVocals,
+                inBass: adjInBass,
+                inAtmosphere: selectedProfile.inAtmosphere,
+                inDrums: adjInDrums,
+                inVocals: selectedProfile.inVocals
+            )
+        }
+
+        choreographer.activeProfile = selectedProfile
+
+        let effectiveDuration = adjustedFadeDuration ?? fadeDuration
+        Logger.log("Crossfade: starting \(String(format: "%.1f", effectiveDuration))s premium stem fade (\(selectedProfileName))", category: .playback)
 
         let engine = AudioEngineService.shared
-
-        // Enable stem decomposition on the active (outgoing) track's tap
-        // This is done via PlaybackService's tap — we need to configure it
-        // For now, the active decomposer was set up during analysis
 
         // Activate stem mode in the engine (mutes normal mixers)
         engine.activateStemMode()
@@ -413,6 +590,9 @@ final class CrossfadeEngine {
 
             // Drive vocal width bloom on the outgoing decomposer
             self.activeDecomposer?.vocalWidthBloom = volumes.outVocalBloom
+
+            // Feature 2: Drive vocal reverb mix on outgoing decomposer
+            self.activeDecomposer?.vocalReverbMix = (1.0 - volumes.outVocal) * 0.6
 
             // Apply loudness normalization to incoming stems
             let corrected = TransitionChoreographer.StemVolumes(
@@ -433,7 +613,7 @@ final class CrossfadeEngine {
             self?.completeCrossfade()
         }
 
-        choreographer.start(duration: fadeDuration)
+        choreographer.start(duration: effectiveDuration)
     }
 
     // MARK: - Complete
@@ -442,6 +622,11 @@ final class CrossfadeEngine {
         guard state == .fading || state == .stemFading else { return }
         let wasStemMode = state == .stemFading
         state = .completing
+
+        // Feature 3: Record successful completion for taste learning
+        if let key = currentTransitionKey {
+            learner.recordCompletion(energy: key.energy, profile: key.profile)
+        }
 
         // Stop timers
         fadeTimer?.cancel()
@@ -496,6 +681,11 @@ final class CrossfadeEngine {
         guard state != .idle else { return }
 
         Logger.log("Crossfade: cancelling (was \(state.rawValue))", category: .playback)
+
+        // Feature 3: Record skip for taste learning (only during active fade)
+        if (state == .stemFading || state == .fading), let key = currentTransitionKey {
+            learner.recordSkip(energy: key.energy, profile: key.profile)
+        }
 
         // Stop timers
         fadeTimer?.cancel()
@@ -564,6 +754,9 @@ final class CrossfadeEngine {
         beatAlignedFadeTime = nil
         trackDuration = 0
         choreographer.incomingDrumStartOverride = nil
+        autoEnergyProfile = nil
+        adjustedFadeDuration = nil
+        currentTransitionKey = nil
     }
 
     private func endBackgroundTask() {

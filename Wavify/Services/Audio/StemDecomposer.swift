@@ -72,6 +72,12 @@ final class StemDecomposer {
     /// Vocal stereo width bloom (0=mono center, 1=wide). Driven by choreographer.
     var vocalWidthBloom: Float = 0
 
+    /// Vocal reverb wet/dry mix (0=dry, 1=full reverb). Set by CrossfadeEngine at 60Hz.
+    var vocalReverbMix: Float = 0
+
+    /// Schroeder reverb for outgoing vocal dissolution
+    private let reverb = SchroederReverb()
+
     // MARK: - Analysis
 
     /// Running RMS accumulators for mono detection
@@ -94,6 +100,18 @@ final class StemDecomposer {
     /// Long-term vocal energy accumulator
     private var vocalRMSLongAccumulator: Double = 0
     private var vocalRMSLongFrameCount: Int = 0
+
+    // MARK: - Drum+Bass Energy Monitoring
+
+    /// Rolling window of per-block combined drum+bass RMS (215 entries ≈ 2.5s)
+    private let drumBassWindowSize = 215
+    private var drumBassEnergyWindow: UnsafeMutablePointer<Float>?
+    private var drumBassWindowWritePos: Int = 0
+    private var drumBassWindowCount: Int = 0
+
+    /// Long-term drum+bass energy accumulator
+    private var drumBassEnergyLongAccumulator: Double = 0
+    private var drumBassEnergyLongFrameCount: Int = 0
 
     // MARK: - Init
 
@@ -127,6 +145,10 @@ final class StemDecomposer {
         // Allocate vocal energy rolling window
         vocalRMSWindow = .allocate(capacity: vocalWindowSize)
         vocalRMSWindow?.initialize(repeating: 0, count: vocalWindowSize)
+
+        // Allocate drum+bass energy rolling window
+        drumBassEnergyWindow = .allocate(capacity: drumBassWindowSize)
+        drumBassEnergyWindow?.initialize(repeating: 0, count: drumBassWindowSize)
     }
 
     deinit {
@@ -138,6 +160,7 @@ final class StemDecomposer {
         percussiveAccum?.deallocate()
         sideDelayLine?.deallocate()
         vocalRMSWindow?.deallocate()
+        drumBassEnergyWindow?.deallocate()
     }
 
     // MARK: - Decompose
@@ -275,6 +298,32 @@ final class StemDecomposer {
         }
         vocalRMSLongAccumulator += Double(vocalSumSq)
         vocalRMSLongFrameCount += outputFrames
+
+        // Track combined drum+bass energy for energy profiling
+        var drumSumSq: Float = 0
+        vDSP_svesq(percussive, 1, &drumSumSq, vDSP_Length(outputFrames))
+        var bassSumSq: Float = 0
+        vDSP_svesq(bass, 1, &bassSumSq, vDSP_Length(outputFrames))
+        let combinedRMS = sqrtf(drumSumSq / Float(outputFrames)) + sqrtf(bassSumSq / Float(outputFrames))
+        if let window = drumBassEnergyWindow {
+            window[drumBassWindowWritePos] = combinedRMS
+            drumBassWindowWritePos = (drumBassWindowWritePos + 1) % drumBassWindowSize
+            if drumBassWindowCount < drumBassWindowSize { drumBassWindowCount += 1 }
+        }
+        drumBassEnergyLongAccumulator += Double(combinedRMS)
+        drumBassEnergyLongFrameCount += 1
+
+        // Apply Schroeder reverb to outgoing vocals (dissolution effect)
+        let reverbMix = vocalReverbMix
+        if reverbMix > 0.001 {
+            let bpm = beatTracker.estimatedBPM
+            reverb.setDecayTime(min(0.8, Float(60.0 / max(bpm, 60) * 0.8)))
+            let dryMix: Float = 1.0 - reverbMix * 0.5
+            for i in 0..<outputFrames {
+                let reverbSample = reverb.process(harmonic[i])
+                harmonic[i] = harmonic[i] * dryMix + reverbSample * reverbMix
+            }
+        }
 
         // Drums = percussive with transient sharpening
         applyTransientSharpening(buffer: percussive, frameCount: outputFrames)
@@ -499,6 +548,31 @@ final class StemDecomposer {
         return recentVocalRMS < avg * 0.3
     }
 
+    // MARK: - Drum+Bass Energy Results
+
+    /// Recent drum+bass RMS (rolling window average, ~2.5s)
+    var recentDrumBassEnergy: Double {
+        guard drumBassWindowCount > 0, let window = drumBassEnergyWindow else { return 0 }
+        var sum: Float = 0
+        for i in 0..<drumBassWindowCount {
+            sum += window[i]
+        }
+        return Double(sum) / Double(drumBassWindowCount)
+    }
+
+    /// Long-term average drum+bass energy
+    var averageDrumBassEnergy: Double {
+        guard drumBassEnergyLongFrameCount > 0 else { return 0 }
+        return drumBassEnergyLongAccumulator / Double(drumBassEnergyLongFrameCount)
+    }
+
+    // MARK: - Key Detection
+
+    /// Detected musical key from accumulated chroma profile
+    var detectedKey: (key: Int, confidence: Float) {
+        ChromaKeyDetector.detectKey(from: hpss.chromaProfile)
+    }
+
     /// Compute the side/mid RMS ratio. Values < 0.05 indicate mono content.
     var sideMidRatio: Double {
         guard analysisFrameCount > 0, midRMSAccumulator > 0 else { return 0 }
@@ -526,11 +600,18 @@ final class StemDecomposer {
         sideDelayLine?.initialize(repeating: 0, count: sideDelayLength)
         drumEnvelope = 0
         vocalWidthBloom = 0
+        vocalReverbMix = 0
+        reverb.reset()
         vocalWindowWritePos = 0
         vocalWindowCount = 0
         vocalRMSWindow?.initialize(repeating: 0, count: vocalWindowSize)
         vocalRMSLongAccumulator = 0
         vocalRMSLongFrameCount = 0
+        drumBassWindowWritePos = 0
+        drumBassWindowCount = 0
+        drumBassEnergyWindow?.initialize(repeating: 0, count: drumBassWindowSize)
+        drumBassEnergyLongAccumulator = 0
+        drumBassEnergyLongFrameCount = 0
         resetAnalysis()
     }
 

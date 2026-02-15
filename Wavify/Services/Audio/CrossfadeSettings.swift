@@ -9,6 +9,7 @@ import Foundation
 import Observation
 
 enum TransitionStyle: String, CaseIterable, Codable {
+    case auto   = "Auto"
     case smooth = "Smooth"
     case djMix  = "DJ Mix"
     case drop   = "Drop"
@@ -51,7 +52,7 @@ final class CrossfadeSettings {
            let style = TransitionStyle(rawValue: raw) {
             self.transitionStyle = style
         } else {
-            self.transitionStyle = .smooth
+            self.transitionStyle = .auto
         }
     }
 }

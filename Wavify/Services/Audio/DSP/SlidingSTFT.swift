@@ -98,6 +98,12 @@ final class SlidingSTFT {
     // Previous magnitude for spectral flux
     private let prevMagnitude: UnsafeMutablePointer<Float>   // numBins
 
+    // MARK: - Chromagram Accumulation
+
+    /// 12-bin chroma accumulator (C through B), accumulated across hops
+    private let chromaAccumulator: UnsafeMutablePointer<Float>  // 12 bins
+    private var chromaHopCount: Int = 0
+
     // MARK: - Adaptive Vertical Median Regions
 
     // Bin boundaries for adaptive vertical median lengths
@@ -117,6 +123,21 @@ final class SlidingSTFT {
 
     /// Spectral flux of the most recent hop (onset detection, free byproduct)
     private(set) var lastSpectralFlux: Float = 0
+
+    /// Normalized 12-element chroma profile (sum = 1.0)
+    var chromaProfile: [Float] {
+        guard chromaHopCount > 0 else { return [Float](repeating: 0, count: 12) }
+        var result = [Float](repeating: 0, count: 12)
+        var sum: Float = 0
+        for i in 0..<12 {
+            result[i] = chromaAccumulator[i]
+            sum += result[i]
+        }
+        if sum > 0 {
+            for i in 0..<12 { result[i] /= sum }
+        }
+        return result
+    }
 
     // MARK: - Init / Deinit
 
@@ -151,6 +172,7 @@ final class SlidingSTFT {
         percussiveOut = .allocate(capacity: hopSize)
         synthesisNorm = .allocate(capacity: fftSize)
         prevMagnitude = .allocate(capacity: numBins)
+        chromaAccumulator = .allocate(capacity: 12)
 
         // Zero out all buffers
         inputAccum.initialize(repeating: 0, count: fftSize)
@@ -160,6 +182,7 @@ final class SlidingSTFT {
         harmonicOut.initialize(repeating: 0, count: hopSize)
         percussiveOut.initialize(repeating: 0, count: hopSize)
         prevMagnitude.initialize(repeating: 0, count: numBins)
+        chromaAccumulator.initialize(repeating: 0, count: 12)
 
         // Compute Hann window
         vDSP_hann_window(hannWindow, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
@@ -196,6 +219,7 @@ final class SlidingSTFT {
         percussiveOut.deallocate()
         synthesisNorm.deallocate()
         prevMagnitude.deallocate()
+        chromaAccumulator.deallocate()
     }
 
     // MARK: - Public API
@@ -260,6 +284,8 @@ final class SlidingSTFT {
         harmonicOut.initialize(repeating: 0, count: hopSize)
         percussiveOut.initialize(repeating: 0, count: hopSize)
         prevMagnitude.initialize(repeating: 0, count: numBins)
+        chromaAccumulator.initialize(repeating: 0, count: 12)
+        chromaHopCount = 0
     }
 
     // MARK: - Core Processing
@@ -309,6 +335,16 @@ final class SlidingSTFT {
         }
         lastSpectralFlux = flux
         memcpy(prevMagnitude, magnitude, numBins * MemoryLayout<Float>.size)
+
+        // 4b. Accumulate chroma (fold magnitude bins into 12 pitch classes)
+        for k in 0..<numBins {
+            let freqHz = Float(k) * 44100.0 / Float(fftSize)
+            guard freqHz >= 50 && freqHz <= 5000 else { continue }
+            let midiNote = 12.0 * log2f(freqHz / 440.0) + 69.0
+            let pitchClass = (Int(roundf(midiNote)) % 12 + 12) % 12
+            chromaAccumulator[pitchClass] += magnitude[k]
+        }
+        chromaHopCount += 1
 
         // 5. Store magnitude in history ring buffer
         let historyOffset = historyWritePos * numBins
