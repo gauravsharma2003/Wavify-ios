@@ -123,6 +123,7 @@ struct AlbumDetail {
     let artistThumbnail: String
     let songCount: String
     let duration: String
+    let year: String
     let songs: [AlbumSong]
     let relatedAlbums: [RelatedAlbum]
 }

@@ -63,6 +63,7 @@ final class AlbumAPIService {
         let artist = extractAlbumArtist(header)
         let artistThumbnail = extractArtistThumbnail(header)
         let (songCount, duration) = extractAlbumInfo(header)
+        let year = extractAlbumYear(header)
         
         // Extract songs
         var songs: [AlbumSong] = []
@@ -116,6 +117,7 @@ final class AlbumAPIService {
             artistThumbnail: artistThumbnail,
             songCount: songCount,
             duration: duration,
+            year: year,
             songs: songs,
             relatedAlbums: relatedAlbums
         )
@@ -167,6 +169,22 @@ final class AlbumAPIService {
         return ""
     }
     
+    private nonisolated func extractAlbumYear(_ header: [String: Any]) -> String {
+        if let subtitle = header["subtitle"] as? [String: Any],
+           let runs = subtitle["runs"] as? [[String: Any]] {
+            // Subtitle runs are typically ["Album", " · ", "2024"] or ["Single", " · ", "2024"]
+            for run in runs {
+                if let text = run["text"] as? String {
+                    let trimmed = text.trimmingCharacters(in: .whitespaces)
+                    if trimmed.count == 4, Int(trimmed) != nil {
+                        return trimmed
+                    }
+                }
+            }
+        }
+        return ""
+    }
+
     private nonisolated func extractAlbumInfo(_ header: [String: Any]) -> (String, String) {
         var songCount = ""
         var duration = ""

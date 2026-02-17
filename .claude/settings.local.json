@@ -13,7 +13,9 @@
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:www.hackingwithswift.com)",
       "WebFetch(domain:holyswift.app)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git -C /Users/Gaurav.Sharma4/Desktop/Wavify log --oneline --all)",
+      "Bash(git -C /Users/Gaurav.Sharma4/Desktop/Wavify show --name-status f254d8e)"
     ]
   }
 }

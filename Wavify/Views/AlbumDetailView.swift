@@ -29,6 +29,7 @@ struct AlbumDetailView: View {
     @State private var isSaved = false
     @State private var showDelete = false
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
+    @State private var scrollOffset: CGFloat = 0
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
@@ -65,6 +66,10 @@ struct AlbumDetailView: View {
     private var songCount: Int {
         albumDetail?.songs.count ?? localPlaylist?.songCount ?? 0
     }
+
+    private var displayYear: String {
+        albumDetail?.year ?? ""
+    }
     
     private var isLocalPlaylist: Bool {
         localPlaylist != nil && albumId == nil
@@ -77,63 +82,64 @@ struct AlbumDetailView: View {
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                albumArtwork
-                albumInfo
-                
-                if isLoading {
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .tint(.white)
-                            .scaleEffect(1.2)
-                        
-                        Text("Loading album...")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.tertiary)
+            VStack(spacing: 0) {
+                // Header
+                headerView
+
+                // Content with gradient starting here
+                VStack(spacing: 20) {
+                    albumInfo
+
+                    if isLoading {
+                        VStack(spacing: 20) {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(1.2)
+
+                            Text("Loading album...")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 40)
+                        .padding(.bottom, 200)
+                    } else if !songs.isEmpty {
+                        actionButtons
+                        songList
+                    } else if isUserCreatedPlaylist {
+                        emptyPlaylistState
+                    } else {
+                        remoteEmptyState
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 40)
-                    .padding(.bottom, 200)
-                } else if !songs.isEmpty {
-                    actionButtons
-                    songList
-                } else if isUserCreatedPlaylist {
-                    // Empty state for user-created playlists with no songs
-                    emptyPlaylistState
-                } else {
-                    // Empty state for remote albums with no songs
-                    remoteEmptyState
                 }
+                .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
+                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 350, alignment: .top)
+                .background(
+                    LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
+                )
             }
-            .padding(.top, 20)
-            .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
-        }
-        .background(
-            LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-        )
-        .overlay(alignment: .top) {
-            // Gradient blur at top
-            LinearGradient(
-                stops: [
-                    .init(color: (gradientColors.first ?? .black).opacity(0.9), location: 0),
-                    .init(color: (gradientColors.first ?? .black).opacity(0.6), location: 0.5),
-                    .init(color: .clear, location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(
+                            key: ScrollOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("scroll")).minY
+                        )
+                }
             )
-            .frame(height: 120)
-            .allowsHitTesting(false)
-            .ignoresSafeArea()
         }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+            scrollOffset = value
+        }
+        .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
+        .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
             if let albumId = albumId {
                 await loadAlbumDetails(albumId: albumId)
             } else {
-                // For local playlists, no remote loading needed
                 isLoading = false
             }
             checkIfSaved()
@@ -143,10 +149,19 @@ struct AlbumDetailView: View {
         .sheet(item: $selectedSongForPlaylist) { song in
             AddToPlaylistSheet(song: song)
         }
+        .alert("Rename Playlist", isPresented: $showRenameAlert) {
+            TextField("Playlist name", text: $newPlaylistName)
+            Button("Save") {
+                renamePlaylist()
+            }
+            Button("Cancel", role: .cancel) {
+                newPlaylistName = ""
+            }
+        }
     }
     
     private func extractColors() async {
-        guard let url = URL(string: ImageUtils.thumbnailForCard(displayThumbnail)),
+        guard let url = URL(string: ImageUtils.thumbnailForPlayer(displayThumbnail)),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let uiImage = UIImage(data: data) else { return }
         
@@ -158,41 +173,46 @@ struct AlbumDetailView: View {
         }
     }
     
-    // MARK: - Album Artwork
-    
-    private var albumArtwork: some View {
-        CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForCard(displayThumbnail))) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            default:
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(white: 0.2), Color(white: 0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+    // MARK: - Header
+
+    private var headerView: some View {
+        GeometryReader { geometry in
+            let minY = geometry.frame(in: .global).minY
+            let height = max(350, 350 + (minY > 0 ? minY : 0))
+            let offset = minY > 0 ? -minY : 0
+
+            CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForPlayer(displayThumbnail))) { phase in
+                if let image = phase.image {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: height)
+                        .clipped()
+                        .overlay(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0.0),
+                                    .init(color: .clear, location: 0.4),
+                                    .init(color: (gradientColors.first ?? .black).opacity(0.3), location: 0.6),
+                                    .init(color: (gradientColors.first ?? .black).opacity(0.7), location: 0.8),
+                                    .init(color: gradientColors.first ?? .black, location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
-                    )
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
+                } else {
+                    Rectangle()
+                        .fill(gradientColors.first ?? Color(white: 0.1))
+                }
             }
+            .offset(y: offset)
         }
-        .frame(width: 200, height: 200)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
+        .frame(height: 350)
     }
-    
-    // MARK: - Album Info
-    
+
     private var albumInfo: some View {
-        VStack(spacing: 8) {
-            // Playlist name - tappable for user-created playlists
+        VStack(spacing: 6) {
             if isUserCreatedPlaylist {
                 Button {
                     newPlaylistName = displayName
@@ -201,37 +221,26 @@ struct AlbumDetailView: View {
                     Text(displayName)
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
                 }
-                .padding(.horizontal)
             } else {
-                MarqueeText(
-                    text: displayName,
-                    font: .system(size: 22, weight: .bold),
-                    alignment: .center
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal)
+                Text(displayName)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
             }
-            
-            if !displayArtist.isEmpty {
-                Text(displayArtist)
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-            }
-            
-            Text("\(songCount) songs")
-                .font(.system(size: 14))
-                .foregroundStyle(.tertiary)
-        }
-        .alert("Rename Playlist", isPresented: $showRenameAlert) {
-            TextField("Playlist name", text: $newPlaylistName)
-            Button("Save") {
-                renamePlaylist()
-            }
-            Button("Cancel", role: .cancel) {
-                newPlaylistName = ""
+
+            if !displayArtist.isEmpty || !displayYear.isEmpty {
+                Text([displayArtist, displayYear].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.7))
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal)
+        .padding(.top, 12)
     }
     
     // MARK: - Action Buttons
