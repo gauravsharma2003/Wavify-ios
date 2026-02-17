@@ -113,7 +113,7 @@ struct AlbumDetailView: View {
                     }
                 }
                 .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
-                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 350, alignment: .top)
+                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 420, alignment: .top)
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
                 )
@@ -178,7 +178,7 @@ struct AlbumDetailView: View {
     private var headerView: some View {
         GeometryReader { geometry in
             let minY = geometry.frame(in: .global).minY
-            let height = max(350, 350 + (minY > 0 ? minY : 0))
+            let height = max(420, 420 + (minY > 0 ? minY : 0))
             let offset = minY > 0 ? -minY : 0
 
             CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForPlayer(displayThumbnail))) { phase in
@@ -186,6 +186,7 @@ struct AlbumDetailView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width * 1.1, height: height)
                         .frame(width: geometry.size.width, height: height)
                         .clipped()
                         .overlay(
@@ -208,7 +209,7 @@ struct AlbumDetailView: View {
             }
             .offset(y: offset)
         }
-        .frame(height: 350)
+        .frame(height: 420)
     }
 
     private var albumInfo: some View {

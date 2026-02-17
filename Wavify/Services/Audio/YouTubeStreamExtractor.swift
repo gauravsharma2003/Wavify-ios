@@ -19,6 +19,8 @@ enum StreamExtractorError: Error, LocalizedError {
     case playerLoadFailed(String)
     case networkError(String)
     case playabilityError(String)
+    case urlValidationFailed(Int)
+    case allStrategiesFailed([String])
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +31,8 @@ enum StreamExtractorError: Error, LocalizedError {
         case .playerLoadFailed(let detail): return "Player load failed: \(detail)"
         case .networkError(let detail): return "Network error: \(detail)"
         case .playabilityError(let detail): return "Playability error: \(detail)"
+        case .urlValidationFailed(let status): return "URL validation failed with HTTP \(status)"
+        case .allStrategiesFailed(let reasons): return "All extraction strategies failed: \(reasons.joined(separator: "; "))"
         }
     }
 }
@@ -76,6 +80,20 @@ actor YouTubeStreamExtractor {
         let bitrate: Int
     }
 
+    // MARK: - Piped Instances
+
+    /// Public Piped API mirrors for last-resort fallback
+    private static let pipedInstances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.moomoo.me",
+        "https://pipedapi.syncpundit.io",
+        "https://api-piped.mha.fi",
+        "https://piped-api.garudalinux.org",
+        "https://pipedapi.rivo.lol",
+        "https://pipedapi.leptons.xyz"
+    ]
+
     // MARK: - State
 
     private var urlCache: [String: CachedStream] = [:]
@@ -86,26 +104,81 @@ actor YouTubeStreamExtractor {
     // MARK: - Public API
 
     /// Resolve a playable audio URL for a YouTube video
+    /// Tries 4 strategies in order: ANDROID_VR → IOS → WEB (cipher) → Piped
     func resolveAudioURL(videoId: String) async throws -> ResolvedStream {
         // Check cache first
         if let cached = urlCache[videoId], !cached.isExpired {
-            Logger.log("Stream cache hit for \(videoId)", category: .playback)
+            Logger.log("[StreamExtractor] Cache hit for \(videoId), expires in \(Int(cached.expiresAt.timeIntervalSinceNow))s", category: .playback)
             return cached.stream
         }
 
-        // Primary: ANDROID_VR client (direct URLs, no PoT required)
+        let overallStart = CFAbsoluteTimeGetCurrent()
+        let totalStrategies = 4
+        var failureReasons: [String] = []
+
+        // Strategy 1/4: ANDROID_VR client (direct URLs, no cipher)
         do {
+            let start = CFAbsoluteTimeGetCurrent()
             let stream = try await resolveViaAndroidVRClient(videoId: videoId)
-            Logger.log("Resolved via ANDROID_VR client: itag \(stream.itag)", category: .playback)
-            return stream
+            let validated = try await validateStreamURL(stream)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            Logger.log("[StreamExtractor] Strategy 1/\(totalStrategies): ANDROID_VR succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
+            return validated
         } catch {
-            Logger.warning("ANDROID_VR client failed: \(error.localizedDescription), trying WEB client", category: .playback)
+            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
+            let reason = describeError(error)
+            failureReasons.append("ANDROID_VR: \(reason)")
+            Logger.warning("[StreamExtractor] Strategy 1/\(totalStrategies): ANDROID_VR failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
         }
 
-        // Fallback: WEB client with JS deobfuscation (handles cipher-protected streams)
-        let stream = try await resolveViaWebClient(videoId: videoId)
-        Logger.log("Resolved via WEB client: itag \(stream.itag)", category: .playback)
-        return stream
+        // Strategy 2/4: IOS client (direct URLs, different client identity)
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            let stream = try await resolveViaIOSClient(videoId: videoId)
+            let validated = try await validateStreamURL(stream)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            Logger.log("[StreamExtractor] Strategy 2/\(totalStrategies): IOS succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
+            return validated
+        } catch {
+            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
+            let reason = describeError(error)
+            failureReasons.append("IOS: \(reason)")
+            Logger.warning("[StreamExtractor] Strategy 2/\(totalStrategies): IOS failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
+        }
+
+        // Strategy 3/4: WEB client with cipher deobfuscation via JavaScriptCore
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            let stream = try await resolveViaWebClient(videoId: videoId)
+            let validated = try await validateStreamURL(stream)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            Logger.log("[StreamExtractor] Strategy 3/\(totalStrategies): WEB succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
+            return validated
+        } catch {
+            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
+            let reason = describeError(error)
+            failureReasons.append("WEB: \(reason)")
+            Logger.warning("[StreamExtractor] Strategy 3/\(totalStrategies): WEB failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
+        }
+
+        // Strategy 4/4: Piped instances (last resort)
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            let stream = try await resolveViaPipedAPI(videoId: videoId)
+            let validated = try await validateStreamURL(stream)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            Logger.log("[StreamExtractor] Strategy 4/\(totalStrategies): Piped succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
+            return validated
+        } catch {
+            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
+            let reason = describeError(error)
+            failureReasons.append("Piped: \(reason)")
+            Logger.warning("[StreamExtractor] Strategy 4/\(totalStrategies): Piped failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
+        }
+
+        let totalElapsed = CFAbsoluteTimeGetCurrent() - overallStart
+        Logger.error("[StreamExtractor] All \(totalStrategies) strategies failed for \(videoId) in \(String(format: "%.2f", totalElapsed))s", category: .playback)
+        throw StreamExtractorError.allStrategiesFailed(failureReasons)
     }
 
     /// Invalidate cached URL for a video (call on playback failure)
@@ -227,6 +300,76 @@ actor YouTubeStreamExtractor {
             mimeType: format.mimeType,
             bitrate: format.bitrate,
             playbackHeaders: [:]  // ANDROID_VR URLs work with default AVPlayer UA
+        )
+
+        let expiry = extractExpiryDate(from: url)
+        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
+
+        return stream
+    }
+
+    // MARK: - IOS Client Resolution (direct URLs, no cipher)
+
+    private func resolveViaIOSClient(videoId: String) async throws -> ResolvedStream {
+        let iosVersion = "19.29.1"
+        let deviceModel = "iPhone16,2"
+        let osVersion = "17.5.1"
+        let iosUA = "com.google.ios.youtube/\(iosVersion) (\(deviceModel); U; CPU iOS \(osVersion.replacingOccurrences(of: ".", with: "_")) like Mac OS X)"
+
+        let body: [String: Any] = [
+            "videoId": videoId,
+            "context": [
+                "client": [
+                    "clientName": "IOS",
+                    "clientVersion": iosVersion,
+                    "deviceMake": "Apple",
+                    "deviceModel": deviceModel,
+                    "userAgent": iosUA,
+                    "osName": "iPhone",
+                    "osVersion": osVersion,
+                    "hl": "en",
+                    "timeZone": "UTC",
+                    "utcOffsetMinutes": 0
+                ]
+            ],
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+            "playbackContext": [
+                "contentPlaybackContext": [
+                    "html5Preference": "HTML5_PREF_WANTS"
+                ]
+            ]
+        ]
+
+        let headers = [
+            "Content-Type": "application/json",
+            "User-Agent": iosUA,
+            "X-Youtube-Client-Name": "5",
+            "X-Youtube-Client-Version": iosVersion,
+            "Origin": "https://www.youtube.com"
+        ]
+
+        let formats = try await callPlayerAPI(body: body, headers: headers)
+        Logger.log("[StreamExtractor] IOS client returned \(formats.count) audio formats for \(videoId)", category: .playback)
+
+        let directFormats = formats.filter { $0.url != nil }
+        guard let format = selectBestFormat(from: directFormats) else {
+            Logger.warning("[StreamExtractor] IOS: no compatible direct formats (total: \(formats.count), direct: \(directFormats.count))", category: .playback)
+            throw StreamExtractorError.noCompatibleFormat
+        }
+
+        guard let urlString = format.url, let url = URL(string: urlString) else {
+            throw StreamExtractorError.noURLAvailable
+        }
+
+        Logger.log("[StreamExtractor] IOS: selected itag \(format.itag), host: \(url.host ?? "nil")", category: .playback)
+
+        let stream = ResolvedStream(
+            url: url,
+            itag: format.itag,
+            mimeType: format.mimeType,
+            bitrate: format.bitrate,
+            playbackHeaders: [:]
         )
 
         let expiry = extractExpiryDate(from: url)
@@ -406,7 +549,148 @@ actor YouTubeStreamExtractor {
         }
     }
 
+    // MARK: - URL Validation
+
+    /// Validate that a resolved stream URL is accessible (not 403/gone)
+    private func validateStreamURL(_ stream: ResolvedStream) async throws -> ResolvedStream {
+        var request = URLRequest(url: stream.url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+
+        for (key, value) in stream.playbackHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                let statusCode = httpResponse.statusCode
+                if statusCode == 403 {
+                    Logger.warning("[StreamExtractor] URL validation: 403 Forbidden for itag \(stream.itag), host: \(stream.url.host ?? "nil")", category: .playback)
+                    throw StreamExtractorError.urlValidationFailed(statusCode)
+                }
+                if statusCode == 410 {
+                    Logger.warning("[StreamExtractor] URL validation: 410 Gone for itag \(stream.itag)", category: .playback)
+                    throw StreamExtractorError.urlValidationFailed(statusCode)
+                }
+                Logger.debug("[StreamExtractor] URL validation: HTTP \(statusCode) for itag \(stream.itag)", category: .playback)
+            }
+        } catch let error as StreamExtractorError {
+            throw error
+        } catch {
+            // Network error during HEAD — some CDNs reject HEAD but serve GET fine
+            Logger.debug("[StreamExtractor] URL validation: HEAD failed (\(error.localizedDescription)), proceeding anyway", category: .playback)
+        }
+
+        return stream
+    }
+
+    // MARK: - Piped API Resolution (last resort)
+
+    private func resolveViaPipedAPI(videoId: String) async throws -> ResolvedStream {
+        var lastError: Error = StreamExtractorError.noURLAvailable
+
+        for (index, instance) in Self.pipedInstances.enumerated() {
+            do {
+                let stream = try await fetchFromPipedInstance(
+                    instance: instance,
+                    videoId: videoId,
+                    instanceIndex: index + 1,
+                    totalInstances: Self.pipedInstances.count
+                )
+                return stream
+            } catch {
+                lastError = error
+                Logger.debug("[StreamExtractor] Piped instance \(index + 1)/\(Self.pipedInstances.count) (\(instance)) failed: \(error.localizedDescription)", category: .playback)
+                continue
+            }
+        }
+
+        throw lastError
+    }
+
+    private func fetchFromPipedInstance(
+        instance: String,
+        videoId: String,
+        instanceIndex: Int,
+        totalInstances: Int
+    ) async throws -> ResolvedStream {
+        guard let url = URL(string: "\(instance)/streams/\(videoId)") else {
+            throw StreamExtractorError.networkError("Invalid Piped URL for instance: \(instance)")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw StreamExtractorError.networkError("Piped HTTP \(statusCode) from \(instance)")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let audioStreams = json["audioStreams"] as? [[String: Any]] else {
+            throw StreamExtractorError.networkError("Invalid Piped response from \(instance)")
+        }
+
+        let compatibleStreams = audioStreams.compactMap { stream -> (url: String, bitrate: Int, mimeType: String, itag: Int)? in
+            guard let streamUrl = stream["url"] as? String,
+                  let mimeType = stream["mimeType"] as? String,
+                  mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a"),
+                  !mimeType.contains("webm"),
+                  !mimeType.contains("opus") else { return nil }
+
+            let bitrate = stream["bitrate"] as? Int ?? 0
+            let itag = stream["itag"] as? Int ?? 0
+            return (streamUrl, bitrate, mimeType, itag)
+        }
+        .sorted { $0.bitrate > $1.bitrate }
+
+        guard let best = compatibleStreams.first,
+              let streamURL = URL(string: best.url) else {
+            throw StreamExtractorError.noCompatibleFormat
+        }
+
+        Logger.log("[StreamExtractor] Piped instance \(instanceIndex)/\(totalInstances) (\(instance)): selected itag \(best.itag), bitrate \(best.bitrate)", category: .playback)
+
+        let stream = ResolvedStream(
+            url: streamURL,
+            itag: best.itag,
+            mimeType: best.mimeType,
+            bitrate: best.bitrate,
+            playbackHeaders: [:]
+        )
+
+        let expiry = extractExpiryDate(from: streamURL)
+        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
+
+        return stream
+    }
+
     // MARK: - Helpers
+
+    /// Produce a concise description of why a strategy failed
+    private func describeError(_ error: Error) -> String {
+        if let e = error as? StreamExtractorError {
+            switch e {
+            case .noCompatibleFormat: return "no compatible audio/mp4 formats"
+            case .noURLAvailable: return "no URL in response"
+            case .playabilityError(let detail): return "playability: \(detail)"
+            case .networkError(let detail): return "network: \(detail)"
+            case .urlValidationFailed(let status): return "URL returned HTTP \(status)"
+            case .invalidCipher: return "invalid cipher data"
+            case .deobfuscationFailed(let detail): return "deobfuscation: \(detail)"
+            case .playerLoadFailed(let detail): return "player load: \(detail)"
+            case .allStrategiesFailed: return "all strategies exhausted"
+            }
+        }
+        return error.localizedDescription
+    }
 
     private func parseQueryString(_ queryString: String) -> [String: String] {
         var params: [String: String] = [:]

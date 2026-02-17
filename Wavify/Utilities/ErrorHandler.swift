@@ -15,6 +15,17 @@ enum ErrorHandler {
     
     /// Get a user-friendly message for an error
     static func userMessage(for error: Error) -> String {
+        if let streamError = error as? StreamExtractorError {
+            switch streamError {
+            case .allStrategiesFailed:
+                return "Unable to play this song. Please try again later"
+            case .urlValidationFailed:
+                return "This song is temporarily unavailable"
+            default:
+                return "Playback error. Please try again"
+            }
+        }
+
         if let ytError = error as? YouTubeMusicError {
             return userMessage(for: ytError)
         }
@@ -73,6 +84,15 @@ enum ErrorHandler {
     
     /// Check if an error is recoverable with retry
     static func isRetryable(_ error: Error) -> Bool {
+        if let streamError = error as? StreamExtractorError {
+            switch streamError {
+            case .networkError, .urlValidationFailed, .allStrategiesFailed:
+                return true
+            default:
+                return false
+            }
+        }
+
         if let ytError = error as? YouTubeMusicError {
             switch ytError {
             case .networkError:

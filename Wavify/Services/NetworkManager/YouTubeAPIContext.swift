@@ -31,6 +31,7 @@ enum YouTubeAPIContext {
     static let webRemixVersion = "1.20260121.03.00"
     static let androidVersion = "19.10.38"
     static let androidVRVersion = "1.71.26"
+    static let iosClientVersion = "19.29.1"
     
     // MARK: - Headers
     
@@ -65,6 +66,9 @@ enum YouTubeAPIContext {
     /// ANDROID_VR client User-Agent
     static let androidVRUserAgent = "com.google.android.apps.youtube.vr.oculus/\(androidVRVersion) (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
+    /// IOS client User-Agent
+    static let iosUserAgent = "com.google.ios.youtube/\(iosClientVersion) (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
+
     /// ANDROID_VR client headers - no PoT required, primary playback client
     static var tvHeaders: [String: String] {
         [
@@ -77,6 +81,18 @@ enum YouTubeAPIContext {
         ]
     }
     
+    /// IOS client headers - native app client, returns direct URLs
+    static var iosHeaders: [String: String] {
+        [
+            "Content-Type": "application/json",
+            "User-Agent": iosUserAgent,
+            "X-Youtube-Client-Name": "5",
+            "X-Youtube-Client-Version": iosClientVersion,
+            "Origin": "https://www.youtube.com",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
     /// Default playback headers (IOS UA - matches primary extraction client)
     /// Note: Prefer using PlaybackInfo.playbackHeaders for stream-specific headers
     static var playbackHeaders: [String: String] {
@@ -129,6 +145,24 @@ enum YouTubeAPIContext {
         ]
     }
     
+    /// IOS client context - native app client, returns direct URLs
+    static var iosContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "IOS",
+                "clientVersion": iosClientVersion,
+                "deviceMake": "Apple",
+                "deviceModel": "iPhone16,2",
+                "userAgent": iosUserAgent,
+                "osName": "iPhone",
+                "osVersion": "17.5.1",
+                "hl": "en",
+                "timeZone": "UTC",
+                "utcOffsetMinutes": 0
+            ]
+        ]
+    }
+
     /// Creates a web context with custom country/language
     static func webContext(country: String, language: String = "en") -> [String: Any] {
         [
