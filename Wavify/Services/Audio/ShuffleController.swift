@@ -47,6 +47,13 @@ class ShuffleController {
         currentShuffleIndex = 0
         return shuffleIndices[0]
     }
+
+    /// Enable shuffle mode for a pre-shuffled queue (sequential indices since array is already in shuffled order)
+    func enableShuffleForPreShuffledQueue(queueSize: Int) {
+        isShuffleMode = true
+        shuffleIndices = Array(0..<queueSize)
+        currentShuffleIndex = 0
+    }
     
     /// Disable shuffle mode
     func disableShuffle() {

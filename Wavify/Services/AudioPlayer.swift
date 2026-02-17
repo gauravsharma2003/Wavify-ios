@@ -823,15 +823,16 @@ class AudioPlayer {
     // MARK: - Album/Playlist Playback
     
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {
-        queueManager.setAlbumQueue(songs: songs, startIndex: startIndex)
-        
         if shuffle {
-            let randomIndex = shuffleController.enableShuffleForAlbum(queueSize: songs.count)
-            queueManager.jumpToIndex(randomIndex)
+            var shuffledSongs = songs
+            shuffledSongs.shuffle()
+            queueManager.setAlbumQueue(songs: shuffledSongs, startIndex: 0)
+            shuffleController.enableShuffleForPreShuffledQueue(queueSize: shuffledSongs.count)
         } else {
+            queueManager.setAlbumQueue(songs: songs, startIndex: startIndex)
             shuffleController.disableShuffle()
         }
-        
+
         if let song = queue[safe: currentIndex] {
             await playNewSong(song, refreshQueue: false)
         }
