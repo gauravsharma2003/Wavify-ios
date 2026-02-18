@@ -99,6 +99,7 @@ class AudioPlayer {
     private let playbackService = PlaybackService()
     private let networkManager = NetworkManager.shared
     private let sharePlayManager = SharePlayManager.shared
+    private let playbackTracker = PlaybackTracker()
 
     // MARK: - Crossfade
 
@@ -138,6 +139,8 @@ class AudioPlayer {
             if self.crossfadeSettings.isEnabled {
                 self.crossfadeEngine?.startMonitoring(currentTime: time, duration: self.duration)
             }
+            // Report playback time for analytics
+            Task { await self.playbackTracker.reportTime(currentTime: time) }
         }
         
         // Fallback song end handler for when AVPlayerItemDidPlayToEndTime doesn't fire
@@ -150,6 +153,7 @@ class AudioPlayer {
                 if Date().timeIntervalSince(self.lastSongEndHandledAt) < 1.0 { return }
                 self.isHandlingSongEnd = true
                 self.lastSongEndHandledAt = Date()
+                await self.playbackTracker.stopTracking()
                 await self.playNext()
                 self.isHandlingSongEnd = false
             }
@@ -233,6 +237,7 @@ class AudioPlayer {
         engine.onCrossfadeCompleted = { [weak self] song, player, item, expectedDuration in
             guard let self = self else { return }
             Logger.log("Crossfade: completed, adopting \(song.title)", category: .playback)
+            Task { await self.playbackTracker.stopTracking() }
 
             // Advance queue to the crossfaded song
             self.advanceQueueForCrossfade(to: song)
@@ -590,6 +595,9 @@ class AudioPlayer {
                 url: url,
                 expectedDuration: expectedDuration
             )
+
+            // Start playback tracking for artist play counts
+            await playbackTracker.startTracking(info: playbackInfo)
 
             Logger.log("Playing via native AVPlayer: \(song.title)", category: .playback)
 

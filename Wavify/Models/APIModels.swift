@@ -90,6 +90,48 @@ struct PlaybackInfo {
     let artistId: String?
     let albumId: String?
     let playbackHeaders: [String: String]
+    let cpn: String
+    let loudnessDb: Double?
+    let expiresAt: Date?
+    let playbackTrackingUrl: String?
+    let watchtimeTrackingUrl: String?
+    let atrTrackingUrl: String?
+
+    init(
+        audioUrl: String,
+        videoId: String,
+        title: String,
+        duration: String,
+        thumbnailUrl: String,
+        artist: String,
+        viewCount: String,
+        artistId: String?,
+        albumId: String?,
+        playbackHeaders: [String: String],
+        cpn: String = "",
+        loudnessDb: Double? = nil,
+        expiresAt: Date? = nil,
+        playbackTrackingUrl: String? = nil,
+        watchtimeTrackingUrl: String? = nil,
+        atrTrackingUrl: String? = nil
+    ) {
+        self.audioUrl = audioUrl
+        self.videoId = videoId
+        self.title = title
+        self.duration = duration
+        self.thumbnailUrl = thumbnailUrl
+        self.artist = artist
+        self.viewCount = viewCount
+        self.artistId = artistId
+        self.albumId = albumId
+        self.playbackHeaders = playbackHeaders
+        self.cpn = cpn
+        self.loudnessDb = loudnessDb
+        self.expiresAt = expiresAt
+        self.playbackTrackingUrl = playbackTrackingUrl
+        self.watchtimeTrackingUrl = watchtimeTrackingUrl
+        self.atrTrackingUrl = atrTrackingUrl
+    }
 }
 
 // MARK: - Queue Song

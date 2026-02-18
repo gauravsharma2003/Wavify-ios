@@ -15,7 +15,11 @@
       "WebFetch(domain:holyswift.app)",
       "Bash(grep:*)",
       "Bash(git -C /Users/Gaurav.Sharma4/Desktop/Wavify log --oneline --all)",
-      "Bash(git -C /Users/Gaurav.Sharma4/Desktop/Wavify show --name-status f254d8e)"
+      "Bash(git -C /Users/Gaurav.Sharma4/Desktop/Wavify show --name-status f254d8e)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh search code:*)",
+      "Bash(PLAYER_URL=\"https://www.youtube.com/s/player/a944b11f/player_es6.vflset/en_GB/base.js\")",
+      "Bash(echo:*)"
     ]
   }
 }

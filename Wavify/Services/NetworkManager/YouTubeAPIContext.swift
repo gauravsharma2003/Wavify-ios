@@ -27,11 +27,15 @@ enum YouTubeAPIContext {
     }
     
     // MARK: - Client Versions
-    
+
     static let webRemixVersion = "1.20260121.03.00"
     static let androidVersion = "19.10.38"
     static let androidVRVersion = "1.71.26"
     static let iosClientVersion = "19.29.1"
+    static let tvVersion = "7.20250120.10.00"
+    static let tvEmbedVersion = "2.0"
+    static let webEmbedVersion = "2.20250120.01.00"
+    static let mwebVersion = "2.20250120.01.00"
     
     // MARK: - Headers
     
@@ -56,9 +60,9 @@ enum YouTubeAPIContext {
             "X-Goog-Api-Format-Version": "1",
             "X-YouTube-Client-Name": "3",
             "X-YouTube-Client-Version": androidVersion,
-            "X-Origin": "https://music.youtube.com",
-            "Referer": "https://music.youtube.com/",
-            "User-Agent": "com.google.android.youtube/\(androidVersion) (Linux; U; Android 11) gzip"
+            "Origin": "https://www.youtube.com",
+            "User-Agent": "com.google.android.youtube/\(androidVersion) (Linux; U; Android 11) gzip",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
         ]
     }
     
@@ -159,6 +163,108 @@ enum YouTubeAPIContext {
                 "hl": "en",
                 "timeZone": "UTC",
                 "utcOffsetMinutes": 0
+            ]
+        ]
+    }
+
+    // MARK: - TV Client (TVHTML5)
+
+    static var tvClientHeaders: [String: String] {
+        [
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+            "X-Youtube-Client-Name": "7",
+            "X-Youtube-Client-Version": tvVersion,
+            "Origin": "https://www.youtube.com",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
+    static var tvClientContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "TVHTML5",
+                "clientVersion": tvVersion,
+                "hl": "en",
+                "gl": "US",
+                "timeZone": "UTC",
+                "utcOffsetMinutes": 0
+            ]
+        ]
+    }
+
+    // MARK: - TV Embedded Client
+
+    static var tvEmbedHeaders: [String: String] {
+        [
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+            "X-Youtube-Client-Name": "85",
+            "X-Youtube-Client-Version": tvEmbedVersion,
+            "Origin": "https://www.youtube.com",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
+    static var tvEmbedContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                "clientVersion": tvEmbedVersion,
+                "hl": "en",
+                "gl": "US",
+                "timeZone": "UTC",
+                "utcOffsetMinutes": 0
+            ]
+        ]
+    }
+
+    // MARK: - Web Embedded Client
+
+    static var webEmbedHeaders: [String: String] {
+        [
+            "Content-Type": "application/json",
+            "User-Agent": YouTubeStreamExtractor.webUserAgent,
+            "X-Youtube-Client-Name": "56",
+            "X-Youtube-Client-Version": webEmbedVersion,
+            "Origin": "https://www.youtube.com",
+            "Referer": "https://www.youtube.com/",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
+    static var webEmbedContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "WEB_EMBEDDED_PLAYER",
+                "clientVersion": webEmbedVersion,
+                "hl": "en",
+                "gl": "US"
+            ]
+        ]
+    }
+
+    // MARK: - MWEB Client
+
+    static var mwebHeaders: [String: String] {
+        [
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+            "X-Youtube-Client-Name": "2",
+            "X-Youtube-Client-Version": mwebVersion,
+            "Origin": "https://m.youtube.com",
+            "Referer": "https://m.youtube.com/",
+            "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
+    static var mwebContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "MWEB",
+                "clientVersion": mwebVersion,
+                "hl": "en",
+                "gl": "US"
             ]
         ]
     }

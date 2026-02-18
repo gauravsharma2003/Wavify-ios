@@ -28,7 +28,7 @@ struct AlbumDetailView: View {
     @State private var isLoading = true
     @State private var isSaved = false
     @State private var showDelete = false
-    @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
+    @State private var gradientColors: [Color] = [.black, Color(white: 0.06)]
     @State private var scrollOffset: CGFloat = 0
     
     // Add to playlist state
@@ -116,6 +116,7 @@ struct AlbumDetailView: View {
                 .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 420, alignment: .top)
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
+                        .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
                 )
             }
             .background(
@@ -144,6 +145,8 @@ struct AlbumDetailView: View {
             }
             checkIfSaved()
             loadLikedStatus()
+        }
+        .task {
             await extractColors()
         }
         .sheet(item: $selectedSongForPlaylist) { song in
@@ -161,13 +164,22 @@ struct AlbumDetailView: View {
     }
     
     private func extractColors() async {
-        guard let url = URL(string: ImageUtils.thumbnailForPlayer(displayThumbnail)),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let uiImage = UIImage(data: data) else { return }
-        
+        guard let url = URL(string: ImageUtils.thumbnailForCard(displayThumbnail)) else { return }
+
+        // Use shared image cache (same cache as CachedAsyncImagePhase) to avoid double downloads
+        let uiImage: UIImage
+        if let cached = await ImageCache.shared.image(for: url) {
+            uiImage = cached
+        } else if let (data, _) = try? await URLSession.shared.data(from: url),
+                  let downloaded = UIImage(data: data) {
+            uiImage = downloaded
+        } else {
+            return
+        }
+
         let colors = await ColorExtractor.extractColors(from: uiImage)
         await MainActor.run {
-            withAnimation(.easeInOut(duration: 0.5)) {
+            withAnimation(.easeInOut(duration: 0.3)) {
                 gradientColors = [colors.0, colors.1, Color(white: 0.06)]
             }
         }

@@ -19,7 +19,7 @@ struct ArtistDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var artistDetail: ArtistDetail?
     @State private var isLoading = true
-    @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
+    @State private var gradientColors: [Color] = [.black, Color(white: 0.05)]
     @State private var scrollOffset: CGFloat = 0
     
     // Add to playlist state
@@ -65,6 +65,7 @@ struct ArtistDetailView: View {
                 .frame(minHeight: UIScreen.main.bounds.height - 350)  // Subtract header height
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
+                        .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
                 )
             }
             .background(
@@ -89,6 +90,9 @@ struct ArtistDetailView: View {
             // Only load if we don't already have data for this artist
             guard artistDetail == nil || artistDetail?.name != initialName else { return }
             await loadArtistDetails()
+            loadLikedStatus()
+        }
+        .task {
             await extractColors()
         }
         .sheet(item: $selectedSongForPlaylist) { song in
@@ -500,18 +504,25 @@ struct ArtistDetailView: View {
     }
     
     private func extractColors() async {
-        loadLikedStatus()
         let imageUrl = artistDetail?.thumbnailUrl ?? initialThumbnail
-        guard let url = URL(string: ImageUtils.thumbnailForCard(imageUrl)),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let uiImage = UIImage(data: data) else { return }
-        
+        guard let url = URL(string: ImageUtils.thumbnailForCard(imageUrl)) else { return }
+
+        // Use shared image cache (same cache as CachedAsyncImagePhase) to avoid double downloads
+        let uiImage: UIImage
+        if let cached = await ImageCache.shared.image(for: url) {
+            uiImage = cached
+        } else if let (data, _) = try? await URLSession.shared.data(from: url),
+                  let downloaded = UIImage(data: data) {
+            uiImage = downloaded
+        } else {
+            return
+        }
+
         let colors = await ColorExtractor.extractColors(from: uiImage)
-        // Define the ending color that matches the navbar background
         let navbarBackgroundColor = Color(white: 0.05)
-        
+
         await MainActor.run {
-            withAnimation(.easeInOut(duration: 0.5)) {
+            withAnimation(.easeInOut(duration: 0.3)) {
                 gradientColors = [colors.0, colors.1.opacity(0.6), navbarBackgroundColor]
             }
         }

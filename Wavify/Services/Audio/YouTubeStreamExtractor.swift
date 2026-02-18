@@ -80,18 +80,45 @@ actor YouTubeStreamExtractor {
         let bitrate: Int
     }
 
-    // MARK: - Piped Instances
+    struct ClientStrategy {
+        let name: String
+        let context: [String: Any]
+        let headers: [String: String]
+        let requiresCipher: Bool
+        let requiresPoToken: Bool
+    }
 
-    /// Public Piped API mirrors for last-resort fallback
-    private static let pipedInstances = [
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.tokhmi.xyz",
-        "https://pipedapi.moomoo.me",
-        "https://pipedapi.syncpundit.io",
-        "https://api-piped.mha.fi",
-        "https://piped-api.garudalinux.org",
-        "https://pipedapi.rivo.lol",
-        "https://pipedapi.leptons.xyz"
+    // MARK: - Strategy Chain
+    //
+    // Only clients that return direct URLs (no cipher) and don't require PoToken.
+    // Web-based clients (WEB, MWEB, WEB_EMBED) require PoToken for media access
+    // which needs WebView + BotGuard — not feasible natively. Removed.
+
+    private static let strategies: [ClientStrategy] = [
+        // 1. IOS — most reliable, direct URLs, no PoToken needed
+        ClientStrategy(
+            name: "IOS",
+            context: YouTubeAPIContext.iosContext,
+            headers: YouTubeAPIContext.iosHeaders,
+            requiresCipher: false,
+            requiresPoToken: false
+        ),
+        // 2. ANDROID — direct URLs, no PoToken needed
+        ClientStrategy(
+            name: "ANDROID",
+            context: YouTubeAPIContext.androidContext,
+            headers: YouTubeAPIContext.androidHeaders,
+            requiresCipher: false,
+            requiresPoToken: false
+        ),
+        // 3. ANDROID_VR — can trigger bot detection on some videos
+        ClientStrategy(
+            name: "ANDROID_VR",
+            context: YouTubeAPIContext.tvContext,
+            headers: YouTubeAPIContext.tvHeaders,
+            requiresCipher: false,
+            requiresPoToken: false
+        )
     ]
 
     // MARK: - State
@@ -104,7 +131,7 @@ actor YouTubeStreamExtractor {
     // MARK: - Public API
 
     /// Resolve a playable audio URL for a YouTube video
-    /// Tries 4 strategies in order: ANDROID_VR → IOS → WEB (cipher) → Piped
+    /// Tries client strategies in order: IOS → ANDROID → ANDROID_VR
     func resolveAudioURL(videoId: String) async throws -> ResolvedStream {
         // Check cache first
         if let cached = urlCache[videoId], !cached.isExpired {
@@ -113,71 +140,44 @@ actor YouTubeStreamExtractor {
         }
 
         let overallStart = CFAbsoluteTimeGetCurrent()
-        let totalStrategies = 4
+        let strategies = Self.strategies
         var failureReasons: [String] = []
 
-        // Strategy 1/4: ANDROID_VR client (direct URLs, no cipher)
-        do {
-            let start = CFAbsoluteTimeGetCurrent()
-            let stream = try await resolveViaAndroidVRClient(videoId: videoId)
-            let validated = try await validateStreamURL(stream)
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            Logger.log("[StreamExtractor] Strategy 1/\(totalStrategies): ANDROID_VR succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
-            return validated
-        } catch {
-            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
-            let reason = describeError(error)
-            failureReasons.append("ANDROID_VR: \(reason)")
-            Logger.warning("[StreamExtractor] Strategy 1/\(totalStrategies): ANDROID_VR failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
+        // Try each client strategy
+        for (index, strategy) in strategies.enumerated() {
+            let strategyNum = index + 1
+            do {
+                let start = CFAbsoluteTimeGetCurrent()
+                let cpn = CPNGenerator.generate()
+
+                var poToken: String?
+                if strategy.requiresPoToken {
+                    poToken = await PoTokenProvider.shared.getToken(videoId: videoId)
+                }
+
+                let stream = try await resolveViaGenericClient(
+                    strategy: strategy,
+                    videoId: videoId,
+                    cpn: cpn,
+                    poToken: poToken
+                )
+                let validated = try await validateStreamURL(stream)
+                let elapsed = CFAbsoluteTimeGetCurrent() - start
+                Logger.log("[StreamExtractor] Strategy \(strategyNum)/\(strategies.count): \(strategy.name) succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
+                return validated
+            } catch {
+                let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
+                let reason = describeError(error)
+                failureReasons.append("\(strategy.name): \(reason)")
+                Logger.warning("[StreamExtractor] Strategy \(strategyNum)/\(strategies.count): \(strategy.name) failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
+            }
         }
 
-        // Strategy 2/4: IOS client (direct URLs, different client identity)
-        do {
-            let start = CFAbsoluteTimeGetCurrent()
-            let stream = try await resolveViaIOSClient(videoId: videoId)
-            let validated = try await validateStreamURL(stream)
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            Logger.log("[StreamExtractor] Strategy 2/\(totalStrategies): IOS succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
-            return validated
-        } catch {
-            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
-            let reason = describeError(error)
-            failureReasons.append("IOS: \(reason)")
-            Logger.warning("[StreamExtractor] Strategy 2/\(totalStrategies): IOS failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
-        }
-
-        // Strategy 3/4: WEB client with cipher deobfuscation via JavaScriptCore
-        do {
-            let start = CFAbsoluteTimeGetCurrent()
-            let stream = try await resolveViaWebClient(videoId: videoId)
-            let validated = try await validateStreamURL(stream)
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            Logger.log("[StreamExtractor] Strategy 3/\(totalStrategies): WEB succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
-            return validated
-        } catch {
-            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
-            let reason = describeError(error)
-            failureReasons.append("WEB: \(reason)")
-            Logger.warning("[StreamExtractor] Strategy 3/\(totalStrategies): WEB failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
-        }
-
-        // Strategy 4/4: Piped instances (last resort)
-        do {
-            let start = CFAbsoluteTimeGetCurrent()
-            let stream = try await resolveViaPipedAPI(videoId: videoId)
-            let validated = try await validateStreamURL(stream)
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            Logger.log("[StreamExtractor] Strategy 4/\(totalStrategies): Piped succeeded in \(String(format: "%.2f", elapsed))s, itag \(validated.itag)", category: .playback)
-            return validated
-        } catch {
-            let elapsed = CFAbsoluteTimeGetCurrent() - overallStart
-            let reason = describeError(error)
-            failureReasons.append("Piped: \(reason)")
-            Logger.warning("[StreamExtractor] Strategy 4/\(totalStrategies): Piped failed (\(String(format: "%.2f", elapsed))s): \(reason)", category: .playback)
-        }
+        // Trigger visitor data refresh on total failure
+        Task { await VisitorDataScraper.shared.scrape() }
 
         let totalElapsed = CFAbsoluteTimeGetCurrent() - overallStart
-        Logger.error("[StreamExtractor] All \(totalStrategies) strategies failed for \(videoId) in \(String(format: "%.2f", totalElapsed))s", category: .playback)
+        Logger.error("[StreamExtractor] All \(strategies.count) strategies failed for \(videoId) in \(String(format: "%.2f", totalElapsed))s", category: .playback)
         throw StreamExtractorError.allStrategiesFailed(failureReasons)
     }
 
@@ -196,221 +196,105 @@ actor YouTubeStreamExtractor {
         await jsPlayer.invalidate()
     }
 
-    // MARK: - WEB Client Resolution (with deobfuscation)
+    // MARK: - Generic Client Resolution
 
-    private func resolveViaWebClient(videoId: String) async throws -> ResolvedStream {
-        // Ensure JS player is loaded and ready
-        let playerInfo = try await jsPlayer.ensureLoaded()
+    private func resolveViaGenericClient(
+        strategy: ClientStrategy,
+        videoId: String,
+        cpn: String,
+        poToken: String?
+    ) async throws -> ResolvedStream {
+        var body: [String: Any] = [
+            "videoId": videoId,
+            "context": strategy.context,
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+            "playbackContext": [
+                "contentPlaybackContext": [
+                    "html5Preference": "HTML5_PREF_WANTS"
+                ]
+            ]
+        ]
 
-        // Call InnerTube /player API with WEB context + signatureTimestamp
-        let formats = try await fetchStreamingData(
-            videoId: videoId,
-            signatureTimestamp: playerInfo.signatureTimestamp
-        )
+        // Inject PoToken if available
+        if let poToken = poToken {
+            body["serviceIntegrityDimensions"] = ["poToken": poToken]
+        }
 
-        // Select best audio format
-        let format = try selectBestAudioFormat(from: formats)
+        // For cipher-requiring clients, load JS player and add signatureTimestamp
+        if strategy.requiresCipher {
+            let playerInfo = try await jsPlayer.ensureLoaded()
+            var playbackContext = body["playbackContext"] as? [String: Any] ?? [:]
+            var contentContext = playbackContext["contentPlaybackContext"] as? [String: Any] ?? [:]
+            contentContext["signatureTimestamp"] = playerInfo.signatureTimestamp
+            playbackContext["contentPlaybackContext"] = contentContext
+            body["playbackContext"] = playbackContext
+        }
 
-        // Resolve URL (direct or cipher)
-        var resolvedURL: URL
-        if let directUrl = format.url, let url = URL(string: directUrl) {
-            resolvedURL = url
-        } else if let cipherString = format.signatureCipher {
-            resolvedURL = try await deobfuscateCipher(cipherString: cipherString)
+        let formats = try await callPlayerAPI(body: body, headers: strategy.headers)
+        Logger.log("[StreamExtractor] \(strategy.name) returned \(formats.count) audio formats for \(videoId)", category: .playback)
+
+        if strategy.requiresCipher {
+            // Cipher clients: may need deobfuscation
+            let format = try selectBestAudioFormat(from: formats)
+
+            var resolvedURL: URL
+            if let directUrl = format.url, let url = URL(string: directUrl) {
+                resolvedURL = url
+            } else if let cipherString = format.signatureCipher {
+                resolvedURL = try await deobfuscateCipher(cipherString: cipherString)
+            } else {
+                throw StreamExtractorError.noURLAvailable
+            }
+
+            resolvedURL = await deobfuscateNParameter(url: resolvedURL)
+
+            // Append CPN to URL
+            resolvedURL = appendQueryParam(to: resolvedURL, name: "cpn", value: cpn)
+
+            let stream = ResolvedStream(
+                url: resolvedURL,
+                itag: format.itag,
+                mimeType: format.mimeType,
+                bitrate: format.bitrate,
+                playbackHeaders: ["User-Agent": Self.webUserAgent]
+            )
+
+            let expiry = extractExpiryDate(from: resolvedURL)
+            urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
+            return stream
         } else {
-            throw StreamExtractorError.noURLAvailable
+            // Direct URL clients
+            let directFormats = formats.filter { $0.url != nil }
+            guard let format = selectBestFormat(from: directFormats) else {
+                Logger.warning("[StreamExtractor] \(strategy.name): no compatible direct formats (total: \(formats.count), direct: \(directFormats.count))", category: .playback)
+                throw StreamExtractorError.noCompatibleFormat
+            }
+
+            guard let urlString = format.url, var url = URL(string: urlString) else {
+                throw StreamExtractorError.noURLAvailable
+            }
+
+            // Append CPN to URL
+            url = appendQueryParam(to: url, name: "cpn", value: cpn)
+
+            Logger.log("[StreamExtractor] \(strategy.name): selected itag \(format.itag), host: \(url.host ?? "nil")", category: .playback)
+
+            let stream = ResolvedStream(
+                url: url,
+                itag: format.itag,
+                mimeType: format.mimeType,
+                bitrate: format.bitrate,
+                playbackHeaders: [:]
+            )
+
+            let expiry = extractExpiryDate(from: url)
+            urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
+            return stream
         }
-
-        // Deobfuscate n-parameter (prevents throttling/403)
-        resolvedURL = await deobfuscateNParameter(url: resolvedURL)
-
-        let stream = ResolvedStream(
-            url: resolvedURL,
-            itag: format.itag,
-            mimeType: format.mimeType,
-            bitrate: format.bitrate,
-            playbackHeaders: ["User-Agent": Self.webUserAgent]
-        )
-
-        // Cache with TTL from URL expire parameter
-        let expiry = extractExpiryDate(from: resolvedURL)
-        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
-
-        return stream
-    }
-
-    // MARK: - ANDROID_VR Client (primary path, no PoT required)
-
-    private func resolveViaAndroidVRClient(videoId: String) async throws -> ResolvedStream {
-        let vrVersion = "1.71.26"
-        let vrUA = "com.google.android.apps.youtube.vr.oculus/\(vrVersion) (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
-
-        let body: [String: Any] = [
-            "videoId": videoId,
-            "context": [
-                "client": [
-                    "clientName": "ANDROID_VR",
-                    "clientVersion": vrVersion,
-                    "deviceMake": "Oculus",
-                    "deviceModel": "Quest 3",
-                    "androidSdkVersion": 32,
-                    "userAgent": vrUA,
-                    "osName": "Android",
-                    "osVersion": "12L",
-                    "hl": "en",
-                    "timeZone": "UTC",
-                    "utcOffsetMinutes": 0
-                ]
-            ],
-            "contentCheckOk": true,
-            "racyCheckOk": true,
-            "playbackContext": [
-                "contentPlaybackContext": [
-                    "html5Preference": "HTML5_PREF_WANTS"
-                ]
-            ]
-        ]
-
-        let headers = [
-            "Content-Type": "application/json",
-            "User-Agent": vrUA,
-            "X-Youtube-Client-Name": "28",
-            "X-Youtube-Client-Version": vrVersion,
-            "Origin": "https://www.youtube.com"
-        ]
-
-        let formats = try await callPlayerAPI(body: body, headers: headers)
-        Logger.log("ANDROID_VR client returned \(formats.count) audio formats for \(videoId)", category: .playback)
-
-        let directFormats = formats.filter { $0.url != nil }
-        guard let format = selectBestFormat(from: directFormats) else {
-            Logger.warning("ANDROID_VR: no compatible direct formats (total: \(formats.count), direct: \(directFormats.count))", category: .playback)
-            throw StreamExtractorError.noCompatibleFormat
-        }
-
-        guard let urlString = format.url, let url = URL(string: urlString) else {
-            throw StreamExtractorError.noURLAvailable
-        }
-
-        Logger.log("ANDROID_VR: selected itag \(format.itag), host: \(url.host ?? "nil")", category: .playback)
-
-        let stream = ResolvedStream(
-            url: url,
-            itag: format.itag,
-            mimeType: format.mimeType,
-            bitrate: format.bitrate,
-            playbackHeaders: [:]  // ANDROID_VR URLs work with default AVPlayer UA
-        )
-
-        let expiry = extractExpiryDate(from: url)
-        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
-
-        return stream
-    }
-
-    // MARK: - IOS Client Resolution (direct URLs, no cipher)
-
-    private func resolveViaIOSClient(videoId: String) async throws -> ResolvedStream {
-        let iosVersion = "19.29.1"
-        let deviceModel = "iPhone16,2"
-        let osVersion = "17.5.1"
-        let iosUA = "com.google.ios.youtube/\(iosVersion) (\(deviceModel); U; CPU iOS \(osVersion.replacingOccurrences(of: ".", with: "_")) like Mac OS X)"
-
-        let body: [String: Any] = [
-            "videoId": videoId,
-            "context": [
-                "client": [
-                    "clientName": "IOS",
-                    "clientVersion": iosVersion,
-                    "deviceMake": "Apple",
-                    "deviceModel": deviceModel,
-                    "userAgent": iosUA,
-                    "osName": "iPhone",
-                    "osVersion": osVersion,
-                    "hl": "en",
-                    "timeZone": "UTC",
-                    "utcOffsetMinutes": 0
-                ]
-            ],
-            "contentCheckOk": true,
-            "racyCheckOk": true,
-            "playbackContext": [
-                "contentPlaybackContext": [
-                    "html5Preference": "HTML5_PREF_WANTS"
-                ]
-            ]
-        ]
-
-        let headers = [
-            "Content-Type": "application/json",
-            "User-Agent": iosUA,
-            "X-Youtube-Client-Name": "5",
-            "X-Youtube-Client-Version": iosVersion,
-            "Origin": "https://www.youtube.com"
-        ]
-
-        let formats = try await callPlayerAPI(body: body, headers: headers)
-        Logger.log("[StreamExtractor] IOS client returned \(formats.count) audio formats for \(videoId)", category: .playback)
-
-        let directFormats = formats.filter { $0.url != nil }
-        guard let format = selectBestFormat(from: directFormats) else {
-            Logger.warning("[StreamExtractor] IOS: no compatible direct formats (total: \(formats.count), direct: \(directFormats.count))", category: .playback)
-            throw StreamExtractorError.noCompatibleFormat
-        }
-
-        guard let urlString = format.url, let url = URL(string: urlString) else {
-            throw StreamExtractorError.noURLAvailable
-        }
-
-        Logger.log("[StreamExtractor] IOS: selected itag \(format.itag), host: \(url.host ?? "nil")", category: .playback)
-
-        let stream = ResolvedStream(
-            url: url,
-            itag: format.itag,
-            mimeType: format.mimeType,
-            bitrate: format.bitrate,
-            playbackHeaders: [:]
-        )
-
-        let expiry = extractExpiryDate(from: url)
-        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
-
-        return stream
     }
 
     // MARK: - InnerTube API
-
-    private func fetchStreamingData(videoId: String, signatureTimestamp: Int) async throws -> [AudioFormat] {
-        let body: [String: Any] = [
-            "videoId": videoId,
-            "context": [
-                "client": [
-                    "clientName": "WEB",
-                    "clientVersion": "2.20250120.01.00",
-                    "hl": "en",
-                    "gl": "US"
-                ]
-            ],
-            "playbackContext": [
-                "contentPlaybackContext": [
-                    "signatureTimestamp": signatureTimestamp
-                ]
-            ],
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        ]
-
-        let headers = [
-            "Content-Type": "application/json",
-            "User-Agent": Self.webUserAgent,
-            "Origin": "https://www.youtube.com",
-            "Referer": "https://www.youtube.com/",
-            "X-YouTube-Client-Name": "1",
-            "X-YouTube-Client-Version": "2.20250120.01.00"
-        ]
-
-        return try await callPlayerAPI(body: body, headers: headers)
-    }
 
     private func callPlayerAPI(body: [String: Any], headers: [String: String]) async throws -> [AudioFormat] {
         let url = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!
@@ -457,7 +341,7 @@ actor YouTubeStreamExtractor {
             guard isCompatible && !isIncompatible else { return nil }
 
             let directUrl = format["url"] as? String
-            let cipher = format["signatureCipher"] as? String
+            let cipher = (format["signatureCipher"] as? String) ?? (format["cipher"] as? String)
             guard directUrl != nil || cipher != nil else { return nil }
 
             let itag = format["itag"] as? Int ?? 0
@@ -538,14 +422,28 @@ actor YouTubeStreamExtractor {
         do {
             let deobfuscatedN = try await jsPlayer.deobfuscateNParameter(nValue)
 
-            var mutableItems = queryItems
-            mutableItems[nIndex] = URLQueryItem(name: "n", value: deobfuscatedN)
-            components.queryItems = mutableItems
-
-            return components.url ?? url
+            if deobfuscatedN != nValue {
+                // Successfully deobfuscated — use new value
+                var mutableItems = queryItems
+                mutableItems[nIndex] = URLQueryItem(name: "n", value: deobfuscatedN)
+                components.queryItems = mutableItems
+                return components.url ?? url
+            } else {
+                // Passthrough (deobfuscation returned same value) — remove n-param entirely.
+                // YouTube rejects untransformed n-values with 403 but may accept without it.
+                var mutableItems = queryItems
+                mutableItems.remove(at: nIndex)
+                components.queryItems = mutableItems.isEmpty ? nil : mutableItems
+                Logger.debug("N-parameter passthrough detected, removing from URL", category: .playback)
+                return components.url ?? url
+            }
         } catch {
-            Logger.warning("N-parameter deobfuscation failed: \(error.localizedDescription)", category: .playback)
-            return url // Return original URL as fallback
+            // Deobfuscation failed — remove n-parameter rather than keeping wrong value
+            Logger.warning("N-parameter deobfuscation failed: \(error.localizedDescription), removing from URL", category: .playback)
+            var mutableItems = queryItems
+            mutableItems.remove(at: nIndex)
+            components.queryItems = mutableItems.isEmpty ? nil : mutableItems
+            return components.url ?? url
         }
     }
 
@@ -586,92 +484,6 @@ actor YouTubeStreamExtractor {
         return stream
     }
 
-    // MARK: - Piped API Resolution (last resort)
-
-    private func resolveViaPipedAPI(videoId: String) async throws -> ResolvedStream {
-        var lastError: Error = StreamExtractorError.noURLAvailable
-
-        for (index, instance) in Self.pipedInstances.enumerated() {
-            do {
-                let stream = try await fetchFromPipedInstance(
-                    instance: instance,
-                    videoId: videoId,
-                    instanceIndex: index + 1,
-                    totalInstances: Self.pipedInstances.count
-                )
-                return stream
-            } catch {
-                lastError = error
-                Logger.debug("[StreamExtractor] Piped instance \(index + 1)/\(Self.pipedInstances.count) (\(instance)) failed: \(error.localizedDescription)", category: .playback)
-                continue
-            }
-        }
-
-        throw lastError
-    }
-
-    private func fetchFromPipedInstance(
-        instance: String,
-        videoId: String,
-        instanceIndex: Int,
-        totalInstances: Int
-    ) async throws -> ResolvedStream {
-        guard let url = URL(string: "\(instance)/streams/\(videoId)") else {
-            throw StreamExtractorError.networkError("Invalid Piped URL for instance: \(instance)")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 10
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw StreamExtractorError.networkError("Piped HTTP \(statusCode) from \(instance)")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let audioStreams = json["audioStreams"] as? [[String: Any]] else {
-            throw StreamExtractorError.networkError("Invalid Piped response from \(instance)")
-        }
-
-        let compatibleStreams = audioStreams.compactMap { stream -> (url: String, bitrate: Int, mimeType: String, itag: Int)? in
-            guard let streamUrl = stream["url"] as? String,
-                  let mimeType = stream["mimeType"] as? String,
-                  mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a"),
-                  !mimeType.contains("webm"),
-                  !mimeType.contains("opus") else { return nil }
-
-            let bitrate = stream["bitrate"] as? Int ?? 0
-            let itag = stream["itag"] as? Int ?? 0
-            return (streamUrl, bitrate, mimeType, itag)
-        }
-        .sorted { $0.bitrate > $1.bitrate }
-
-        guard let best = compatibleStreams.first,
-              let streamURL = URL(string: best.url) else {
-            throw StreamExtractorError.noCompatibleFormat
-        }
-
-        Logger.log("[StreamExtractor] Piped instance \(instanceIndex)/\(totalInstances) (\(instance)): selected itag \(best.itag), bitrate \(best.bitrate)", category: .playback)
-
-        let stream = ResolvedStream(
-            url: streamURL,
-            itag: best.itag,
-            mimeType: best.mimeType,
-            bitrate: best.bitrate,
-            playbackHeaders: [:]
-        )
-
-        let expiry = extractExpiryDate(from: streamURL)
-        urlCache[videoId] = CachedStream(stream: stream, expiresAt: expiry)
-
-        return stream
-    }
-
     // MARK: - Helpers
 
     /// Produce a concise description of why a strategy failed
@@ -690,6 +502,14 @@ actor YouTubeStreamExtractor {
             }
         }
         return error.localizedDescription
+    }
+
+    private func appendQueryParam(to url: URL, name: String, value: String) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var items = components.queryItems ?? []
+        items.append(URLQueryItem(name: name, value: value))
+        components.queryItems = items
+        return components.url ?? url
     }
 
     private func parseQueryString(_ queryString: String) -> [String: String] {
@@ -883,6 +703,7 @@ private actor YouTubeJSPlayer {
 
     private func extractSignatureTimestamp(from jsCode: String) -> Int? {
         let patterns = [
+            #"(?:signatureTimestamp|sts)\s*:\s*(\d{5})"#,
             #"signatureTimestamp[=:](\d{5})"#,
             #"(?:sts)\s*=\s*(\d{5})"#
         ]
@@ -909,8 +730,16 @@ private actor YouTubeJSPlayer {
             }
         }
 
+        // Detect string lookup array (modern YouTube player 2024+)
+        // Example: var y="call{clone{/file/index.m3u8{...}".split("{")
+        let arrayInfo = extractStringLookupArray(from: jsCode)
+        if let (name, decl) = arrayInfo {
+            ctx.evaluateScript(decl + ";")
+            Logger.debug("[JSPlayer] Loaded string lookup array '\(name)'", category: .playback)
+        }
+
         // Extract and load signature deobfuscation function
-        let sigJS = try extractSignatureJS(from: jsCode)
+        let sigJS = try extractSignatureJS(from: jsCode, arrayName: arrayInfo?.name)
         ctx.evaluateScript(sigJS)
 
         // Extract and load n-parameter deobfuscation function
@@ -926,29 +755,142 @@ private actor YouTubeJSPlayer {
         self.jsContext = ctx
     }
 
+    // MARK: - String Lookup Array Detection
+
+    /// Detect the string lookup array used by modern YouTube player (2024+).
+    /// Modern players store all method/property names in a single array and access
+    /// them by index, e.g., `W[y[23]](y[5])` instead of `W.split("")`.
+    private func extractStringLookupArray(from jsCode: String) -> (name: String, declaration: String)? {
+        // Match: var NAME = "LONG_STRING".split("DELIMITER")
+        // The string must be long enough (100+ chars) to avoid false positives
+        let pattern = #"(var\s+(\w+)\s*=\s*"[^"]{100,}"\s*\.split\s*\(\s*"[^"]{1}"\s*\))"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)),
+              let fullRange = Range(match.range(at: 1), in: jsCode),
+              let nameRange = Range(match.range(at: 2), in: jsCode) else {
+            return nil
+        }
+
+        let name = String(jsCode[nameRange])
+        let declaration = String(jsCode[fullRange])
+        return (name, declaration)
+    }
+
     // MARK: - Extract Signature Deobfuscation JS
 
-    private func extractSignatureJS(from jsCode: String) throws -> String {
+    private func extractSignatureJS(from jsCode: String, arrayName: String?) throws -> String {
+        // Try modern approach first (2024+ YouTube player with string lookup array)
+        if let arrayName = arrayName,
+           let modernJS = extractModernSignatureJS(from: jsCode, arrayName: arrayName) {
+            Logger.debug("[JSPlayer] Using modern signature extraction", category: .playback)
+            return modernJS
+        }
+
+        // Fall back to legacy approach (pre-2024 players with direct function names)
+        Logger.debug("[JSPlayer] Falling back to legacy signature extraction", category: .playback)
+        return try extractLegacySignatureJS(from: jsCode)
+    }
+
+    // MARK: - Modern Signature Extraction (2024+ YouTube player)
+
+    /// Extracts signature deobfuscation JS for modern YouTube players that use
+    /// a string lookup array for all method/property names.
+    /// The string lookup array must already be loaded into JSContext.
+    private func extractModernSignatureJS(from jsCode: String, arrayName: String) -> String? {
+        // Step 1: Find signature function via its invocation pattern
+        // YouTube calls: FUNC(NUM, decodeURIComponent(VAR.s))
+        let invocationPattern = #"(\w+)\(\d+\s*,\s*decodeURIComponent\(\w+\.s\)\)"#
+        guard let regex = try? NSRegularExpression(pattern: invocationPattern),
+              let match = regex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)),
+              let nameRange = Range(match.range(at: 1), in: jsCode) else {
+            Logger.debug("[JSPlayer] Modern sig: invocation pattern not found", category: .playback)
+            return nil
+        }
+        let sigFuncName = String(jsCode[nameRange])
+
+        // Step 2: Extract the full function definition
+        guard let fullFunc = extractFullFunction(named: sigFuncName, from: jsCode) else {
+            Logger.debug("[JSPlayer] Modern sig: function body not found for '\(sigFuncName)'", category: .playback)
+            return nil
+        }
+
+        // Step 3: Find helper object(s) referenced via array-indexed calls
+        // Pattern: HELPER[arrayName[NUM]]( — e.g., ZZ[y[19]](q,2)
+        let escapedArray = NSRegularExpression.escapedPattern(for: arrayName)
+        let helperPattern = "([a-zA-Z0-9_$]{2,})\\[\(escapedArray)\\[\\d+\\]\\]\\("
+        var helperJS = ""
+
+        if let helperRegex = try? NSRegularExpression(pattern: helperPattern) {
+            let matches = helperRegex.matches(in: fullFunc, range: NSRange(fullFunc.startIndex..., in: fullFunc))
+            var candidates = Set<String>()
+            for m in matches {
+                if let range = Range(m.range(at: 1), in: fullFunc) {
+                    candidates.insert(String(fullFunc[range]))
+                }
+            }
+
+            // Include candidates that are declared as objects in the full JS
+            for candidate in candidates {
+                if let helperBody = extractObjectBody(named: candidate, from: jsCode) {
+                    helperJS += "var \(candidate)={\(helperBody)};\n"
+                    Logger.debug("[JSPlayer] Modern sig: found helper object '\(candidate)'", category: .playback)
+                }
+            }
+        }
+
+        // Step 4: Determine the bitmask argument from invocation context
+        let escapedFunc = NSRegularExpression.escapedPattern(for: sigFuncName)
+        let bitmaskPattern = "\(escapedFunc)\\((\\d+)\\s*,\\s*decodeURIComponent"
+        var bitmask = "10" // default — works for both signatureCipher and direct sig
+        if let bmRegex = try? NSRegularExpression(pattern: bitmaskPattern),
+           let bmMatch = bmRegex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)),
+           let bmRange = Range(bmMatch.range(at: 1), in: jsCode) {
+            bitmask = String(jsCode[bmRange])
+        }
+
+        Logger.debug("[JSPlayer] Modern sig: func=\(sigFuncName), bitmask=\(bitmask)", category: .playback)
+
+        return """
+        \(helperJS)
+        var \(sigFuncName) = \(fullFunc);
+        function deobfuscateSignature(a) { return \(sigFuncName)(\(bitmask), a); }
+        """
+    }
+
+    // MARK: - Legacy Signature Extraction (pre-2024 YouTube player)
+
+    private func extractLegacySignatureJS(from jsCode: String) throws -> String {
         // Step 1: Find the initial function name
-        // YouTube uses patterns like:
-        //   a.set("alr","yes");c&&(c=FUNCNAME(decodeURIComponent(c))
-        //   c=[a]&&d.set(...,encodeURIComponent(FUNCNAME(...)))
+        // Patterns ported from yt-dlp / SimpMusic's SmartTube SigExtractor
         let funcNamePatterns = [
-            #"\b[cs]\s*&&\s*[adf]\.set\([^,]+\s*,\s*encodeURIComponent\(([a-zA-Z0-9$]+)\("#,
+            // Primary (current YouTube player) — yt-dlp pattern 1
+            #"\b([a-zA-Z0-9_$]+)&&\(\1=([a-zA-Z0-9_$]{2,})\(decodeURIComponent\(\1\)\)"#,
+            // Split/join function definition — yt-dlp pattern 2
+            #"([a-zA-Z0-9_$]+)\s*=\s*function\(\s*([a-zA-Z0-9_$]+)\s*\)\s*\{\s*\2\s*=\s*\2\.split\(\s*""\s*\)\s*;\s*[^}]+;\s*return\s+\2\.join\(\s*""\s*\)"#,
+            // Alternative split form — yt-dlp pattern 3
+            #"(?:\b|[^a-zA-Z0-9_$])([a-zA-Z0-9_$]{2,})\s*=\s*function\(\s*a\s*\)\s*\{\s*a\s*=\s*a\.split\(\s*""\s*\)"#,
+            // set+encodeURIComponent — yt-dlp pattern 4
+            #"\b[cs]\s*&&\s*[adf]\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\("#,
+            // Generic set+encodeURIComponent — yt-dlp pattern 5
+            #"\b[a-zA-Z0-9]+\s*&&\s*[a-zA-Z0-9]+\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\("#,
+            // m=FUNC(decodeURIComponent(h.s)) — yt-dlp pattern 6
             #"\bm=([a-zA-Z0-9$]{2,})\(decodeURIComponent\(h\.s\)\)"#,
-            #"\bc\s*&&\s*d\.set\([^,]+\s*,\s*(?:encodeURIComponent\s*\()([a-zA-Z0-9$]+)\("#,
+            // Older patterns as fallbacks
             #"\bc\s*&&\s*[a-z]\.set\([^,]+\s*,\s*([a-zA-Z0-9$]+)\("#,
-            #"\bc\s*&&\s*[a-z]\.set\([^,]+\s*,\s*encodeURIComponent\(([a-zA-Z0-9$]+)\("#,
-            #"(?:\b|[^a-zA-Z0-9$])([a-zA-Z0-9$]{2,})\s*=\s*function\(\s*a\s*\)\s*\{\s*a\s*=\s*a\.split\(\s*""\s*\)"#
+            #"\bc\s*&&\s*[a-z]\.set\([^,]+\s*,\s*encodeURIComponent\(([a-zA-Z0-9$]+)\("#
         ]
 
         var funcName: String?
-        for pattern in funcNamePatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)),
-               match.numberOfRanges > 1,
-               let range = Range(match.range(at: 1), in: jsCode) {
+        for (patternIndex, pattern) in funcNamePatterns.enumerated() {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)) else {
+                continue
+            }
+            let groupIndex = (patternIndex == 0 && match.numberOfRanges > 2) ? 2 : 1
+            if let range = Range(match.range(at: groupIndex), in: jsCode) {
                 funcName = String(jsCode[range])
+                Logger.debug("[JSPlayer] Sig function '\(funcName!)' found via legacy pattern \(patternIndex + 1)", category: .playback)
                 break
             }
         }
@@ -957,11 +899,8 @@ private actor YouTubeJSPlayer {
             throw StreamExtractorError.deobfuscationFailed("Signature function name not found")
         }
 
-        // Step 2: Extract the function body
         let funcBody = try extractFunctionBody(named: sigFuncName, from: jsCode)
 
-        // Step 3: Find the helper object (contains reverse, splice, swap operations)
-        // The function body references helper like: XX.YY(a, N)
         let helperPattern = #";([a-zA-Z0-9$]{2,})\.\w+\("#
         var helperJS = ""
 
@@ -987,27 +926,40 @@ private actor YouTubeJSPlayer {
 
     private func extractNParameterJS(from jsCode: String) -> String {
         // The n-parameter function prevents throttling
-        // Pattern: .get("n"))&&(b=FUNCNAME(b)  or  .get("n"))&&(b=FUNCNAME[INDEX](b)
-        let nFuncPatterns = [
-            #"\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]+)(?:\[(\d+)\])?\(b\)"#,
-            #"\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]{2,})\(b\)"#
+        // Patterns ported from yt-dlp / SimpMusic's SmartTube NSigExtractor
+        let nFuncPatterns: [(pattern: String, nameGroup: Int, indexGroup: Int?)] = [
+            // Primary: .get("n"))&&(b=FUNC[IDX](b) — original form
+            (#"\.get\("n"\)\)&&\(b=([a-zA-Z0-9_$]+)(?:\[(\d+)\])?\([a-zA-Z]\)"#, 1, 2),
+            // String.fromCharCode(110) form (110 = 'n') with .get(b) or [b]||null
+            (#"b=String\.fromCharCode\(110\)(?:,[a-zA-Z0-9_$]+\([a-zA-Z]\))?,c=a\.(?:get\(b\)|[a-zA-Z0-9_$]+\[b\]\|\|null)\)&&\(c=([a-zA-Z0-9_$]+)(?:\[(\d+)\])?\([a-zA-Z]\)"#, 1, 2),
+            // "nn"[+X] form
+            (#"[a-zA-Z0-9_$.]+&&\(b="nn"\[\+[a-zA-Z0-9_$.]+\](?:,[a-zA-Z0-9_$]+\([a-zA-Z]\))?,c=a\.(?:get\(b\)|[a-zA-Z0-9_$]+\[b\]\|\|null)\)&&\(c=([a-zA-Z0-9_$]+)(?:\[(\d+)\])?\([a-zA-Z]\)"#, 1, 2),
+            // var= form with .set() afterward
+            (#"\b([a-zA-Z0-9_$]+)=([a-zA-Z0-9_$]+)(?:\[(\d+)\])?\([a-zA-Z]\),[a-zA-Z0-9_$]+\.set\((?:"n+"|[a-zA-Z0-9_$]+),\1\)"#, 2, 3),
+            // Fallback: _w8_ return value pattern
+            (#";\s*([a-zA-Z0-9_$]+)\s*=\s*function\([a-zA-Z0-9_$]+\)\s*\{(?:(?!\};).)+?return\s*["'][\w-]+_w8_["']\s*\+\s*[a-zA-Z0-9_$]+"#, 1, nil)
         ]
 
-        for pattern in nFuncPatterns {
+        for (pattern, nameGroup, indexGroup) in nFuncPatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern),
                   let match = regex.firstMatch(in: jsCode, range: NSRange(jsCode.startIndex..., in: jsCode)),
-                  let nameRange = Range(match.range(at: 1), in: jsCode) else {
+                  match.numberOfRanges > nameGroup,
+                  let nameRange = Range(match.range(at: nameGroup), in: jsCode) else {
                 continue
             }
 
             var nFuncName = String(jsCode[nameRange])
+            Logger.debug("[JSPlayer] N-function '\(nFuncName)' found via pattern", category: .playback)
 
             // If it's an array reference like funcArray[0], resolve it
-            if match.numberOfRanges > 2,
-               let indexRange = Range(match.range(at: 2), in: jsCode),
+            if let idxGroup = indexGroup,
+               match.numberOfRanges > idxGroup,
+               match.range(at: idxGroup).location != NSNotFound,
+               let indexRange = Range(match.range(at: idxGroup), in: jsCode),
                let index = Int(jsCode[indexRange]) {
                 if let resolved = resolveArrayFunction(arrayName: nFuncName, index: index, from: jsCode) {
                     nFuncName = resolved
+                    Logger.debug("[JSPlayer] N-function resolved from array to '\(nFuncName)'", category: .playback)
                 }
             }
 
@@ -1030,8 +982,9 @@ private actor YouTubeJSPlayer {
     /// Extract a function body by name (content between the outermost braces)
     private func extractFunctionBody(named funcName: String, from jsCode: String) throws -> String {
         let escaped = NSRegularExpression.escapedPattern(for: funcName)
+        // Negative lookbehind prevents matching "is" inside "this" etc.
         let patterns = [
-            "\(escaped)\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{",
+            "(?<![a-zA-Z0-9_$])\(escaped)\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{",
             "function\\s+\(escaped)\\s*\\([^)]*\\)\\s*\\{"
         ]
 
@@ -1069,8 +1022,9 @@ private actor YouTubeJSPlayer {
     /// Extract a full function definition (including the function keyword and braces)
     private func extractFullFunction(named funcName: String, from jsCode: String) -> String? {
         let escaped = NSRegularExpression.escapedPattern(for: funcName)
+        // Negative lookbehind prevents matching "is" inside "this" etc.
         let patterns = [
-            "\(escaped)\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{",
+            "(?<![a-zA-Z0-9_$])\(escaped)\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{",
             "function\\s+\(escaped)\\s*\\([^)]*\\)\\s*\\{"
         ]
 

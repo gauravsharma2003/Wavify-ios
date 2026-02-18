@@ -20,6 +20,8 @@ final class PlayerAPIService {
 
     /// Get playback info for a video (audio URL + metadata from single API call)
     func getPlaybackInfo(videoId: String) async throws -> PlaybackInfo {
+        let cpn = CPNGenerator.generate()
+
         let body: [String: Any] = [
             "videoId": videoId,
             "context": YouTubeAPIContext.tvContext,
@@ -31,6 +33,9 @@ final class PlayerAPIService {
                 ]
             ]
         ]
+
+        // Note: PoToken is NOT injected here — ANDROID_VR (tvContext) doesn't need it.
+        // PoToken injection is handled per-strategy in YouTubeStreamExtractor.resolveViaGenericClient.
 
         let request = try requestManager.createRequest(
             endpoint: "player",
@@ -46,14 +51,41 @@ final class PlayerAPIService {
 
         // Try parsing URL + metadata from single response
         do {
-            return try parsePlaybackResponse(data, videoId: videoId)
+            var info = try parsePlaybackResponse(data, videoId: videoId, cpn: cpn)
+
+            // Check DB cache for stream URL (metadata from API is always fresh)
+            if let cached = await CachedFormatStore.shared.get(videoId: videoId) {
+                Logger.log("[PlayerAPI] Cache hit for \(videoId)", category: .cache)
+                return await CachedFormatStore.shared.toPlaybackInfo(from: cached, metadata: info)
+            }
+
+            // Save to DB cache
+            if !info.audioUrl.isEmpty, let url = URL(string: info.audioUrl) {
+                let stream = YouTubeStreamExtractor.ResolvedStream(
+                    url: url,
+                    itag: 0,
+                    mimeType: "audio/mp4",
+                    bitrate: 0,
+                    playbackHeaders: info.playbackHeaders
+                )
+                await CachedFormatStore.shared.save(videoId: videoId, info: info, stream: stream)
+            }
+
+            return info
         } catch {
             Logger.log("[PlayerAPI] Direct URL not available, using stream extractor", category: .playback)
+
+            // Check DB cache before hitting stream extractor
+            if let cached = await CachedFormatStore.shared.get(videoId: videoId) {
+                Logger.log("[PlayerAPI] Cache hit for \(videoId)", category: .cache)
+                let metadata = try parseMetadataOnly(data)
+                return await CachedFormatStore.shared.toPlaybackInfo(from: cached, metadata: metadata)
+            }
 
             let stream = try await YouTubeStreamExtractor.shared.resolveAudioURL(videoId: videoId)
             let metadata = try parseMetadataOnly(data)
 
-            return PlaybackInfo(
+            let info = PlaybackInfo(
                 audioUrl: stream.url.absoluteString,
                 videoId: metadata.videoId,
                 title: metadata.title,
@@ -63,8 +95,14 @@ final class PlayerAPIService {
                 viewCount: metadata.viewCount,
                 artistId: metadata.artistId,
                 albumId: metadata.albumId,
-                playbackHeaders: stream.playbackHeaders
+                playbackHeaders: stream.playbackHeaders,
+                cpn: cpn
             )
+
+            // Save to DB cache
+            await CachedFormatStore.shared.save(videoId: videoId, info: info, stream: stream)
+
+            return info
         }
     }
     
@@ -207,7 +245,7 @@ final class PlayerAPIService {
     }
 
     /// Parse both audio URL and metadata from player API response
-    private nonisolated func parsePlaybackResponse(_ data: Data, videoId requestedVideoId: String) throws -> PlaybackInfo {
+    private nonisolated func parsePlaybackResponse(_ data: Data, videoId requestedVideoId: String, cpn: String = "") throws -> PlaybackInfo {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw YouTubeMusicError.invalidResponse
         }
@@ -235,32 +273,54 @@ final class PlayerAPIService {
 
         // Parse audio URL from streamingData
         var audioUrl = ""
-        if let streamingData = json["streamingData"] as? [String: Any],
-           let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]] {
+        var expiresAt: Date?
+        if let streamingData = json["streamingData"] as? [String: Any] {
+            if let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]] {
+                var bestFormat: (url: String, itag: Int, bitrate: Int)?
 
-            var bestFormat: (url: String, itag: Int, bitrate: Int)?
+                for format in adaptiveFormats {
+                    guard format["width"] == nil else { continue }
+                    guard let mimeType = format["mimeType"] as? String,
+                          mimeType.contains("audio/mp4"), !mimeType.contains("webm") else { continue }
+                    guard let url = format["url"] as? String else { continue }
 
-            for format in adaptiveFormats {
-                guard format["width"] == nil else { continue }
-                guard let mimeType = format["mimeType"] as? String,
-                      mimeType.contains("audio/mp4"), !mimeType.contains("webm") else { continue }
-                guard let url = format["url"] as? String else { continue }
+                    let itag = format["itag"] as? Int ?? 0
+                    let bitrate = format["bitrate"] as? Int ?? 0
 
-                let itag = format["itag"] as? Int ?? 0
-                let bitrate = format["bitrate"] as? Int ?? 0
+                    if bestFormat == nil || bitrate > bestFormat!.bitrate {
+                        bestFormat = (url, itag, bitrate)
+                    }
+                }
 
-                if bestFormat == nil || bitrate > bestFormat!.bitrate {
-                    bestFormat = (url, itag, bitrate)
+                if let best = bestFormat {
+                    audioUrl = best.url
                 }
             }
 
-            if let best = bestFormat {
-                audioUrl = best.url
+            // Parse expiresAt
+            if let expiresInStr = streamingData["expiresInSeconds"] as? String,
+               let expiresIn = TimeInterval(expiresInStr) {
+                expiresAt = Date().addingTimeInterval(expiresIn - 300) // 5 min safety margin
             }
         }
 
         if audioUrl.isEmpty {
             throw YouTubeMusicError.parseError("No direct audio URL in response")
+        }
+
+        // Parse loudnessDb
+        let loudnessDb = (json["playerConfig"] as? [String: Any])
+            .flatMap { ($0["audioConfig"] as? [String: Any])?["loudnessDb"] as? Double }
+
+        // Parse playback tracking URLs
+        var playbackTrackingUrl: String?
+        var watchtimeTrackingUrl: String?
+        var atrTrackingUrl: String?
+
+        if let tracking = json["playbackTracking"] as? [String: Any] {
+            playbackTrackingUrl = (tracking["videostatsPlaybackUrl"] as? [String: Any])?["baseUrl"] as? String
+            watchtimeTrackingUrl = (tracking["videostatsWatchtimeUrl"] as? [String: Any])?["baseUrl"] as? String
+            atrTrackingUrl = (tracking["atrUrl"] as? [String: Any])?["baseUrl"] as? String
         }
 
         return PlaybackInfo(
@@ -273,7 +333,13 @@ final class PlayerAPIService {
             viewCount: viewCount,
             artistId: artistId,
             albumId: nil,
-            playbackHeaders: [:]
+            playbackHeaders: [:],
+            cpn: cpn,
+            loudnessDb: loudnessDb,
+            expiresAt: expiresAt,
+            playbackTrackingUrl: playbackTrackingUrl,
+            watchtimeTrackingUrl: watchtimeTrackingUrl,
+            atrTrackingUrl: atrTrackingUrl
         )
     }
     

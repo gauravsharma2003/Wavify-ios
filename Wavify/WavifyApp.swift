@@ -21,7 +21,8 @@ struct WavifyApp: App {
             RecentHistory.self,
             SongPlayCount.self,
             AlbumPlayCount.self,
-            ArtistPlayCount.self
+            ArtistPlayCount.self,
+            CachedFormat.self
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
@@ -124,7 +125,13 @@ struct WavifyApp: App {
             .task {
                 // Configure background data manager with the shared container
                 await BackgroundDataManager.shared.configure(with: sharedModelContainer)
-                
+
+                // Configure cached format store
+                await CachedFormatStore.shared.configure(with: sharedModelContainer)
+
+                // Scrape fresh visitor data (non-blocking)
+                Task { await VisitorDataScraper.shared.scrape() }
+
                 // Start listening for widget commands (Darwin notifications)
                 WidgetCommandHandler.shared.startListening()
                 
