@@ -91,9 +91,10 @@ struct ArtistDetailView: View {
             guard artistDetail == nil || artistDetail?.name != initialName else { return }
             await loadArtistDetails()
             loadLikedStatus()
-        }
-        .task {
-            await extractColors()
+            // Extract gradient colors only from the real artist image
+            if artistDetail?.thumbnailUrl != nil {
+                await extractColors()
+            }
         }
         .sheet(item: $selectedSongForPlaylist) { song in
             AddToPlaylistSheet(song: song)
@@ -504,8 +505,9 @@ struct ArtistDetailView: View {
     }
     
     private func extractColors() async {
-        let imageUrl = artistDetail?.thumbnailUrl ?? initialThumbnail
-        guard let url = URL(string: ImageUtils.thumbnailForCard(imageUrl)) else { return }
+        // Only extract from the real artist image, never from the song thumbnail
+        guard let artistUrl = artistDetail?.thumbnailUrl,
+              let url = URL(string: ImageUtils.thumbnailForCard(artistUrl)) else { return }
 
         // Use shared image cache (same cache as CachedAsyncImagePhase) to avoid double downloads
         let uiImage: UIImage
