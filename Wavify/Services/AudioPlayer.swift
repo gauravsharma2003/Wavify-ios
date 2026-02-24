@@ -267,8 +267,10 @@ class AudioPlayer {
                 userInfo: ["song": song]
             )
 
-            // Ensure queue doesn't run out
-            self.queueManager.checkAndAppendIfNeeded(loopMode: self.shuffleController.loopMode, currentSong: song)
+            // Ensure queue doesn't run out (skip for guests — host syncs queue)
+            if !self.sharePlayManager.isGuest {
+                self.queueManager.checkAndAppendIfNeeded(loopMode: self.shuffleController.loopMode, currentSong: song)
+            }
 
             // SharePlay broadcast
             self.sharePlayManager.broadcastTrackChange(song: song)
@@ -500,10 +502,24 @@ class AudioPlayer {
         }
     }
     
+    // MARK: - Remote Playback (SharePlay)
+
+    /// Called by SharePlayManager when host changes track — bypasses guest guard
+    /// Uses refreshQueue: false because the host syncs the queue separately
+    func applyRemoteTrackChange(song: Song, seekTo: Double? = nil, shouldPlay: Bool = true) async {
+        guard !song.videoId.isEmpty else { return }
+        await playNewSong(song, refreshQueue: false, autoPlay: shouldPlay, seekTo: seekTo)
+    }
+
     // MARK: - Playback Control (Public API)
-    
+
     /// Play a new song from search/browse - creates fresh queue
     func loadAndPlay(song: Song) async {
+        // SharePlay guest guard — listeners can't initiate playback
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "You're vibing with the host. Leave the session to DJ yourself.")
+            return
+        }
         guard !song.videoId.isEmpty else {
             Logger.warning("Attempted to play song with empty videoId", category: .playback)
             return
@@ -513,6 +529,11 @@ class AudioPlayer {
     
     /// Play a song by videoId only (for deep links)
     func loadAndPlay(videoId: String) async {
+        // SharePlay guest guard — listeners can't initiate playback
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "You're vibing with the host. Leave the session to DJ yourself.")
+            return
+        }
         guard !videoId.isEmpty else {
             Logger.warning("Attempted to play with empty videoId", category: .playback)
             return
@@ -540,7 +561,7 @@ class AudioPlayer {
     }
     
     /// Internal method to play a song
-    private func playNewSong(_ song: Song, refreshQueue: Bool) async {
+    private func playNewSong(_ song: Song, refreshQueue: Bool, autoPlay: Bool = true, seekTo: Double? = nil) async {
         // Start background task
         let taskId = UIApplication.shared.beginBackgroundTask { }
         defer { UIApplication.shared.endBackgroundTask(taskId) }
@@ -593,7 +614,9 @@ class AudioPlayer {
             Logger.log("Loading AVPlayer: \(url.host ?? "nil") | itag in URL: \(url.query?.contains("itag=140") == true ? "140" : "other")", category: .playback)
             playbackService.load(
                 url: url,
-                expectedDuration: expectedDuration
+                expectedDuration: expectedDuration,
+                autoPlay: autoPlay,
+                seekTo: seekTo
             )
 
             // Start playback tracking for artist play counts
@@ -601,11 +624,13 @@ class AudioPlayer {
 
             Logger.log("Playing via native AVPlayer: \(song.title)", category: .playback)
 
-            // Handle queue
-            if refreshQueue {
-                await queueManager.loadRelatedSongs(videoId: song.videoId, replaceQueue: true, currentSong: song)
-            } else {
-                queueManager.checkAndAppendIfNeeded(loopMode: shuffleController.loopMode, currentSong: song)
+            // Handle queue (skip for guests — host syncs queue)
+            if !sharePlayManager.isGuest {
+                if refreshQueue {
+                    await queueManager.loadRelatedSongs(videoId: song.videoId, replaceQueue: true, currentSong: song)
+                } else {
+                    queueManager.checkAndAppendIfNeeded(loopMode: shuffleController.loopMode, currentSong: song)
+                }
             }
 
             // Fetch album info if missing (runs concurrently, doesn't block playback)
@@ -629,7 +654,7 @@ class AudioPlayer {
 
             // Save to widget shared data with duration
             if let song = currentSong {
-                LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: 0, totalDuration: duration)
+                LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: autoPlay, currentTime: seekTo ?? 0, totalDuration: duration)
             }
 
             // SharePlay: broadcast track change and queue state to guests
@@ -771,6 +796,10 @@ class AudioPlayer {
     }
     
     func playFromQueue(at index: Int) async {
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "You're vibing with the host. Leave the session to DJ yourself.")
+            return
+        }
         guard queueManager.jumpToIndex(index) else { return }
         shuffleController.syncShuffleIndex(to: index)
         
@@ -794,12 +823,20 @@ class AudioPlayer {
     // MARK: - User Queue Management
     
     func playNextSong(_ song: Song) {
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "Host controls the queue. Sit back and enjoy the ride.")
+            return
+        }
         queueManager.playNext(song)
         crossfadeEngine?.queueDidChange()
     }
-    
+
     func addToQueue(_ song: Song) -> Bool {
-        queueManager.addToQueue(song)
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "Host controls the queue. Sit back and enjoy the ride.")
+            return false
+        }
+        return queueManager.addToQueue(song)
     }
     
     func isInQueue(_ song: Song) -> Bool {
@@ -807,23 +844,27 @@ class AudioPlayer {
     }
 
     func moveQueueItem(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard !sharePlayManager.isGuest else { return }
         queueManager.moveItem(fromOffsets: source, toOffset: destination)
         crossfadeEngine?.queueDidChange()
     }
 
     func removeFromQueue(at index: Int) {
+        guard !sharePlayManager.isGuest else { return }
         queueManager.removeFromQueue(at: index)
         crossfadeEngine?.queueDidChange()
     }
 
     /// Move song to play next. Returns false if already next (meaning: play it now)
     func moveToPlayNext(fromIndex index: Int) -> Bool {
+        guard !sharePlayManager.isGuest else { return false }
         let result = queueManager.moveToPlayNext(fromIndex: index)
         crossfadeEngine?.queueDidChange()
         return result
     }
 
     func replaceUpcomingQueue(with songs: [Song]) {
+        guard !sharePlayManager.isGuest else { return }
         queueManager.replaceUpcoming(with: songs)
         crossfadeEngine?.queueDidChange()
     }
@@ -831,6 +872,10 @@ class AudioPlayer {
     // MARK: - Album/Playlist Playback
     
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {
+        guard !sharePlayManager.isGuest else {
+            ToastManager.shared.show(icon: "ear", text: "You're vibing with the host. Leave the session to DJ yourself.")
+            return
+        }
         if shuffle {
             var shuffledSongs = songs
             shuffledSongs.shuffle()

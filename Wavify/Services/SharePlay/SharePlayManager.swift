@@ -393,19 +393,15 @@ final class SharePlayManager {
         case "sync_state":
             guard let p = try? decoder.decode(SyncStatePayload.self, from: payload) else { return }
             if let track = p.currentTrack {
-                isApplyingRemoteState = true
                 let song = track.toSong()
+                let seekTo = p.position.map { Double($0) / 1000.0 }
+                let shouldPlay = p.isPlaying ?? false
                 Task {
-                    await AudioPlayer.shared.loadAndPlay(song: song)
-                    if let position = p.position {
-                        AudioPlayer.shared.seek(to: Double(position) / 1000.0)
-                    }
-                    if p.isPlaying == true {
-                        AudioPlayer.shared.play()
-                    } else {
-                        AudioPlayer.shared.pause()
-                    }
-                    self.isApplyingRemoteState = false
+                    await AudioPlayer.shared.applyRemoteTrackChange(
+                        song: song,
+                        seekTo: seekTo,
+                        shouldPlay: shouldPlay
+                    )
                 }
             }
 
@@ -469,16 +465,14 @@ final class SharePlayManager {
         switch payload.action {
         case .changeTrack:
             guard let track = payload.trackInfo else { return }
-            isApplyingRemoteState = true
             let song = track.toSong()
             // Store pending sync — apply after track loads and we send buffer_ready
             pendingSyncPlayback = payload
             Task {
-                await AudioPlayer.shared.loadAndPlay(song: song)
+                await AudioPlayer.shared.applyRemoteTrackChange(song: song)
                 // Send buffer_ready to host
                 let bufPayload = BufferReadyPayload(trackId: track.id)
                 try? await client.send(type: "buffer_ready", payload: bufPayload)
-                self.isApplyingRemoteState = false
             }
 
             // Update queue if provided
@@ -499,10 +493,8 @@ final class SharePlayManager {
 
         case .syncQueue:
             if let queueTracks = payload.queue {
-                isApplyingRemoteState = true
                 let songs = queueTracks.map { $0.toSong() }
                 AudioPlayer.shared.queue = songs
-                isApplyingRemoteState = false
             }
 
         default:

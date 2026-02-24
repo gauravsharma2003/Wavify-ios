@@ -86,25 +86,34 @@ struct EqualizerSheet: View {
     }
     
     // MARK: - Preset Selector
-    
+
     private var presetSelector: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 0) {
                 ForEach(EqualizerPreset.allCases.filter { $0 != .custom }) { preset in
-                    PresetChip(
-                        preset: preset,
-                        isSelected: localSettings.selectedPreset == preset
-                    ) {
-                        // Apply immediately
+                    let isSelected = localSettings.selectedPreset == preset
+
+                    Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             localSettings.applyPreset(preset)
                             localSettings.isEnabled = true
                             applySettingsInternal()
                         }
+                    } label: {
+                        VStack(spacing: 8) {
+                            Text(preset.rawValue)
+                                .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                                .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
+
+                            Rectangle()
+                                .fill(isSelected ? .white : .clear)
+                                .frame(height: 2)
+                        }
                     }
+                    .padding(.horizontal, 14)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 6)
         }
     }
     
@@ -170,36 +179,6 @@ struct EqualizerSheet: View {
     // Old save method removed in flavor of auto-save
 }
 
-// MARK: - Preset Chip
-
-private struct PresetChip: View {
-    let preset: EqualizerPreset
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: preset.icon)
-                    .font(.system(size: 14, weight: .medium))
-                Text(preset.rawValue)
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-        }
-        .glassEffect(isSelected ? .regular.interactive() : .regular, in: .capsule)
-        .overlay {
-            if isSelected {
-                Capsule()
-                    .stroke(.white.opacity(0.4), lineWidth: 2)
-            }
-        }
-        .scaleEffect(isSelected ? 1.02 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
-    }
-}
 
 // MARK: - Band Slider
 

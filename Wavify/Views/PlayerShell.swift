@@ -668,13 +668,14 @@ struct PlayerShell: View {
                 Label("Equalizer", systemImage: "slider.horizontal.3")
             }
 
-            // Crossfade
+            // Crossfade (disabled for Listen Together guests)
             Toggle(isOn: Binding(
                 get: { crossfadeSettings.isEnabled },
                 set: { crossfadeSettings.isEnabled = $0 }
             )) {
                 Label("Crossfade", systemImage: "wave.3.right")
             }
+            .disabled(sharePlayManager.isGuest)
 
             Divider()
 
@@ -691,19 +692,21 @@ struct PlayerShell: View {
                 )
             }
 
-            // Radio (renders at top)
+            // Radio (renders at top, disabled for Listen Together guests)
             ControlGroup {
                 Button {
                     startRadio()
                 } label: {
                     Label("Start Radio", systemImage: "dot.radiowaves.left.and.right")
                 }
+                .disabled(sharePlayManager.isGuest)
 
                 Button {
                     createStation()
                 } label: {
                     Label("Save Radio", systemImage: "music.note.square.stack.fill")
                 }
+                .disabled(sharePlayManager.isGuest)
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -752,10 +755,11 @@ struct PlayerShell: View {
             } label: {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(sharePlayManager.isGuest ? .white.opacity(0.4) : .white)
                     .frame(width: 46, height: 46)
             }
             .glassEffect(.regular.interactive(), in: .circle)
+            .disabled(sharePlayManager.isGuest)
         }
         .padding(.top, 8)
         .padding(.horizontal, 20)
