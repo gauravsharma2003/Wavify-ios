@@ -28,6 +28,9 @@ class LastPlayedSongManager {
     
     /// App Group container URL
     private let containerURL: URL?
+
+    /// Track the last cached thumbnail URL to avoid redundant downloads
+    private var lastCachedThumbnailUrl: String?
     
     private init() {
         containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier)
@@ -137,11 +140,15 @@ class LastPlayedSongManager {
     private func cacheThumbnail(from urlString: String) {
         guard let url = URL(string: urlString),
               let fileURL = thumbnailURL else { return }
-        
-        Task.detached(priority: .background) {
+
+        // Skip download if we already cached this exact thumbnail
+        if urlString == lastCachedThumbnailUrl { return }
+        lastCachedThumbnailUrl = urlString
+
+        Task.detached(priority: .userInitiated) {
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
-                
+
                 // Downscale image to avoid widget archival size limits
                 if let originalImage = UIImage(data: data),
                    let resizedImage = Self.resizeImage(originalImage, maxSize: 200),
@@ -150,6 +157,11 @@ class LastPlayedSongManager {
                 } else {
                     // Fallback: save original if resize fails
                     try data.write(to: fileURL, options: .atomic)
+                }
+
+                // Reload widget now that the new thumbnail is saved
+                await MainActor.run {
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
             } catch {
                 // Silently fail - widget will use placeholder
