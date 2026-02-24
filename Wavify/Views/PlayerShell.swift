@@ -14,6 +14,7 @@ struct PlayerShell: View {
     var navigationManager: NavigationManager
     @State private var sharePlayManager = SharePlayManager.shared
     @State private var crossfadeSettings = CrossfadeSettings.shared
+    @State private var equalizerManager = EqualizerManager.shared
 
     @Environment(\.modelContext) private var modelContext
 
@@ -662,9 +663,17 @@ struct PlayerShell: View {
             Divider()
 
             // Equalizer
-            Button {
-                showEqualizerSheet = true
-            } label: {
+            Toggle(isOn: Binding(
+                get: { equalizerManager.settings.selectedPreset != .flat },
+                set: { newValue in
+                    if newValue {
+                        showEqualizerSheet = true
+                    } else {
+                        equalizerManager.applyPreset(.flat)
+                        equalizerManager.save()
+                    }
+                }
+            )) {
                 Label("Equalizer", systemImage: "slider.horizontal.3")
             }
 
