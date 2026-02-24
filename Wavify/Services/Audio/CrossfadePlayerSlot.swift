@@ -45,6 +45,7 @@ final class CrossfadePlayerSlot {
 
         playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
+        player?.allowsExternalPlayback = false  // Audio-only: route via AirPlay audio, not video
         // Don't autoplay — CrossfadeEngine controls when to start
         player?.pause()
 

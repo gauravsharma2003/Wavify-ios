@@ -35,17 +35,13 @@ enum ImageUtils {
         // Example: https://lh3.googleusercontent.com/...=w120-h120-l90-rj
         if url.contains("googleusercontent.com") {
             var upscaled = url
-            
-            // Replace width parameter: =w120 → =w544
-            if let range = upscaled.range(of: "=w\\d+", options: .regularExpression) {
-                upscaled.replaceSubrange(range, with: "=w\(targetSize)")
+
+            // Replace width and height together to avoid matching "-h\d+" inside the URL hash
+            // (e.g. "jN-h8A23a" in the hash would incorrectly match "-h\d+" before the real "-h544")
+            if let range = upscaled.range(of: "=w\\d+-h\\d+", options: .regularExpression) {
+                upscaled.replaceSubrange(range, with: "=w\(targetSize)-h\(targetSize)")
             }
-            
-            // Replace height parameter: -h120 → -h544
-            if let range = upscaled.range(of: "-h\\d+", options: .regularExpression) {
-                upscaled.replaceSubrange(range, with: "-h\(targetSize)")
-            }
-            
+
             return upscaled
         }
         
@@ -89,17 +85,12 @@ enum ImageUtils {
         // Handle lh3.googleusercontent.com URLs (YouTube Music thumbnails)
         if url.contains("googleusercontent.com") {
             var resized = url
-            
-            // Replace width parameter
-            if let range = resized.range(of: "=w\\d+", options: .regularExpression) {
-                resized.replaceSubrange(range, with: "=w\(width)")
+
+            // Replace width and height together to avoid matching "-h\d+" inside the URL hash
+            if let range = resized.range(of: "=w\\d+-h\\d+", options: .regularExpression) {
+                resized.replaceSubrange(range, with: "=w\(width)-h\(height)")
             }
-            
-            // Replace height parameter
-            if let range = resized.range(of: "-h\\d+", options: .regularExpression) {
-                resized.replaceSubrange(range, with: "-h\(height)")
-            }
-            
+
             return resized
         }
         
