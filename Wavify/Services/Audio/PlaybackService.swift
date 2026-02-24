@@ -107,37 +107,22 @@ class PlaybackService {
         return outputs.contains { $0.portType == .airPlay }
     }
 
-    /// Called on audio route change. Detaches the audio tap when AirPlay is active
-    /// so AVPlayer outputs directly, and re-attaches it when back on local output.
-    ///
-    /// Does NOT touch the player's play/pause state — the player continues whatever
-    /// it was doing. The caller (AudioPlayer) handles pausing if needed.
-    func handleRouteChange() {
-        let airPlay = Self.currentRouteIsAirPlay()
-        guard airPlay != isAirPlayActive else { return }
-        isAirPlayActive = airPlay
+    /// Called on audio route change when switching TO AirPlay.
+    /// Detaches the audio tap so AVPlayer outputs directly.
+    func switchToAirPlay() {
+        guard !isAirPlayActive else { return }
+        isAirPlayActive = true
+        Logger.log("AirPlay active — bypassing audio engine", category: .playback)
+        AudioEngineService.shared.mute()
+        playerItem?.audioMix = nil
+        audioTapProcessor.detach()
+        AudioEngineService.shared.stop()
+    }
 
-        if airPlay {
-            // AirPlay ON: mute engine first (prevent double audio), then remove tap.
-            // AVPlayer continues playing — its output goes directly to AirPlay.
-            // ~20ms of silence as pre-zeroed buffered frames drain is imperceptible.
-            Logger.log("AirPlay active — bypassing audio engine", category: .playback)
-            AudioEngineService.shared.mute()
-            playerItem?.audioMix = nil
-            audioTapProcessor.detach()
-            AudioEngineService.shared.stop()
-        } else {
-            // AirPlay OFF: re-attach tap and restart engine for local playback.
-            // The player continues playing — tap captures audio immediately.
-            Logger.log("AirPlay disconnected — restoring audio engine", category: .playback)
-            guard let item = playerItem, item.status == .readyToPlay else { return }
-            audioTapProcessor.attachSync(to: item, ringBuffer: targetRingBuffer)
-            AudioEngineService.shared.flush()
-            AudioEngineService.shared.start()
-            // Unmute immediately — tap is already writing fresh audio to the ring buffer.
-            // No delayed unmute needed since there's no stale data (just flushed).
-            AudioEngineService.shared.unmute()
-        }
+    /// Clear AirPlay state so the next load() takes the local playback path.
+    /// Called by AudioPlayer before reloading with a fresh URL.
+    func clearAirPlayState() {
+        isAirPlayActive = false
     }
 
     // MARK: - Playback Control
@@ -179,9 +164,6 @@ class PlaybackService {
                 
                 switch item.status {
                 case .readyToPlay:
-                    self.onReady?(self.duration)
-                    self.delegate?.playbackService(self, didBecomeReady: self.duration)
-
                     // Ensure session is active - move to background to avoid blocking
                     DispatchQueue.global(qos: .userInitiated).async {
                         try? AVAudioSession.sharedInstance().setActive(true)
@@ -195,8 +177,12 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
 
-                    // Check current AirPlay state
+                    // Check current AirPlay state BEFORE onReady so AudioPlayer
+                    // can sync its own isAirPlayActive from ours
                     self.isAirPlayActive = Self.currentRouteIsAirPlay()
+
+                    self.onReady?(self.duration)
+                    self.delegate?.playbackService(self, didBecomeReady: self.duration)
 
                     if self.isAirPlayActive {
                         // AirPlay active — skip tap/engine, let AVPlayer output directly
@@ -394,9 +380,6 @@ class PlaybackService {
                 case .readyToPlay:
                     Logger.log("Playback retry successful", category: .playback)
 
-                    self.onReady?(self.duration)
-                    self.delegate?.playbackService(self, didBecomeReady: self.duration)
-
                     if let seekTime = self.pendingSeekTime, seekTime > 0 {
                         let cmTime = CMTime(seconds: seekTime, preferredTimescale: 1000)
                         await self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -404,7 +387,11 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
 
+                    // Check AirPlay BEFORE onReady so AudioPlayer can sync
                     self.isAirPlayActive = Self.currentRouteIsAirPlay()
+
+                    self.onReady?(self.duration)
+                    self.delegate?.playbackService(self, didBecomeReady: self.duration)
 
                     if self.isAirPlayActive {
                         if autoPlay {

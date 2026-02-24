@@ -166,6 +166,10 @@ class AudioPlayer {
         playbackService.onReady = { [weak self] dur in
             self?.duration = dur
             self?.isLoading = false
+            // Sync AirPlay state — covers the case where AirPlay is already active
+            // before the first song loads (no route change fires, so handleRouteChange
+            // never syncs this property).
+            self?.isAirPlayActive = self?.playbackService.isAirPlayActive ?? false
         }
         
         playbackService.onFailed = { [weak self] _ in
@@ -488,33 +492,80 @@ class AudioPlayer {
         }
     }
 
+    /// Timestamp of last AirPlay→local transition.
+    /// iOS fires multiple route change notifications for a single AirPlay disconnect
+    /// (e.g., .routeConfigurationChange then .oldDeviceUnavailable). We suppress
+    /// the pause from duplicate notifications within this window.
+    private var lastAirPlayToLocalAt: Date = .distantPast
+
     /// Handle audio route changes to prevent audio loss
     private func handleRouteChange(reason: AVAudioSession.RouteChangeReason) {
         let isNowAirPlay = PlaybackService.currentRouteIsAirPlay()
+        let wasAirPlay = playbackService.isAirPlayActive
 
-        // Cancel crossfade BEFORE route change — crossfade slot has its own tap
-        // that must be cleaned up before we switch audio routing mode
-        if isNowAirPlay && !playbackService.isAirPlayActive {
-            crossfadeEngine?.cancelCrossfade()
+        // No AirPlay state change — handle standard device disconnects only
+        guard isNowAirPlay != wasAirPlay else {
+            // Suppress .oldDeviceUnavailable pause within 5s of AirPlay→local transition.
+            // iOS fires multiple notifications for a single AirPlay disconnect; without
+            // this guard the second notification pauses the just-reloaded stream.
+            if reason == .oldDeviceUnavailable && Date().timeIntervalSince(lastAirPlayToLocalAt) > 1.0 {
+                pause()
+            }
+            return
         }
 
-        // Ensure audio session is active for new device connections
-        if reason == .newDeviceAvailable || reason == .routeConfigurationChange {
-            do {
-                try AVAudioSession.sharedInstance().setActive(true)
-            } catch {
-                Logger.error("Failed to reactivate audio session after route change", category: .playback, error: error)
+        // Cancel crossfade on any AirPlay state transition
+        crossfadeEngine?.cancelCrossfade()
+
+        // Ensure audio session is active
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            Logger.error("Failed to reactivate audio session after route change", category: .playback, error: error)
+        }
+
+        if isNowAirPlay {
+            // Switching TO AirPlay — detach tap, let AVPlayer output directly
+            playbackService.switchToAirPlay()
+            isAirPlayActive = true
+        } else {
+            // Switching FROM AirPlay to local — reload with a fresh URL & player.
+            // Attaching a tap to an already-playing streaming player is unreliable,
+            // and the stored URL may be expired. Fetching a fresh URL + creating a
+            // new AVPlayer matches exactly what "change song" does (which works).
+            lastAirPlayToLocalAt = Date()
+            AudioEngineService.shared.resetToSingleTrack()
+            playbackService.clearAirPlayState()
+            isAirPlayActive = false
+
+            let savedTime = currentTime
+            if let song = currentSong {
+                Task {
+                    // Always autoPlay — user expects audio to continue on phone.
+                    // This matches Apple Music / Spotify behavior for AirPlay disconnect.
+                    await reloadAfterAirPlay(song: song, seekTo: savedTime, autoPlay: true)
+                }
             }
         }
+    }
 
-        // Handle tap/engine transition FIRST — before any pause/play changes.
-        // This ensures the audio pipeline is in the correct state.
-        playbackService.handleRouteChange()
-        isAirPlayActive = playbackService.isAirPlayActive
+    /// Reload the current song with a fresh URL after switching from AirPlay to local.
+    /// This mirrors the playNewSong() path (fresh URL + fresh AVPlayer) which is proven to work.
+    private func reloadAfterAirPlay(song: Song, seekTo: Double, autoPlay: Bool) async {
+        do {
+            let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
+            guard let url = URL(string: playbackInfo.audioUrl) else { return }
+            let expectedDuration = Double(playbackInfo.duration) ?? Double(song.duration) ?? 0
 
-        // Pause on device disconnect (standard behavior — Spotify, Apple Music all do this)
-        if reason == .oldDeviceUnavailable {
-            pause()
+            playbackService.load(
+                url: url,
+                expectedDuration: expectedDuration,
+                autoPlay: autoPlay,
+                seekTo: seekTo > 1 ? seekTo : nil
+            )
+            duration = expectedDuration
+        } catch {
+            Logger.error("Failed to reload after AirPlay disconnect", category: .playback, error: error)
         }
     }
     
