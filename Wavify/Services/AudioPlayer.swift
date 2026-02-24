@@ -49,6 +49,10 @@ class AudioPlayer {
     var duration: Double = 0
     var isLoading = false
     var isBuffering = false
+
+    /// Whether audio is currently routed to an AirPlay device.
+    /// Stored (not computed) so @Observable can notify SwiftUI when it changes.
+    var isAirPlayActive = false
     
     // Queue state (delegated to QueueManager)
     var queue: [Song] {
@@ -135,8 +139,8 @@ class AudioPlayer {
             if Int(time) % 5 == 0 {
                 self.saveCurrentPosition()
             }
-            // Feed crossfade engine for preload/fade timing
-            if self.crossfadeSettings.isEnabled {
+            // Feed crossfade engine for preload/fade timing (skip during AirPlay — engine not running)
+            if self.crossfadeSettings.isEnabled && !self.isAirPlayActive {
                 self.crossfadeEngine?.startMonitoring(currentTime: time, duration: self.duration)
             }
             // Report playback time for analytics
@@ -486,19 +490,31 @@ class AudioPlayer {
 
     /// Handle audio route changes to prevent audio loss
     private func handleRouteChange(reason: AVAudioSession.RouteChangeReason) {
-        switch reason {
-        case .oldDeviceUnavailable:
-            // Headphones/Bluetooth disconnected - pause playback
-            pause()
-        case .newDeviceAvailable, .routeConfigurationChange:
-            // New device connected or route changed - ensure audio session is active
+        let isNowAirPlay = PlaybackService.currentRouteIsAirPlay()
+
+        // Cancel crossfade BEFORE route change — crossfade slot has its own tap
+        // that must be cleaned up before we switch audio routing mode
+        if isNowAirPlay && !playbackService.isAirPlayActive {
+            crossfadeEngine?.cancelCrossfade()
+        }
+
+        // Ensure audio session is active for new device connections
+        if reason == .newDeviceAvailable || reason == .routeConfigurationChange {
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {
                 Logger.error("Failed to reactivate audio session after route change", category: .playback, error: error)
             }
-        default:
-            break
+        }
+
+        // Handle tap/engine transition FIRST — before any pause/play changes.
+        // This ensures the audio pipeline is in the correct state.
+        playbackService.handleRouteChange()
+        isAirPlayActive = playbackService.isAirPlayActive
+
+        // Pause on device disconnect (standard behavior — Spotify, Apple Music all do this)
+        if reason == .oldDeviceUnavailable {
+            pause()
         }
     }
     

@@ -677,14 +677,17 @@ struct PlayerShell: View {
                 Label("Equalizer", systemImage: "slider.horizontal.3")
             }
 
-            // Crossfade (disabled for Listen Together guests)
+            // Crossfade (disabled for Listen Together guests or AirPlay)
             Toggle(isOn: Binding(
-                get: { crossfadeSettings.isEnabled },
+                get: { crossfadeSettings.isEnabled && !audioPlayer.isAirPlayActive },
                 set: { crossfadeSettings.isEnabled = $0 }
             )) {
-                Label("Crossfade", systemImage: "wave.3.right")
+                Label(
+                    audioPlayer.isAirPlayActive ? "Crossfade (AirPlay)" : "Crossfade",
+                    systemImage: "wave.3.right"
+                )
             }
-            .disabled(sharePlayManager.isGuest)
+            .disabled(sharePlayManager.isGuest || audioPlayer.isAirPlayActive)
 
             Divider()
 
