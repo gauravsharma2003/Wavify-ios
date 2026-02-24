@@ -259,7 +259,13 @@ class FavouritesManager {
             let existing = try context.fetch(descriptor)
             if let album = existing.first {
                 album.incrementPlayCount()
+                // Update title if a real name is provided and stored title is empty/placeholder
+                if !title.isEmpty && title != "Album" && (album.title.isEmpty || album.title == "Album") {
+                    album.title = title
+                }
             } else {
+                // Only create a new record if we have a real album name
+                guard !title.isEmpty else { return }
                 let newAlbum = AlbumPlayCount(
                     albumId: albumId,
                     title: title,

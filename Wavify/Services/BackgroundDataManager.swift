@@ -83,10 +83,16 @@ actor BackgroundDataManager {
         
         do {
             let existing = try context.fetch(descriptor)
-            
+
             if let albumCount = existing.first {
                 albumCount.incrementPlayCount()
+                // Update title if a real name is provided and stored title is empty/placeholder
+                if !title.isEmpty && title != "Album" && (albumCount.title.isEmpty || albumCount.title == "Album") {
+                    albumCount.title = title
+                }
             } else {
+                // Only create a new record if we have a real album name
+                guard !title.isEmpty else { return }
                 let newAlbumCount = AlbumPlayCount(
                     albumId: albumId,
                     title: title,
@@ -95,7 +101,7 @@ actor BackgroundDataManager {
                 )
                 context.insert(newAlbumCount)
             }
-            
+
             try context.save()
         } catch {
             Logger.dataError("Failed to track album play", error: error)

@@ -280,7 +280,7 @@ struct HomeView: View {
                     if let albumId = song.albumId, !albumId.isEmpty {
                         await BackgroundDataManager.shared.trackAlbumPlay(
                             albumId: albumId,
-                            title: "Album",
+                            title: "",
                             artist: song.artist,
                             thumbnailUrl: song.thumbnailUrl
                         )
