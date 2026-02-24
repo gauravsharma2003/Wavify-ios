@@ -22,7 +22,10 @@ struct WavifyApp: App {
             SongPlayCount.self,
             AlbumPlayCount.self,
             ArtistPlayCount.self,
-            CachedFormat.self
+            CachedFormat.self,
+            CloudConnection.self,
+            CloudPlaylist.self,
+            CloudTrack.self
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
@@ -128,6 +131,9 @@ struct WavifyApp: App {
 
                 // Configure cached format store
                 await CachedFormatStore.shared.configure(with: sharedModelContainer)
+
+                // Configure cloud library manager
+                await CloudLibraryManager.shared.configure(with: sharedModelContainer)
 
                 // Scrape fresh visitor data (non-blocking)
                 Task { await VisitorDataScraper.shared.scrape() }

@@ -43,6 +43,17 @@ struct CachedAsyncImagePhase<Content: View>: View {
             return
         }
         
+        // Local file: load directly from disk (no URLSession)
+        if url.isFileURL {
+            if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
+                await ImageCache.shared.store(image, for: url)
+                phase = .success(Image(uiImage: image))
+            } else {
+                phase = .empty
+            }
+            return
+        }
+
         // Load from network
         do {
             let (data, _) = try await URLSession.shared.data(from: url)

@@ -160,15 +160,27 @@ class AudioPlayer {
         }
 
         playbackService.onReady = { [weak self] dur in
-            self?.duration = dur
-            self?.isLoading = false
+            guard let self = self else { return }
+            self.duration = dur
+            self.isLoading = false
+            // Update NowPlaying with real duration (important for cloud tracks where duration starts as 0)
+            if dur > 0 {
+                self.updateNowPlayingInfo()
+            }
+            // For cloud tracks: persist learned duration and pre-fetch next song
+            if let song = self.currentSong, self.isCloudSong(song), dur > 0 {
+                let fileId = self.cloudFileId(from: song)
+                CloudLibraryManager.shared.updateTrackDuration(fileId: fileId, duration: dur)
+                self.prefetchNextCloudTrack()
+            }
         }
         
         playbackService.onFailed = { [weak self] _ in
             self?.isLoading = false
             self?.isBuffering = false
-            // Invalidate cached playback URL so next attempt gets a fresh one
-            if let videoId = self?.currentSong?.videoId {
+            // Invalidate cached playback URL so next attempt gets a fresh one (YouTube only)
+            if let song = self?.currentSong, self?.isCloudSong(song) != true {
+                let videoId = song.videoId
                 Task {
                     await self?.networkManager.invalidatePlaybackCache(videoId: videoId)
                     await YouTubeStreamExtractor.shared.invalidateCache(videoId: videoId)
@@ -183,6 +195,17 @@ class AudioPlayer {
         // Retry callback - fetch fresh URL when playback fails (handles expired URLs)
         playbackService.onRetryNeeded = { [weak self] completion in
             guard let self = self, let song = self.currentSong else {
+                completion(nil)
+                return
+            }
+
+            // Cloud songs: don't retry through YouTube — just skip retries
+            // (the file extension fix should resolve the root cause)
+            if self.isCloudSong(song) {
+                Logger.warning("Cloud song retry skipped — replaying via playCloudSong", category: .playback)
+                Task { @MainActor in
+                    await self.playCloudSong(song)
+                }
                 completion(nil)
                 return
             }
@@ -222,6 +245,30 @@ class AudioPlayer {
             guard let self = self else {
                 throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "AudioPlayer deallocated"])
             }
+
+            // Cloud songs: use cached file or download to cache first
+            if self.isCloudSong(song) {
+                let fileId = self.cloudFileId(from: song)
+
+                // Check cache first
+                if let cachedURL = await CloudTrackCache.shared.cachedURL(for: fileId) {
+                    return (cachedURL, 0)
+                }
+
+                // Download to cache, then return local URL
+                let token = try await CloudAuthManager.shared.getAccessToken()
+                let ext = self.cloudFileExtension(from: song)
+                await CloudTrackCache.shared.downloadAndCache(fileId: fileId, ext: ext, accessToken: token)
+
+                if let cachedURL = await CloudTrackCache.shared.cachedURL(for: fileId) {
+                    return (cachedURL, 0)
+                }
+
+                // Fallback: stream directly (CrossfadePlayerSlot doesn't support headers,
+                // so this won't work for auth-required URLs — but cache should have succeeded)
+                throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to cache cloud track for crossfade"])
+            }
+
             let playbackInfo = try await self.networkManager.getPlaybackInfo(videoId: song.videoId)
             guard let url = URL(string: playbackInfo.audioUrl) else {
                 throw NSError(domain: "AudioPlayer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid audio URL"])
@@ -247,18 +294,34 @@ class AudioPlayer {
             let actualTime = player.currentTime().seconds
             let validTime = actualTime.isNaN ? 0 : actualTime
 
+            // For cloud songs, expectedDuration may be 0 — read from player item
+            var resolvedDuration = expectedDuration
+            if resolvedDuration <= 0 {
+                let itemDur = item.duration
+                if itemDur.isNumeric && !itemDur.seconds.isNaN && itemDur.seconds > 0 {
+                    resolvedDuration = itemDur.seconds
+                }
+            }
+
             // Update current song state
             self.currentSong = song
-            self.duration = expectedDuration
+            self.duration = resolvedDuration
             self.currentTime = validTime
 
             // Adopt the player — PlaybackService takes over without stopping audio
-            self.playbackService.adoptPlayer(player, playerItem: item, duration: expectedDuration)
+            self.playbackService.adoptPlayer(player, playerItem: item, duration: resolvedDuration)
 
             self.updateNowPlayingInfo()
 
             // Save to widget
-            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: validTime, totalDuration: expectedDuration)
+            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: true, currentTime: validTime, totalDuration: resolvedDuration)
+
+            // For cloud tracks: persist duration and pre-fetch next
+            if self.isCloudSong(song) && resolvedDuration > 0 {
+                let fileId = self.cloudFileId(from: song)
+                CloudLibraryManager.shared.updateTrackDuration(fileId: fileId, duration: resolvedDuration)
+                self.prefetchNextCloudTrack()
+            }
 
             // Notify for play count tracking
             NotificationCenter.default.post(
@@ -490,13 +553,17 @@ class AudioPlayer {
         case .oldDeviceUnavailable:
             // Headphones/Bluetooth disconnected - pause playback
             pause()
+            // If AirPlay was active, route change back to local — re-attach tap
+            playbackService.handleRouteChange()
         case .newDeviceAvailable, .routeConfigurationChange:
-            // New device connected or route changed - ensure audio session is active
+            // New device connected or route changed (e.g. AirPlay)
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {
                 Logger.error("Failed to reactivate audio session after route change", category: .playback, error: error)
             }
+            // Toggle between AirPlay bypass and local engine mode
+            playbackService.handleRouteChange()
         default:
             break
         }
@@ -562,6 +629,12 @@ class AudioPlayer {
     
     /// Internal method to play a song
     private func playNewSong(_ song: Song, refreshQueue: Bool, autoPlay: Bool = true, seekTo: Double? = nil) async {
+        // Route cloud songs through the Drive pipeline
+        if isCloudSong(song) {
+            await playCloudSong(song, autoPlay: autoPlay)
+            return
+        }
+
         // Start background task
         let taskId = UIApplication.shared.beginBackgroundTask { }
         defer { UIApplication.shared.endBackgroundTask(taskId) }
@@ -869,8 +942,115 @@ class AudioPlayer {
         crossfadeEngine?.queueDidChange()
     }
 
+    // MARK: - Cloud Playback
+
+    /// Whether a song is a cloud (Google Drive) track
+    private func isCloudSong(_ song: Song) -> Bool {
+        song.id.hasPrefix("cloud_")
+    }
+
+    /// Extract the Drive file ID from a cloud song's id
+    private func cloudFileId(from song: Song) -> String {
+        String(song.id.dropFirst("cloud_".count))
+    }
+
+    /// Get the file extension for a cloud song (e.g. "flac", "mp3")
+    private func cloudFileExtension(from song: Song) -> String {
+        let fileId = cloudFileId(from: song)
+        return CloudLibraryManager.shared.trackFileExtension(for: fileId)
+    }
+
+    /// Pre-fetch the next cloud track in queue to cache for instant playback
+    private func prefetchNextCloudTrack() {
+        guard let nextSong = resolveNextSong(), isCloudSong(nextSong) else { return }
+        let fileId = cloudFileId(from: nextSong)
+        let ext = cloudFileExtension(from: nextSong)
+        Task.detached(priority: .utility) {
+            // Only fetch if not already cached
+            guard await CloudTrackCache.shared.cachedURL(for: fileId) == nil else { return }
+            do {
+                let token = try await CloudAuthManager.shared.getAccessToken()
+                await CloudTrackCache.shared.downloadAndCache(fileId: fileId, ext: ext, accessToken: token)
+                Logger.log("Cloud: pre-fetched next track \(nextSong.title)", category: .playback)
+            } catch {
+                // Best-effort, don't block
+            }
+        }
+    }
+
+    /// Play a cloud track, optionally setting up the queue from pre-built songs
+    func loadAndPlayCloudTrack(song: Song, queueSongs: [Song]? = nil, startIndex: Int? = nil) async {
+        // Set up queue if songs provided
+        if let queueSongs = queueSongs, !queueSongs.isEmpty {
+            let idx = startIndex ?? 0
+            queueManager.setAlbumQueue(songs: queueSongs, startIndex: idx)
+            shuffleController.disableShuffle()
+        }
+
+        await playCloudSong(song)
+    }
+
+    /// Internal: play a cloud song by its Song object (extracts file ID from song.id)
+    private func playCloudSong(_ song: Song, autoPlay: Bool = true) async {
+        let taskId = UIApplication.shared.beginBackgroundTask { }
+        defer { UIApplication.shared.endBackgroundTask(taskId) }
+
+        isLoading = true
+        currentSong = song
+
+        let fileId = cloudFileId(from: song)
+
+        // Check local cache first for instant playback
+        if let cachedURL = await CloudTrackCache.shared.cachedURL(for: fileId) {
+            duration = 0
+            playbackService.load(
+                url: cachedURL,
+                expectedDuration: 0,
+                autoPlay: autoPlay
+            )
+
+            updateNowPlayingInfo()
+            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: autoPlay, currentTime: 0, totalDuration: duration)
+            NotificationCenter.default.post(name: .songDidStartPlaying, object: nil, userInfo: ["song": song])
+            return
+        }
+
+        // Stream from Drive and cache in background
+        do {
+            let token = try await CloudAuthManager.shared.getAccessToken()
+
+            guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media") else {
+                isLoading = false
+                return
+            }
+
+            duration = 0
+            playbackService.load(
+                url: url,
+                expectedDuration: 0,
+                autoPlay: autoPlay,
+                headers: ["Authorization": "Bearer \(token)"]
+            )
+
+            updateNowPlayingInfo()
+            LastPlayedSongManager.shared.saveCurrentSong(song, isPlaying: autoPlay, currentTime: 0, totalDuration: duration)
+            NotificationCenter.default.post(name: .songDidStartPlaying, object: nil, userInfo: ["song": song])
+
+            // Download and cache in background for next time
+            let cacheToken = token
+            let ext = cloudFileExtension(from: song)
+            Task.detached(priority: .utility) {
+                await CloudTrackCache.shared.downloadAndCache(fileId: fileId, ext: ext, accessToken: cacheToken)
+            }
+
+        } catch {
+            isLoading = false
+            Logger.error("Failed to play cloud track", category: .playback, error: error)
+        }
+    }
+
     // MARK: - Album/Playlist Playback
-    
+
     func playAlbum(songs: [Song], startIndex: Int = 0, shuffle: Bool = false) async {
         guard !sharePlayManager.isGuest else {
             ToastManager.shared.show(icon: "ear", text: "You're vibing with the host. Leave the session to DJ yourself.")
@@ -908,16 +1088,19 @@ class AudioPlayer {
     /// Restore the last played song on app launch (shows in mini player)
     private func restoreLastSession() {
         guard let lastSession = LastPlayedSongManager.shared.loadSharedData() else { return }
-        
+
         // Restore the song to show in mini player (but don't play)
         let restoredSong = lastSession.toSong()
         currentSong = restoredSong
         currentTime = lastSession.currentTime
         duration = lastSession.totalDuration
         isPlaying = false // Don't auto-play, just restore state
-        
+
         // Update the now playing info so lock screen/control center shows correct info
         updateNowPlayingInfo()
+
+        // Cloud songs: skip YouTube-dependent operations
+        if isCloudSong(restoredSong) { return }
 
         // Populate the queue in background so "Up Next" is ready without waiting for play
         Task {
@@ -945,12 +1128,16 @@ class AudioPlayer {
     /// Resume playback of the restored session (called when user taps play on mini player)
     func resumeRestoredSession() async {
         guard let song = currentSong else { return }
-        
-        // Get the saved position before loading
-        let savedPosition = LastPlayedSongManager.shared.loadSharedData()?.currentTime ?? 0
-        
+
         // If we have a restored song but no audio loaded, load it with seek position
         if !playbackService.isAudioLoaded {
+            // Cloud songs: play via cloud pipeline (no YouTube)
+            if isCloudSong(song) {
+                await playCloudSong(song)
+                return
+            }
+
+            let savedPosition = LastPlayedSongManager.shared.loadSharedData()?.currentTime ?? 0
             await loadAndPlayWithSeek(song: song, seekTo: savedPosition)
         } else {
             play()

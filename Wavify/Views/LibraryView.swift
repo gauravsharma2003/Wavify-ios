@@ -20,7 +20,10 @@ struct LibraryView: View {
     @State private var selectedSection: LibrarySection = .playlists
     @State private var showingCreatePlaylist = false
     @State private var newPlaylistName = ""
-    
+    @State private var cloudManager = CloudLibraryManager.shared
+    @State private var cloudAuth = CloudAuthManager.shared
+    @State private var showingAddCloudFolder = false
+
     // Hero animation namespace for library
     @Namespace private var libraryHeroAnimation
     
@@ -29,6 +32,7 @@ struct LibraryView: View {
     enum LibrarySection: String, CaseIterable {
         case playlists = "Playlists"
         case liked = "Liked"
+        case cloud = "Cloud"
         case history = "History"
     }
     
@@ -91,6 +95,8 @@ struct LibraryView: View {
                         playlistsSection
                     case .liked:
                         likedSection
+                    case .cloud:
+                        cloudSection
                     case .history:
                         historySection
                     }
@@ -126,6 +132,18 @@ struct LibraryView: View {
                         }
                     }
                 }
+                if selectedSection == .cloud && cloudAuth.isAuthenticated {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingAddCloudFolder = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAddCloudFolder) {
+                AddCloudFolderSheet()
             }
             .alert("New Playlist", isPresented: $showingCreatePlaylist) {
                 TextField("Playlist name", text: $newPlaylistName)
@@ -426,6 +444,225 @@ struct LibraryView: View {
         }
     }
     
+    // MARK: - Cloud Section
+
+    private var cloudSection: some View {
+        VStack(spacing: 16) {
+            if !cloudAuth.isAuthenticated {
+                // Sign-in prompt
+                VStack(spacing: 16) {
+                    Image(systemName: "cloud")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+
+                    Text("Google Drive")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text("Sign in to stream audio from your Drive folders")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+
+                    Button {
+                        Task {
+                            try? await cloudAuth.signIn()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.badge.key")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Sign In with Google")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                    }
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+
+            } else if cloudManager.connections.isEmpty {
+                // No connections yet
+                VStack(spacing: 16) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+
+                    Text("No Folders")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text("Add a Google Drive folder to get started")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        showingAddCloudFolder = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Add Drive Folder")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                    }
+                    .glassEffect(.regular.interactive(), in: .capsule)
+
+                    cloudSignOutButton
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+
+            } else {
+                // Folder cards — tap to see playlists inside
+                VStack(spacing: 16) {
+                    ForEach(cloudManager.connections, id: \.id) { connection in
+                        let folderPlaylists = cloudManager.getPlaylists(for: connection.id)
+
+                        NavigationLink {
+                            CloudFolderView(connection: connection, audioPlayer: audioPlayer)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 12) {
+                                // Cover art collage
+                                cloudFolderCover(playlists: folderPlaylists)
+
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(connection.folderName)
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+
+                                        Text("\(folderPlaylists.count) playlist\(folderPlaylists.count == 1 ? "" : "s")")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Menu {
+                                        Button {
+                                            Task { try? await cloudManager.syncFolder(connectionId: connection.id) }
+                                        } label: {
+                                            Label("Sync", systemImage: "arrow.clockwise")
+                                        }
+                                        Button(role: .destructive) {
+                                            Task { await cloudManager.deleteConnection(connection) }
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 32, height: 32)
+                                    }
+                                }
+                            }
+                            .padding()
+                            .background {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(.white.opacity(0.06))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if cloudManager.isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Syncing...")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let error = cloudManager.syncError {
+                        Text(error)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.red)
+                    }
+
+                    cloudSignOutButton
+                        .padding(.top, 8)
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private var cloudSignOutButton: some View {
+        Button {
+            cloudAuth.signOut()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 12))
+                Text("Sign Out")
+                    .font(.system(size: 13))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+    }
+
+    // MARK: - Cloud Folder Cover
+
+    @ViewBuilder
+    private func cloudFolderCover(playlists: [CloudPlaylist]) -> some View {
+        let covers = playlists.compactMap { $0.cachedCoverURL }.prefix(4)
+
+        if covers.isEmpty {
+            // No covers — show placeholder
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.white.opacity(0.06))
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+            }
+            .aspectRatio(16/9, contentMode: .fit)
+        } else if covers.count == 1 {
+            CachedAsyncImagePhase(url: covers[0]) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle().fill(.white.opacity(0.06))
+                }
+            }
+            .aspectRatio(16/9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else {
+            // 2x2 grid collage (or 2x1 / 1x2+1)
+            let gridCovers = Array(covers)
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)],
+                spacing: 2
+            ) {
+                ForEach(0..<min(gridCovers.count, 4), id: \.self) { i in
+                    CachedAsyncImagePhase(url: gridCovers[i]) { phase in
+                        if let image = phase.image {
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } else {
+                            Rectangle().fill(.white.opacity(0.06))
+                        }
+                    }
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipped()
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
     // MARK: - Helper Views
     
     private func emptyState(icon: String, title: String, message: String) -> some View {
@@ -471,5 +708,5 @@ struct LibraryView: View {
 #Preview {
     LibraryView(audioPlayer: AudioPlayer.shared)
         .preferredColorScheme(.dark)
-        .modelContainer(for: [LocalSong.self, LocalPlaylist.self, RecentHistory.self], inMemory: true)
+        .modelContainer(for: [LocalSong.self, LocalPlaylist.self, RecentHistory.self, CloudConnection.self, CloudPlaylist.self, CloudTrack.self], inMemory: true)
 }

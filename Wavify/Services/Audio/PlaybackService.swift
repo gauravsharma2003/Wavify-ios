@@ -45,7 +45,11 @@ class PlaybackService {
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
-    
+
+    /// Whether audio is currently routed to an AirPlay device.
+    /// When true, the audio tap is detached so AVPlayer outputs directly.
+    private(set) var isAirPlayActive = false
+
     // Cached artwork to prevent reloading during seek
     private var cachedArtwork: MPMediaItemArtwork?
     private var cachedSongId: String?
@@ -95,8 +99,42 @@ class PlaybackService {
         }
     }
     
+    // MARK: - AirPlay Detection
+
+    /// Check whether the current audio route includes an AirPlay output.
+    static func currentRouteIsAirPlay() -> Bool {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        return outputs.contains { $0.portType == .airPlay }
+    }
+
+    /// Called on audio route change. Detaches the audio tap when AirPlay is active
+    /// so AVPlayer outputs directly, and re-attaches it when back on local output.
+    func handleRouteChange() {
+        let airPlay = Self.currentRouteIsAirPlay()
+        guard airPlay != isAirPlayActive else { return }
+        isAirPlayActive = airPlay
+
+        if airPlay {
+            // AirPlay connected — remove tap so AVPlayer outputs directly to AirPlay
+            Logger.log("AirPlay active — bypassing audio engine", category: .playback)
+            playerItem?.audioMix = nil
+            audioTapProcessor.detach()
+            AudioEngineService.shared.mute()
+            AudioEngineService.shared.stop()
+        } else {
+            // Back to local — re-attach tap and restart engine
+            Logger.log("AirPlay disconnected — restoring audio engine", category: .playback)
+            if let item = playerItem, item.status == .readyToPlay {
+                audioTapProcessor.attachSync(to: item, ringBuffer: targetRingBuffer)
+                AudioEngineService.shared.flush()
+                AudioEngineService.shared.start()
+                AudioEngineService.shared.unmute()
+            }
+        }
+    }
+
     // MARK: - Playback Control
-    
+
     /// Load and prepare a URL for playback
     /// - Parameters:
     ///   - url: The URL to load
@@ -125,7 +163,8 @@ class PlaybackService {
             playerItem = AVPlayerItem(url: url)
         }
         player = AVPlayer(playerItem: playerItem)
-        
+        player?.allowsExternalPlayback = false  // Audio-only: route via AirPlay audio, not video
+
         // Observe player status
         statusObserver = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
@@ -133,6 +172,14 @@ class PlaybackService {
                 
                 switch item.status {
                 case .readyToPlay:
+                    // If no expected duration was provided (e.g. cloud tracks), read from AVPlayerItem
+                    if self.duration <= 0 {
+                        let itemDuration = item.duration
+                        if itemDuration.isNumeric && !itemDuration.seconds.isNaN && itemDuration.seconds > 0 {
+                            self.duration = itemDuration.seconds
+                        }
+                    }
+
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
 
@@ -149,37 +196,41 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
 
-                    // Wait for AudioEngine to be fully initialized, then start playback
-                    Task.detached(priority: .userInitiated) {
-                        // Wait for engine setup to complete (no-op if already ready)
-                        await AudioEngineService.shared.waitForInitialization()
+                    // Check current AirPlay state
+                    self.isAirPlayActive = Self.currentRouteIsAirPlay()
 
-                        // All these are @MainActor, so batch them together
-                        await MainActor.run {
-                            // Attach EQ tap BEFORE starting playback
-                            self.audioTapProcessor.attachSync(
-                                to: item,
-                                ringBuffer: self.targetRingBuffer
-                            )
-
-                            // Flush buffer right before starting to ensure no stale audio
-                            AudioEngineService.shared.flush()
-
-                            // Start the audio engine
-                            AudioEngineService.shared.start()
-
-                            if autoPlay {
-                                self.player?.play()
-                                self.isPlaying = true
-                                self.onPlayPauseChanged?(true)
-                            }
+                    if self.isAirPlayActive {
+                        // AirPlay active — skip tap/engine, let AVPlayer output directly
+                        if autoPlay {
+                            self.player?.play()
+                            self.isPlaying = true
+                            self.onPlayPauseChanged?(true)
                         }
+                    } else {
+                        // Local playback — attach tap and start engine
+                        Task.detached(priority: .userInitiated) {
+                            await AudioEngineService.shared.waitForInitialization()
 
-                        // Wait for audio to propagate through processing pipeline before unmuting
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                            await MainActor.run {
+                                self.audioTapProcessor.attachSync(
+                                    to: item,
+                                    ringBuffer: self.targetRingBuffer
+                                )
+                                AudioEngineService.shared.flush()
+                                AudioEngineService.shared.start()
 
-                        await MainActor.run {
-                            AudioEngineService.shared.unmute()
+                                if autoPlay {
+                                    self.player?.play()
+                                    self.isPlaying = true
+                                    self.onPlayPauseChanged?(true)
+                                }
+                            }
+
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+
+                            await MainActor.run {
+                                AudioEngineService.shared.unmute()
+                            }
                         }
                     }
 
@@ -326,7 +377,8 @@ class PlaybackService {
             playerItem = AVPlayerItem(url: url)
         }
         player = AVPlayer(playerItem: playerItem)
-        
+        player?.allowsExternalPlayback = false  // Audio-only: route via AirPlay audio, not video
+
         let autoPlay = params.autoPlay
         
         // Observe player status
@@ -338,6 +390,14 @@ class PlaybackService {
                 case .readyToPlay:
                     Logger.log("Playback retry successful", category: .playback)
 
+                    // If no expected duration was provided, read from AVPlayerItem
+                    if self.duration <= 0 {
+                        let itemDuration = item.duration
+                        if itemDuration.isNumeric && !itemDuration.seconds.isNaN && itemDuration.seconds > 0 {
+                            self.duration = itemDuration.seconds
+                        }
+                    }
+
                     self.onReady?(self.duration)
                     self.delegate?.playbackService(self, didBecomeReady: self.duration)
 
@@ -348,33 +408,38 @@ class PlaybackService {
                         self.pendingSeekTime = nil
                     }
 
-                    // Wait for AudioEngine to be ready, then start
-                    Task.detached(priority: .userInitiated) {
-                        await AudioEngineService.shared.waitForInitialization()
+                    self.isAirPlayActive = Self.currentRouteIsAirPlay()
 
-                        await MainActor.run {
-                            self.audioTapProcessor.attachSync(
-                                to: item,
-                                ringBuffer: self.targetRingBuffer
-                            )
-
-                            // Flush buffer right before starting to ensure no stale audio
-                            AudioEngineService.shared.flush()
-
-                            AudioEngineService.shared.start()
-
-                            if autoPlay {
-                                self.player?.play()
-                                self.isPlaying = true
-                                self.onPlayPauseChanged?(true)
-                            }
+                    if self.isAirPlayActive {
+                        if autoPlay {
+                            self.player?.play()
+                            self.isPlaying = true
+                            self.onPlayPauseChanged?(true)
                         }
+                    } else {
+                        Task.detached(priority: .userInitiated) {
+                            await AudioEngineService.shared.waitForInitialization()
 
-                        // Wait for audio to propagate through processing pipeline before unmuting
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                            await MainActor.run {
+                                self.audioTapProcessor.attachSync(
+                                    to: item,
+                                    ringBuffer: self.targetRingBuffer
+                                )
+                                AudioEngineService.shared.flush()
+                                AudioEngineService.shared.start()
 
-                        await MainActor.run {
-                            AudioEngineService.shared.unmute()
+                                if autoPlay {
+                                    self.player?.play()
+                                    self.isPlaying = true
+                                    self.onPlayPauseChanged?(true)
+                                }
+                            }
+
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+
+                            await MainActor.run {
+                                AudioEngineService.shared.unmute()
+                            }
                         }
                     }
 
@@ -392,28 +457,31 @@ class PlaybackService {
     }
     
     func play() {
-        // Flush stale samples before restarting the render pipeline
-        AudioEngineService.shared.flush()
-        AudioEngineService.shared.start()
-        player?.play()
+        if isAirPlayActive {
+            // AirPlay — AVPlayer outputs directly, no engine needed
+            player?.play()
+        } else {
+            // Local — restart engine pipeline
+            AudioEngineService.shared.flush()
+            AudioEngineService.shared.start()
+            player?.play()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+                AudioEngineService.shared.unmute()
+            }
+        }
         isPlaying = true
         onPlayPauseChanged?(true)
-        // Unmute after audio propagates through the pipeline
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
-            AudioEngineService.shared.unmute()
-        }
     }
 
     func pause() {
         player?.pause()
-        // Stop the AudioEngine render pipeline so the system sees no active
-        // audio output and correctly reports the paused state on the lock screen.
-        AudioEngineService.shared.mute()
-        AudioEngineService.shared.stop()
+        if !isAirPlayActive {
+            AudioEngineService.shared.mute()
+            AudioEngineService.shared.stop()
+        }
         isPlaying = false
         onPlayPauseChanged?(false)
-        // Ensure buffering indicator is hidden when paused
         onBufferingChanged?(false)
     }
     
@@ -426,20 +494,18 @@ class PlaybackService {
     }
     
     func seek(to time: Double) {
-        // Mute output to prevent glitchy sounds during seek
-        AudioEngineService.shared.mute()
+        if !isAirPlayActive {
+            AudioEngineService.shared.mute()
+        }
 
         currentTime = time
         let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
 
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
-                // Flush AFTER seek completes to clear any old audio that was still being written
+                guard let self, !self.isAirPlayActive else { return }
                 AudioEngineService.shared.flush()
-
-                // Small delay to let new audio propagate through the processing pipeline
-                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
-
+                try? await Task.sleep(nanoseconds: 80_000_000)
                 AudioEngineService.shared.unmute()
             }
         }
@@ -496,41 +562,51 @@ class PlaybackService {
         } else {
             let highResUrl = ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
             if let url = URL(string: highResUrl) {
+                // Try synchronous memory cache first — the player view likely already loaded this
+                if let image = ImageCache.shared.memoryCachedImage(for: url) {
+                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    cachedArtwork = artwork
+                    cachedSongId = song.id
+                    nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                    return
+                }
+
+                // Post without artwork now, then load async and update
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+
+                let songId = song.id
                 Task.detached(priority: .userInitiated) {
-                    if let image = await ImageCache.shared.image(for: url) {
-                        await MainActor.run {
-                            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                            self.cachedArtwork = artwork
-                            self.cachedSongId = song.id
-                            // Merge artwork with current info to avoid overwriting playback state
-                            if var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
-                                currentInfo[MPMediaItemPropertyArtwork] = artwork
-                                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
-                            }
-                        }
-                    } else {
-                        do {
+                    var image: UIImage?
+                    // Check disk cache
+                    image = await ImageCache.shared.image(for: url)
+                    // Download if not cached
+                    if image == nil {
+                        image = try? await { () -> UIImage? in
                             let (data, _) = try await URLSession.shared.data(from: url)
-                            if let image = UIImage(data: data) {
-                                await ImageCache.shared.store(image, for: url)
-                                await MainActor.run {
-                                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                                    self.cachedArtwork = artwork
-                                    self.cachedSongId = song.id
-                                    // Merge artwork with current info to avoid overwriting playback state
-                                    if var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
-                                        currentInfo[MPMediaItemPropertyArtwork] = artwork
-                                        MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
-                                    }
-                                }
-                            }
-                        } catch {
-                            Logger.error("Failed to load artwork", category: .playback, error: error)
+                            guard let uiImage = UIImage(data: data) else { return nil }
+                            await ImageCache.shared.store(uiImage, for: url)
+                            return uiImage
+                        }()
+                    }
+                    guard let loadedImage = image else {
+                        Logger.error("Failed to load artwork for Now Playing", category: .playback)
+                        return
+                    }
+                    await MainActor.run {
+                        let artwork = MPMediaItemArtwork(boundsSize: loadedImage.size) { _ in loadedImage }
+                        self.cachedArtwork = artwork
+                        self.cachedSongId = songId
+                        // Re-set full nowPlayingInfo with artwork to ensure AirPlay devices pick it up
+                        if var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+                            currentInfo[MPMediaItemPropertyArtwork] = artwork
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
                         }
                     }
                 }
+            } else {
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
             }
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         }
     }
     

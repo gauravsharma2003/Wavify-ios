@@ -14,7 +14,16 @@
 				<string>wavify</string>
 			</array>
 		</dict>
-		<dict/>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.617560597580-7gsqa72b09uhst3hd7glbqr88kvan069</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.617560597580-7gsqa72b09uhst3hd7glbqr88kvan069</string>
+			</array>
+		</dict>
 	</array>
 <key>UIBackgroundModes</key>
 	<array>

@@ -172,9 +172,10 @@ struct NetworkToastView: View {
         bufferingTimer = nil
         
         if isBuffering {
-            // Wait for 3 seconds of continuous buffering before showing toast
+            // Cloud songs stream from Drive — allow more time before showing toast
+            let delay: Int = (audioPlayer.currentSong?.id.hasPrefix("cloud_") == true) ? 10 : 3
             bufferingTimer = Task {
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: .seconds(delay))
                 if !Task.isCancelled {
                     await MainActor.run {
                         // Double check conditions
