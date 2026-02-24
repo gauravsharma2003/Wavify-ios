@@ -75,9 +75,13 @@ class RandomCategoryManager {
                     continue
                 }
                 
-                // Extract playlists from this section
+                // Extract playlists from this section (skip community playlists)
                 for item in section.items {
                     if item.type == .playlist || item.type == .album {
+                        // Filter out community/user-created playlists (VLPL prefix)
+                        if item.type == .playlist && item.id.hasPrefix("VLPL") {
+                            continue
+                        }
                         let isAlbum = item.type == .album
                         playlists.append(CategoryPlaylist(
                             id: item.id,
