@@ -37,7 +37,7 @@ final class CloudAPIManager {
         components.queryItems = queryItems
 
         guard let url = components.url else {
-            throw APIError.requestFailed
+            throw APIError.requestFailed(statusCode: -1, message: "Failed to build request URL")
         }
 
         var request = URLRequest(url: url)
@@ -52,7 +52,8 @@ final class CloudAPIManager {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.requestFailed
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.requestFailed(statusCode: code, message: Self.parseErrorMessage(from: data, statusCode: code))
         }
 
         return try JSONDecoder().decode(FileListResponse.self, from: data)
@@ -72,7 +73,8 @@ final class CloudAPIManager {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.requestFailed
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.requestFailed(statusCode: code, message: Self.parseErrorMessage(from: data, statusCode: code))
         }
 
         return try JSONDecoder().decode(DriveFile.self, from: data)
@@ -118,7 +120,7 @@ final class CloudAPIManager {
         let token = try await authManager.getAccessToken()
 
         guard let url = URL(string: "\(baseURL)/files/\(fileId)?alt=media") else {
-            throw APIError.requestFailed
+            throw APIError.requestFailed(statusCode: -1, message: "Failed to build download URL")
         }
 
         var request = URLRequest(url: url)
@@ -128,7 +130,8 @@ final class CloudAPIManager {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.requestFailed
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.requestFailed(statusCode: code, message: Self.parseErrorMessage(from: data, statusCode: code))
         }
 
         return data
@@ -137,17 +140,27 @@ final class CloudAPIManager {
     // MARK: - Error Types
 
     enum APIError: LocalizedError {
-        case requestFailed
+        case requestFailed(statusCode: Int, message: String)
         case invalidResponse
         case rateLimitExceeded
 
         var errorDescription: String? {
             switch self {
-            case .requestFailed: return "Failed to complete API request"
+            case .requestFailed(let code, let message):
+                return "Drive API error \(code): \(message)"
             case .invalidResponse: return "Received invalid response from Google Drive"
             case .rateLimitExceeded: return "Rate limit exceeded. Please try again later."
             }
         }
+    }
+
+    private static func parseErrorMessage(from data: Data, statusCode: Int) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = json["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            return message
+        }
+        return "HTTP \(statusCode)"
     }
 
     // MARK: - Response Models
