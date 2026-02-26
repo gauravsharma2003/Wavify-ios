@@ -111,6 +111,7 @@ class AudioPlayer {
     private let crossfadeSettings = CrossfadeSettings.shared
 
     /// Flag to prevent duplicate song end handling
+    private var wasPlayingBeforeInterruption = false
     private var isHandlingSongEnd = false
     /// Timestamp of last handled song end — debounces double-triggers from
     /// the fallback timer and AVPlayerItemDidPlayToEndTime firing for the same ending
@@ -459,15 +460,24 @@ class AudioPlayer {
             Task { @MainActor in
                 switch type {
                 case .began:
+                    self?.wasPlayingBeforeInterruption = self?.isPlaying ?? false
                     self?.crossfadeEngine?.cancelCrossfade()
                     self?.pause()
                 case .ended:
+                    // iOS doesn't always set .shouldResume (especially after phone calls),
+                    // so resume if we were playing before the interruption began.
+                    let shouldResume: Bool
                     if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                         let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                        if options.contains(.shouldResume) {
-                            self?.play()
-                        }
+                        shouldResume = options.contains(.shouldResume) || (self?.wasPlayingBeforeInterruption ?? false)
+                    } else {
+                        shouldResume = self?.wasPlayingBeforeInterruption ?? false
                     }
+
+                    if shouldResume {
+                        self?.resumeAfterInterruption()
+                    }
+                    self?.wasPlayingBeforeInterruption = false
                 @unknown default:
                     break
                 }
@@ -749,6 +759,20 @@ class AudioPlayer {
         playbackService.play()
         LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
         sharePlayManager.broadcastPlaybackState(isPlaying: true, currentTime: currentTime)
+    }
+
+    /// Resume after an audio session interruption (phone call, Siri, etc.).
+    /// Reactivates the audio session and restarts the engine without flushing buffered audio.
+    private func resumeAfterInterruption() {
+        if currentSong != nil && !playbackService.isAudioLoaded {
+            Task {
+                await resumeRestoredSession()
+            }
+            return
+        }
+
+        playbackService.resumeAfterInterruption()
+        LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
     }
 
     func pause() {

@@ -456,6 +456,31 @@ class PlaybackService {
         onPlayPauseChanged?(true)
     }
 
+    /// Resume playback after an audio session interruption (e.g. phone call).
+    /// Unlike `play()`, this does NOT flush the ring buffer — the tap data is still valid.
+    /// It also explicitly reactivates the audio session before starting the engine.
+    func resumeAfterInterruption() {
+        // Reactivate audio session synchronously before touching the engine
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            Logger.error("Failed to reactivate audio session after interruption", category: .playback, error: error)
+        }
+
+        if isAirPlayActive {
+            player?.play()
+        } else {
+            AudioEngineService.shared.start()
+            player?.play()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                AudioEngineService.shared.unmute()
+            }
+        }
+        isPlaying = true
+        onPlayPauseChanged?(true)
+    }
+
     func pause() {
         player?.pause()
         if !isAirPlayActive {

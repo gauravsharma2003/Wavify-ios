@@ -86,6 +86,15 @@ struct PlayerShell: View {
         return window.safeAreaInsets.bottom
     }
 
+    /// Compute album art size proportional to actual screen dimensions.
+    /// Works on any device — phones, foldables, tablets — no reference breakpoints.
+    private func dynamicArtSize(shellWidth: CGFloat, screenHeight: CGFloat) -> CGFloat {
+        let hPad = max(16, shellWidth * 0.06)
+        let maxByWidth = shellWidth - hPad * 2
+        let maxByHeight = screenHeight * 0.44
+        return min(maxByWidth, maxByHeight)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -239,8 +248,9 @@ struct PlayerShell: View {
         if let song = audioPlayer.currentSong {
             // Mini state: 40×40 circle, positioned at left of mini player
             let miniSize: CGFloat = 40
-            // Full state: large square with rounded corners
-            let fullSize: CGFloat = min(shellWidth - 48, 340)
+            // Full state: proportional to screen dimensions
+            let screenH = geometry.size.height
+            let fullSize = dynamicArtSize(shellWidth: shellWidth, screenHeight: screenH)
             let artSize = miniSize + (fullSize - miniSize) * expansion
 
             // Corner radius: circle (half size) → 24pt rounded rect
@@ -255,7 +265,8 @@ struct PlayerShell: View {
             let miniY = shellHeight / 2 - 35
 
             // Full: horizontally centered (x=0), positioned below header
-            let fullY = -(shellHeight / 2) + topSafeAreaInset + 4 + 54 + 36 + fullSize / 2
+            let artTopPad = screenH * 0.042
+            let fullY = -(shellHeight / 2) + topSafeAreaInset + 4 + 54 + artTopPad + fullSize / 2
 
             let artX = miniX + (0 - miniX) * expansion
             let artY = miniY + (fullY - miniY) * expansion
@@ -513,6 +524,14 @@ struct PlayerShell: View {
 
     @ViewBuilder
     private func fullContent(geometry: GeometryProxy, shellWidth: CGFloat) -> some View {
+        let screenW = geometry.size.width
+        let screenH = geometry.size.height
+
+        // All spacings derived from actual screen dimensions — works on any device
+        let hPad = max(16, screenW * 0.06)
+        let artInfoSpacing = screenH * 0.028
+        let controlsGap = screenH * 0.028
+
         VStack(spacing: 0) {
             // Header
             dragHandle
@@ -524,9 +543,9 @@ struct PlayerShell: View {
                 VStack(spacing: 0) {
                     // Swipeable album art + song info
                     VStack(spacing: 0) {
-                        albumArtView(shellWidth: shellWidth)
+                        albumArtView(shellWidth: shellWidth, screenHeight: screenH)
 
-                        Spacer().frame(height: 24)
+                        Spacer().frame(height: artInfoSpacing)
 
                         songInfoView
                     }
@@ -534,18 +553,19 @@ struct PlayerShell: View {
                     .contentShape(Rectangle())
                     .offset(x: horizontalSwipeOffset)
 
-                    // Flexible space between song info and controls
-                    Spacer(minLength: 16)
+                    // Flexible space — art size absorbs most of the height,
+                    // so this stays small and consistent across devices
+                    Spacer(minLength: screenH * 0.016)
 
                     // Controls stack
-                    VStack(spacing: 24) {
+                    VStack(spacing: controlsGap) {
                         progressView
-                        controlsView
-                        additionalControlsRow
+                        controlsView(screenWidth: screenW, screenHeight: screenH)
+                        additionalControlsRow(screenWidth: screenW)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, bottomSafeAreaInset + 12)
+                .padding(.horizontal, hPad)
+                .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
             }
         }
         .contentShape(Rectangle())
@@ -553,8 +573,8 @@ struct PlayerShell: View {
 
     // MARK: - Additional Controls Row
 
-    private var additionalControlsRow: some View {
-        HStack(spacing: 30) {
+    private func additionalControlsRow(screenWidth: CGFloat) -> some View {
+        HStack(spacing: screenWidth * 0.065) {
             // Sleep Timer
             Button {
                 if sleepTimerManager.isActive {
@@ -779,8 +799,8 @@ struct PlayerShell: View {
 
     // MARK: - Album Art
 
-    private func albumArtView(shellWidth: CGFloat) -> some View {
-        let size = min(shellWidth - 48, 340)
+    private func albumArtView(shellWidth: CGFloat, screenHeight: CGFloat) -> some View {
+        let size = dynamicArtSize(shellWidth: shellWidth, screenHeight: screenHeight)
         let lyricsHeight = size
 
         return Group {
@@ -837,7 +857,7 @@ struct PlayerShell: View {
                     .clipShape(RoundedRectangle(cornerRadius: 24))
             }
         }
-        .padding(.top, 36)
+        .padding(.top, screenHeight * 0.042)
         .animation(.easeInOut(duration: 0.3), value: showLyrics)
     }
 
@@ -900,8 +920,8 @@ struct PlayerShell: View {
         .opacity(sharePlayManager.isGuest ? 0.6 : 1.0)
     }
 
-    private var controlsView: some View {
-        HStack(spacing: 32) {
+    private func controlsView(screenWidth: CGFloat, screenHeight: CGFloat) -> some View {
+        HStack(spacing: screenWidth * 0.07) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 toggleLike()

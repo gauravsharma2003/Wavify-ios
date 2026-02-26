@@ -451,6 +451,7 @@ class AudioEngineService: ObservableObject {
     func start() {
         guard !engine.isRunning else { return }
         do {
+            engine.prepare()
             try engine.start()
 
             startAdaptiveBassMonitoring()
