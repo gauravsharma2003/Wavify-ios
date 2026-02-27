@@ -279,6 +279,8 @@ struct PlayerShell: View {
             .frame(width: artSize, height: artSize)
             .clipShape(RoundedRectangle(cornerRadius: artCorner, style: .continuous))
             .shadow(color: .black.opacity(0.4 * Double(expansion)), radius: 24, y: 12)
+            .scaleEffect(audioPlayer.isPlaying ? 1.0 : 1.0 - 0.12 * expansion)
+            .animation(.spring(response: 0.55, dampingFraction: 0.7), value: audioPlayer.isPlaying)
             .offset(x: artX + horizontalSwipeOffset * expansion, y: artY)
             // Hidden in mini state — mini player has its own image; crossfade during transition
             .opacity(Double(min(1, expansion / 0.15)))
