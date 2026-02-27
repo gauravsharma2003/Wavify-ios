@@ -18,7 +18,7 @@ class LastPlayedSongManager {
     // MARK: - App Group Configuration
     
     /// App Group identifier shared between app and widget
-    static let appGroupIdentifier = "group.com.gaurav.Wavify"
+    static let appGroupIdentifier = "group.com.gaurav.WavifyApp"
     
     /// File names
     private enum FileNames {

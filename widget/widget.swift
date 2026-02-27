@@ -61,7 +61,7 @@ struct MusicPlayerEntry: TimelineEntry {
 
 struct MusicPlayerProvider: TimelineProvider {
     
-    private let appGroupIdentifier = "group.com.gaurav.Wavify"
+    private let appGroupIdentifier = "group.com.gaurav.WavifyApp"
     
     // File names (must match main app)
     private let songFileName = "lastPlayedSong.json"

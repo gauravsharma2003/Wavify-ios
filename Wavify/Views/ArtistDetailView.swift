@@ -525,7 +525,7 @@ struct ArtistDetailView: View {
 
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.3)) {
-                gradientColors = [colors.0, colors.1.opacity(0.6), navbarBackgroundColor]
+                gradientColors = [colors.primary, colors.secondary.opacity(0.6), navbarBackgroundColor]
             }
         }
     }

@@ -180,7 +180,7 @@ struct AlbumDetailView: View {
         let colors = await ColorExtractor.extractColors(from: uiImage)
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.3)) {
-                gradientColors = [colors.0, colors.1, Color(white: 0.06)]
+                gradientColors = [colors.primary, colors.secondary, Color(white: 0.06)]
             }
         }
     }

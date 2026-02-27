@@ -45,7 +45,7 @@ struct MusicPlayerEntry: TimelineEntry {
 struct MusicPlayerProvider: TimelineProvider {
     
     /// App Group identifier shared with main app
-    private let appGroupIdentifier = "group.com.gaurav.Wavify"
+    private let appGroupIdentifier = "group.com.gaurav.WavifyApp"
     
     func placeholder(in context: Context) -> MusicPlayerEntry {
         MusicPlayerEntry.placeholder

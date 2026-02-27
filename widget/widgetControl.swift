@@ -10,7 +10,7 @@ import SwiftUI
 import WidgetKit
 
 struct widgetControl: ControlWidget {
-    static let kind: String = "com.gaurav.Wavify.widget"
+    static let kind: String = "com.gaurav.WavifyApp.widget"
 
     var body: some ControlWidgetConfiguration {
         AppIntentControlConfiguration(

@@ -14,7 +14,7 @@ import WidgetKit
 
 // MARK: - Shared Constants
 
-private let appGroupIdentifier = "group.com.gaurav.Wavify"
+private let appGroupIdentifier = "group.com.gaurav.WavifyApp"
 private let lastPlayedSongKey = "lastPlayedSong"
 
 // MARK: - Play/Pause Intent

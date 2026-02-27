@@ -23,7 +23,7 @@ enum WidgetCommand: String, Codable {
 class WidgetCommandHandler {
     static let shared = WidgetCommandHandler()
     
-    private let appGroupIdentifier = "group.com.gaurav.Wavify"
+    private let appGroupIdentifier = "group.com.gaurav.WavifyApp"
     private let commandKey = "pendingWidgetCommand"
     private let commandTimestampKey = "pendingWidgetCommandTimestamp"
     
@@ -134,7 +134,7 @@ class WidgetCommandHandler {
     
     /// Send a command from widget to app
     static func sendCommand(_ command: WidgetCommand) {
-        guard let defaults = UserDefaults(suiteName: "group.com.gaurav.Wavify") else { return }
+        guard let defaults = UserDefaults(suiteName: "group.com.gaurav.WavifyApp") else { return }
         
         defaults.set(command.rawValue, forKey: "pendingWidgetCommand")
         defaults.set(Date().timeIntervalSince1970, forKey: "pendingWidgetCommandTimestamp")

@@ -237,8 +237,8 @@ struct LanguageChartCard: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 // Use pure album colors - darkened for background
                 gradientColors = [
-                    colors.0.opacity(0.85),
-                    colors.1.opacity(0.6),
+                    colors.primary.opacity(0.85),
+                    colors.secondary.opacity(0.6),
                     Color(white: 0.08)
                 ]
             }

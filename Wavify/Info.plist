@@ -8,7 +8,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.gaurav.Wavify</string>
+			<string>com.gaurav.WavifyApp</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>wavify</string>

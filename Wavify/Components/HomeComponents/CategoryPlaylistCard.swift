@@ -136,8 +136,8 @@ struct CategoryPlaylistCard: View {
         await MainActor.run {
             withAnimation(.easeInOut(duration: 0.3)) {
                 gradientColors = [
-                    colors.0.opacity(0.85),
-                    colors.1.opacity(0.6),
+                    colors.primary.opacity(0.85),
+                    colors.secondary.opacity(0.6),
                     Color(white: 0.08)
                 ]
             }

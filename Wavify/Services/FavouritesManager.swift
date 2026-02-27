@@ -395,7 +395,7 @@ class FavouritesManager {
     
     /// Save top 4 favorites to App Groups for widget display
     private func saveToWidgetCache(_ results: [SearchResult]) {
-        guard let sharedDefaults = UserDefaults(suiteName: "group.com.gaurav.Wavify") else { return }
+        guard let sharedDefaults = UserDefaults(suiteName: "group.com.gaurav.WavifyApp") else { return }
         
         // Get first artist and first 3 songs
         var widgetFavorites: [WidgetFavoriteItem] = []

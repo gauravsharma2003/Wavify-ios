@@ -30,7 +30,8 @@ struct PlayerShell: View {
 
     // Dynamic colors
     @State private var primaryColor: Color = Color(white: 0.15)
-    @State private var secondaryColor: Color = Color(white: 0.05)
+    @State private var secondaryColor: Color = Color(white: 0.08)
+    @State private var accentColor: Color = Color(white: 0.03)
     @State private var lastColorSongId: String = ""
 
     // Lyrics
@@ -231,7 +232,7 @@ struct PlayerShell: View {
         // Dynamic gradient for full player — fades in as we expand
         ZStack {
             LinearGradient(
-                colors: [primaryColor, secondaryColor],
+                colors: [primaryColor, secondaryColor, accentColor],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -1116,10 +1117,11 @@ struct PlayerShell: View {
               let url = URL(string: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)) else { return }
 
         Task {
-            let colors = await ColorExtractor.extractColors(from: url)
+            let colors: ColorExtractor.ExtractedColors = await ColorExtractor.extractColors(from: url)
             withAnimation(.easeInOut(duration: 0.6)) {
                 primaryColor = colors.primary
                 secondaryColor = colors.secondary
+                accentColor = colors.accent
             }
         }
     }

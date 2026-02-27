@@ -21,7 +21,8 @@
       "Bash(PLAYER_URL=\"https://www.youtube.com/s/player/a944b11f/player_es6.vflset/en_GB/base.js\")",
       "Bash(echo:*)",
       "Bash(tail:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(xargs sed:*)"
     ]
   }
 }

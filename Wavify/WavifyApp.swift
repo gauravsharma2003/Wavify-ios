@@ -289,7 +289,7 @@ struct WavifyApp: App {
     
     /// Check for pending widget favorite tap and handle it
     private func checkPendingWidgetFavorite() {
-        guard let defaults = UserDefaults(suiteName: "group.com.gaurav.Wavify"),
+        guard let defaults = UserDefaults(suiteName: "group.com.gaurav.WavifyApp"),
               let itemId = defaults.string(forKey: "pendingFavoriteId"),
               let itemType = defaults.string(forKey: "pendingFavoriteType"),
               !itemId.isEmpty else {

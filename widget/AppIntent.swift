@@ -67,7 +67,7 @@ struct OpenFavoriteIntent: AppIntent {
     
     func perform() async throws -> some IntentResult {
         // Store the request in UserDefaults for the app to handle
-        if let defaults = UserDefaults(suiteName: "group.com.gaurav.Wavify") {
+        if let defaults = UserDefaults(suiteName: "group.com.gaurav.WavifyApp") {
             defaults.set(itemId, forKey: "pendingFavoriteId")
             defaults.set(itemType, forKey: "pendingFavoriteType")
             defaults.synchronize()
