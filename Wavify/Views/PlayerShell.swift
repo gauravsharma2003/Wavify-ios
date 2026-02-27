@@ -459,6 +459,7 @@ struct PlayerShell: View {
                     audioPlayer.togglePlayPause()
                 } label: {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace))
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
@@ -1025,6 +1026,7 @@ struct PlayerShell: View {
                     audioPlayer.togglePlayPause()
                 } label: {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace))
                         .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)

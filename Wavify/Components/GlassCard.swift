@@ -66,6 +66,7 @@ struct LargePlayButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .contentTransition(.symbolEffect(.replace))
                 .font(.system(size: 32, weight: .bold))
                 .foregroundStyle(.primary)
                 .frame(width: 72, height: 72)
