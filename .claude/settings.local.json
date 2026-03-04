@@ -22,7 +22,9 @@
       "Bash(echo:*)",
       "Bash(tail:*)",
       "Bash(git:*)",
-      "Bash(xargs sed:*)"
+      "Bash(xargs sed:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(ruby:*)"
     ]
   }
 }

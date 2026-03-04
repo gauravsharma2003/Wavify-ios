@@ -111,7 +111,8 @@ class AudioPlayer {
     private let crossfadeSettings = CrossfadeSettings.shared
 
     /// Flag to prevent duplicate song end handling
-    private var wasPlayingBeforeInterruption = false
+    var wasPlayingBeforeInterruption = false
+    var isInterrupted = false
     private var isHandlingSongEnd = false
     /// Timestamp of last handled song end — debounces double-triggers from
     /// the fallback timer and AVPlayerItemDidPlayToEndTime firing for the same ending
@@ -460,10 +461,14 @@ class AudioPlayer {
             Task { @MainActor in
                 switch type {
                 case .began:
+                    Logger.log("Audio interruption began", category: .playback)
                     self?.wasPlayingBeforeInterruption = self?.isPlaying ?? false
+                    self?.isInterrupted = true
                     self?.crossfadeEngine?.cancelCrossfade()
                     self?.pause()
                 case .ended:
+                    Logger.log("Audio interruption ended", category: .playback)
+                    self?.isInterrupted = false
                     // iOS doesn't always set .shouldResume (especially after phone calls),
                     // so resume if we were playing before the interruption began.
                     let shouldResume: Bool
@@ -480,6 +485,40 @@ class AudioPlayer {
                     self?.wasPlayingBeforeInterruption = false
                 @unknown default:
                     break
+                }
+            }
+        }
+
+        // Fallback: if iOS never sends interruptionEnded (known issue with some phone
+        // calls), attempt resume when the app comes back to the foreground.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if self.isInterrupted && self.wasPlayingBeforeInterruption {
+                    Logger.log("App became active while still interrupted — forcing resume", category: .playback)
+                    self.isInterrupted = false
+                    self.resumeAfterInterruption()
+                    self.wasPlayingBeforeInterruption = false
+                }
+            }
+        }
+
+        // Handle media services reset (rare but catastrophic — entire audio stack is invalidated)
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                Logger.warning("Media services were reset — reloading audio", category: .playback)
+                if let song = self.currentSong {
+                    let time = self.currentTime
+                    await self.playNewSong(song, refreshQueue: false, autoPlay: self.isPlaying, seekTo: time)
                 }
             }
         }
@@ -762,17 +801,49 @@ class AudioPlayer {
     }
 
     /// Resume after an audio session interruption (phone call, Siri, etc.).
-    /// Reactivates the audio session and restarts the engine without flushing buffered audio.
+    /// Does a full reload with a fresh stream URL and new AVPlayer — the same
+    /// proven approach used for AirPlay transitions. Trying to reuse the existing
+    /// player/tap/engine after a real interruption is unreliable because iOS can
+    /// internally invalidate the audio pipeline during the phone call.
     private func resumeAfterInterruption() {
-        if currentSong != nil && !playbackService.isAudioLoaded {
-            Task {
-                await resumeRestoredSession()
-            }
-            return
+        guard let song = currentSong else { return }
+        let savedTime = currentTime
+
+        Task {
+            await reloadAfterInterruption(song: song, seekTo: savedTime)
+        }
+    }
+
+    /// Reload with a fresh URL after an audio session interruption.
+    /// Mirrors reloadAfterAirPlay — fresh URL + fresh AVPlayer is proven reliable.
+    private func reloadAfterInterruption(song: Song, seekTo: Double) async {
+        // Reactivate audio session before anything else
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            Logger.error("Failed to reactivate audio session after interruption", category: .playback, error: error)
         }
 
-        playbackService.resumeAfterInterruption()
-        LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
+        do {
+            let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
+            guard let url = URL(string: playbackInfo.audioUrl) else { return }
+            let expectedDuration = Double(playbackInfo.duration) ?? Double(song.duration) ?? 0
+
+            playbackService.load(
+                url: url,
+                expectedDuration: expectedDuration,
+                autoPlay: true,
+                seekTo: seekTo > 1 ? seekTo : nil
+            )
+            duration = expectedDuration
+            updateNowPlayingInfo()
+            LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
+        } catch {
+            Logger.error("Failed to reload after interruption, trying simple resume", category: .playback, error: error)
+            // Fallback: if network fails (e.g. airplane mode), try simple resume
+            playbackService.resumeAfterInterruption()
+            LastPlayedSongManager.shared.updatePlayState(isPlaying: true)
+        }
     }
 
     func pause() {
@@ -1092,6 +1163,37 @@ class AudioPlayer {
     private func saveCurrentPosition() {
         guard currentSong != nil else { return }
         LastPlayedSongManager.shared.updateCurrentTime(currentTime)
+    }
+
+    // MARK: - Interruption Simulation
+
+    /// Simulate an audio session interruption for testing.
+    /// Pauses audio immediately (mimicking a phone call), then resumes after `duration` seconds.
+    func simulateInterruption(duration: TimeInterval = 3) {
+        Logger.log("Simulating audio interruption (\(duration)s)", category: .playback)
+
+        // 1. Fire interruptionBegan
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue
+            ]
+        )
+
+        // 2. Fire interruptionEnded after the specified duration
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            Logger.log("Simulated interruption ending", category: .playback)
+            NotificationCenter.default.post(
+                name: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                userInfo: [
+                    AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                    AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
+                ]
+            )
+        }
     }
 }
 

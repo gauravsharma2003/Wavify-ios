@@ -148,6 +148,9 @@ struct WavifyApp: App {
                 // Check again when app becomes active (in case it was already running)
                 checkPendingWidgetFavorite()
             }
+            #if DEBUG
+            .debugShakeToSimulateInterruption()
+            #endif
         }
         .modelContainer(sharedModelContainer)
     }

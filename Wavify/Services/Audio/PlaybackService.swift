@@ -457,8 +457,8 @@ class PlaybackService {
     }
 
     /// Resume playback after an audio session interruption (e.g. phone call).
-    /// Unlike `play()`, this does NOT flush the ring buffer — the tap data is still valid.
-    /// It also explicitly reactivates the audio session before starting the engine.
+    /// Re-attaches the audio processing tap because iOS can internally invalidate it
+    /// during an interruption, causing the ring buffer to receive no new data.
     func resumeAfterInterruption() {
         // Reactivate audio session synchronously before touching the engine
         do {
@@ -470,6 +470,16 @@ class PlaybackService {
         if isAirPlayActive {
             player?.play()
         } else {
+            // Re-attach the audio processing tap — it can become stale after an
+            // audio session interruption (phone call, Siri, etc.), causing the
+            // ring buffer to receive no new data and the engine to output silence.
+            if let item = playerItem {
+                audioTapProcessor.detach()    // clears old tap + flushes ring buffer
+                audioTapProcessor.attachSync(to: item, ringBuffer: targetRingBuffer)
+            } else {
+                AudioEngineService.shared.flush()
+            }
+
             AudioEngineService.shared.start()
             player?.play()
             Task { @MainActor in
