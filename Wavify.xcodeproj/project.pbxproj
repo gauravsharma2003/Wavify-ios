@@ -215,12 +215,10 @@
 				DAC714D62F03FCB200B08888 /* Sources */,
 				DAC714D72F03FCB200B08888 /* Frameworks */,
 				DAC714D82F03FCB200B08888 /* Resources */,
-				DA7930B12F1E05A300CE1CFB /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				DA7930AB2F1E05A300CE1CFB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DAC714DC2F03FCB200B08888 /* Wavify */,

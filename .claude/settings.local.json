@@ -24,7 +24,12 @@
       "Bash(git:*)",
       "Bash(xargs sed:*)",
       "Bash(xcodebuild:*)",
-      "Bash(ruby:*)"
+      "Bash(ruby:*)",
+      "Bash(export:*)",
+      "Bash(security find-internet-password:*)",
+      "Bash(ls /Users/Gaurav.Sharma4/Desktop/Screenshot*.heic)",
+      "Bash(ls:*)",
+      "Bash(sips:*)"
     ]
   }
 }

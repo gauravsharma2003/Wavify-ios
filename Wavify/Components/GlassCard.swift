@@ -61,15 +61,17 @@ struct GlassPlayerButton: View {
 
 struct LargePlayButton: View {
     let isPlaying: Bool
+    var iconSize: CGFloat = 32
+    var buttonSize: CGFloat = 72
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
-                .font(.system(size: 32, weight: .bold))
+                .font(.system(size: iconSize, weight: .bold))
                 .foregroundStyle(.primary)
-                .frame(width: 72, height: 72)
+                .frame(width: buttonSize, height: buttonSize)
                                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(GlassButtonStyle())

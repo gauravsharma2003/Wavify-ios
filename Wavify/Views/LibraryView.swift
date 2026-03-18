@@ -10,6 +10,7 @@ import SwiftData
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     @Query(sort: \LocalSong.addedAt, order: .reverse) private var likedSongs: [LocalSong]
     @Query(sort: \LocalPlaylist.createdAt, order: .reverse) private var playlists: [LocalPlaylist]
     @Query(sort: \RecentHistory.playedAt, order: .reverse) private var history: [RecentHistory]
@@ -40,18 +41,18 @@ struct LibraryView: View {
                     NavigationLink(destination: ListenTogetherView()) {
                         HStack(spacing: 14) {
                             Image(systemName: "shareplay")
-                                .font(.system(size: 20, weight: .medium))
+                                .font(.system(size: layout.isRegularWidth ? 24 : 20, weight: .medium))
                                 .foregroundStyle(.cyan)
-                                .frame(width: 36, height: 36)
+                                .frame(width: layout.isRegularWidth ? 44 : 36, height: layout.isRegularWidth ? 44 : 36)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Listen Together")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: layout.fontBody, weight: .semibold))
                                     .foregroundStyle(.primary)
                                 Text(sharePlayManager.isSessionActive
                                      ? "\(sharePlayManager.participantCount) listening"
                                      : "Listen with friends")
-                                    .font(.system(size: 13))
+                                    .font(.system(size: layout.fontCardTitle))
                                     .foregroundStyle(.secondary)
                             }
 
@@ -64,7 +65,7 @@ struct LibraryView: View {
                             }
 
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: layout.fontCaption, weight: .semibold))
                                 .foregroundStyle(.secondary)
                         }
                         .padding()
@@ -213,7 +214,7 @@ struct LibraryView: View {
                 )
             } else {
                 LazyVGrid(
-                    columns: [GridItem(.flexible()), GridItem(.flexible())],
+                    columns: Array(repeating: GridItem(.flexible()), count: layout.gridColumns),
                     spacing: 16
                 ) {
                     ForEach(playlists) { playlist in
@@ -246,12 +247,12 @@ struct LibraryView: View {
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(playlist.name)
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.system(size: layout.fontCardTitle, weight: .semibold))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
-                                    
+
                                     Text("\(playlist.songCount) songs")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: layout.fontCaption))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -291,16 +292,16 @@ struct LibraryView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                             Text("Play")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
-                    
+
                     // Shuffle Button
                     Button {
                         Task {
@@ -310,18 +311,20 @@ struct LibraryView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "shuffle")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                             Text("Shuffle")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
                 }
+                .frame(maxWidth: layout.detailButtonMaxWidth)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal)
-                
+
                 VStack(spacing: 0) {
                     ForEach(likedOnly) { localSong in
                         SongRow(
@@ -338,7 +341,7 @@ struct LibraryView: View {
                         
                         if localSong.videoId != likedOnly.last?.videoId {
                             Divider()
-                                .padding(.leading, 76)
+                                .padding(.leading, layout.songRowImageSize + 20)
                                 .opacity(0.3)
                         }
                     }
@@ -372,16 +375,16 @@ struct LibraryView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                             Text("Play")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
-                    
+
                     // Shuffle Button
                     Button {
                         Task {
@@ -391,18 +394,20 @@ struct LibraryView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "shuffle")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                             Text("Shuffle")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
                 }
+                .frame(maxWidth: layout.detailButtonMaxWidth)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal)
-                
+
                 VStack(spacing: 0) {
                     ForEach(history) { item in
                         SongRow(
@@ -416,7 +421,7 @@ struct LibraryView: View {
                         
                         if item.videoId != history.last?.videoId {
                             Divider()
-                                .padding(.leading, 76)
+                                .padding(.leading, layout.songRowImageSize + 20)
                                 .opacity(0.3)
                         }
                     }
@@ -431,7 +436,7 @@ struct LibraryView: View {
     private func emptyState(icon: String, title: String, message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 48))
+                .font(.system(size: layout.isRegularWidth ? 64 : 48))
                 .foregroundStyle(.secondary)
             
             Text(title)

@@ -16,6 +16,8 @@ struct SongOptionsMenu: View {
     var onPlayNext: (() -> Void)? = nil
     var onAddToQueue: (() -> Void)? = nil
     var onSuggestToHost: (() -> Void)? = nil
+    var iconSize: CGFloat = 16
+    var frameSize: CGFloat = 24
     
     var body: some View {
         Menu {
@@ -67,9 +69,9 @@ struct SongOptionsMenu: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16))
+                .font(.system(size: iconSize))
                 .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
+                .frame(width: frameSize, height: frameSize)
                 .contentShape(Rectangle())
         }
     }

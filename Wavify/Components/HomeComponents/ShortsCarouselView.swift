@@ -12,9 +12,8 @@ struct ShortsCarouselView: View {
     let onToggleLike: (SearchResult) -> Void
     let onPlayNext: (SearchResult) -> Void
     let onAddToQueue: (SearchResult) -> Void
-    
-    private let cardWidth: CGFloat = 170
-    private let cardHeight: CGFloat = 280 // Wider and shorter profile
+
+    @Environment(\.layoutContext) private var layout
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -33,14 +32,17 @@ struct ShortsCarouselView: View {
             
             // Horizontal carousel
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
+                LazyHStack(spacing: layout.isRegularWidth ? 20 : 12) {
                     ForEach(songs, id: \.id) { song in
                         ShortsCard(
                             song: song,
                             isLiked: likedSongIds.contains(song.id),
                             isInQueue: queueSongIds.contains(song.id),
-                            width: cardWidth,
-                            height: cardHeight,
+                            width: layout.shortsCardWidth,
+                            height: layout.shortsCardHeight,
+                            titleFont: layout.fontCardTitle,
+                            artistFont: layout.fontSmallCaption,
+                            contentPadding: layout.isRegularWidth ? 16 : 8,
                             onTap: { onSongTap(song) },
                             onAddToPlaylist: { onAddToPlaylist(song) },
                             onToggleLike: { onToggleLike(song) },
@@ -62,6 +64,9 @@ struct ShortsCard: View {
     let isInQueue: Bool
     let width: CGFloat
     let height: CGFloat
+    var titleFont: CGFloat = 13
+    var artistFont: CGFloat = 11
+    var contentPadding: CGFloat = 8
     let onTap: () -> Void
     let onAddToPlaylist: () -> Void
     let onToggleLike: () -> Void
@@ -116,17 +121,17 @@ struct ShortsCard: View {
                 // Content
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.name)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: titleFont, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    
+
                     Text(song.artist)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: artistFont, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
                         .lineLimit(1)
                 }
-                .padding(8)
+                .padding(contentPadding)
                 .frame(width: width, alignment: .bottomLeading)
             }
             .frame(width: width, height: height)

@@ -15,7 +15,7 @@ struct LanguageChartCard: View {
     let onCardTap: () -> Void
     let onSongTap: (Int) -> Void  // Index of song in playlist
     let onPlayTap: () -> Void
-    
+
     // Callbacks for song actions
     var onAddToPlaylist: ((SearchResult) -> Void)?
     var onToggleLike: ((SearchResult) -> Void)?
@@ -23,7 +23,9 @@ struct LanguageChartCard: View {
     var onAddToQueue: ((SearchResult) -> Void)?
     var likedSongIds: Set<String> = []
     var queueSongIds: Set<String> = []
-    
+    var cardWidth: CGFloat = 320
+
+    @Environment(\.layoutContext) private var layout
     @Environment(\.modelContext) private var modelContext
     @State private var gradientColors: [Color] = [Color(red: 0.15, green: 0.1, blue: 0.2), Color(red: 0.1, green: 0.08, blue: 0.15), Color(white: 0.08)]
     @State private var isSaved: Bool = false
@@ -37,7 +39,7 @@ struct LanguageChartCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Header: Thumbnail + Playlist Name
                 headerSection
-                    .padding(.bottom, 16)
+                    .padding(.bottom, layout.isRegularWidth ? 20 : 16)
                 
                 // Song rows (first 3 songs)
                 songRowsSection
@@ -47,8 +49,8 @@ struct LanguageChartCard: View {
                 // Action buttons: Save (left) and Play (right)
                 actionButtons
             }
-            .padding(20)
-            .frame(width: UIScreen.main.bounds.width * 0.85, height: 390)
+            .padding(layout.isRegularWidth ? 28 : 20)
+            .frame(width: cardWidth, height: layout.chartCardHeight)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
@@ -88,20 +90,20 @@ struct LanguageChartCard: View {
                         }
                 }
             }
-            .frame(width: 100, height: 100)
+            .frame(width: layout.chartCardThumbnail, height: layout.chartCardThumbnail)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .matchedTransitionSource(id: chart.playlistId, in: namespace)
             
             // Playlist name and info - vertically centered
             VStack(alignment: .leading, spacing: 4) {
                 Text(chart.displayName)
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: layout.fontLargeHeadline, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 
                 Text("100 songs")
-                    .font(.system(size: 12))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.white.opacity(0.5))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -129,18 +131,18 @@ struct LanguageChartCard: View {
                                     Color.gray.opacity(0.3)
                                 }
                             }
-                            .frame(width: 44, height: 44)
+                            .frame(width: layout.thumbnailSmall, height: layout.thumbnailSmall)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             
                             // Song info
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(song.name)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: layout.fontBody, weight: .medium))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
-                                
+
                                 Text(song.artist)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: layout.fontCaption))
                                     .foregroundStyle(.white.opacity(0.6))
                                     .lineLimit(1)
                             }
@@ -178,13 +180,13 @@ struct LanguageChartCard: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: layout.fontButtonIcon, weight: .medium))
                             .foregroundStyle(.white.opacity(0.6))
                             .rotationEffect(.degrees(90))
-                            .frame(width: 32, height: 44)
+                            .frame(width: layout.isRegularWidth ? 40 : 32, height: layout.buttonHeight)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, layout.isRegularWidth ? 8 : 4)
             }
         }
     }
@@ -199,13 +201,13 @@ struct LanguageChartCard: View {
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: isSaved ? "checkmark.circle.fill" : "plus")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: layout.fontButtonIcon, weight: .medium))
                     Text(isSaved ? "Saved" : "Save")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: layout.fontButton, weight: .medium))
                 }
                 .foregroundColor(isSaved ? .green : .white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
 
@@ -213,13 +215,13 @@ struct LanguageChartCard: View {
             Button(action: onPlayTap) {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: layout.fontButtonIcon, weight: .medium))
                     Text("Play")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: layout.fontButton, weight: .medium))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
         }

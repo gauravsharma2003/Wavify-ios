@@ -20,18 +20,20 @@ struct YourFavouritesGridView: View {
     let onToggleLike: (SearchResult) -> Void
     let onPlayNext: (SearchResult) -> Void
     let onAddToQueue: (SearchResult) -> Void
-    
-    // Grid configuration: 2 flexible columns
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-    
-    // Always show even number of items (4, 6, or 8) for balanced columns
+
+    @Environment(\.layoutContext) private var layout
+
+    // Grid columns adapt to screen width
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 12), count: layout.gridColumns)
+    }
+
+    // Always show item count divisible by column count for balanced grid
     private var displayItems: [SearchResult] {
+        let cols = layout.gridColumns
         let maxItems = min(items.count, 8)
-        let evenCount = maxItems - (maxItems % 2)
-        return Array(items.prefix(evenCount))
+        let balancedCount = maxItems - (maxItems % cols)
+        return Array(items.prefix(max(balancedCount, cols)))
     }
     
     var body: some View {
@@ -44,7 +46,7 @@ struct YourFavouritesGridView: View {
                 .padding(.horizontal)
             
             // 2-column vertical grid with LazyVGrid
-            LazyVGrid(columns: columns, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: layout.isRegularWidth ? 16 : 10) {
                 ForEach(displayItems, id: \.id) { item in
                     FavouriteBlockCard(
                         item: item,
@@ -52,6 +54,11 @@ struct YourFavouritesGridView: View {
                         isInQueue: queueSongIds.contains(item.id),
                         namespace: namespace, // Pass namespace
                         refreshId: refreshId, // Pass refreshId for force refresh
+                        thumbnailSize: layout.thumbnailSmall,
+                        rowHeight: layout.favouriteRowHeight,
+                        nameFont: layout.isRegularWidth ? 16 : 12,
+                        cardPadding: layout.isRegularWidth ? 14 : 6,
+                        hSpacing: layout.isRegularWidth ? 12 : 8,
                         onTap: { onItemTap(item) },
                         onAddToPlaylist: { onAddToPlaylist(item) },
                         onToggleLike: { onToggleLike(item) },
@@ -72,6 +79,11 @@ struct FavouriteBlockCard: View {
     let isInQueue: Bool
     let namespace: Namespace.ID // Added
     let refreshId: UUID // Force refresh after transition
+    var thumbnailSize: CGFloat = 44
+    var rowHeight: CGFloat = 56
+    var nameFont: CGFloat = 12
+    var cardPadding: CGFloat = 6
+    var hSpacing: CGFloat = 8
     let onTap: () -> Void
     var onAddToPlaylist: (() -> Void)? = nil
     var onToggleLike: (() -> Void)? = nil
@@ -96,7 +108,7 @@ struct FavouriteBlockCard: View {
     
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 8) {
+            HStack(spacing: hSpacing) {
                 // Thumbnail on the left - circular for artists
                 CachedAsyncImagePhase(url: URL(string: thumbnailUrl)) { phase in
                     if let image = phase.image {
@@ -107,23 +119,23 @@ struct FavouriteBlockCard: View {
                         Color.gray.opacity(0.4)
                     }
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: thumbnailSize, height: thumbnailSize)
                 .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 5)))
                 .id(refreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: item.type == .album || item.type == .artist ? item.id : "non_hero_\(item.id)", in: namespace)
                 
                 // Name on the right, left-aligned
                 Text(item.name)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: nameFont, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
             }
-            .padding(6)
+            .padding(cardPadding)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(height: rowHeight)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(white: 0.22))

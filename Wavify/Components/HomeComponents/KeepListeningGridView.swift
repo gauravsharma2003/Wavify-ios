@@ -14,12 +14,18 @@ struct KeepListeningGridView: View {
     let songs: [SearchResult]
     var scrollResetId: UUID = UUID() // Reset scroll position when this changes
     let onSongTap: (SearchResult) -> Void
-    
+
+    @Environment(\.layoutContext) private var layout
+
     // Grid configuration: 2 fixed rows
-    private let rows = [
-        GridItem(.fixed(72), spacing: 12),
-        GridItem(.fixed(72), spacing: 12)
-    ]
+    private var rows: [GridItem] {
+        let h = layout.keepListeningRowHeight
+        let s: CGFloat = layout.isRegularWidth ? 18 : 12
+        return [
+            GridItem(.fixed(h), spacing: s),
+            GridItem(.fixed(h), spacing: s)
+        ]
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,9 +38,9 @@ struct KeepListeningGridView: View {
             
             // Horizontal scrolling grid with LazyHGrid
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(rows: rows, spacing: 12) {
+                LazyHGrid(rows: rows, spacing: layout.isRegularWidth ? 20 : 12) {
                     ForEach(songs, id: \.id) { song in
-                        KeepListeningCard(item: song) {
+                        KeepListeningCard(item: song, cardWidth: layout.keepListeningCardWidth, thumbnailSize: layout.thumbnailMedium, nameFont: layout.fontBody, artistFont: layout.fontCaption) {
                             onSongTap(song)
                         }
                     }
@@ -49,6 +55,10 @@ struct KeepListeningGridView: View {
 // MARK: - Keep Listening Card (Medium size)
 struct KeepListeningCard: View {
     let item: SearchResult
+    var cardWidth: CGFloat = 220
+    var thumbnailSize: CGFloat = 64
+    var nameFont: CGFloat = 14
+    var artistFont: CGFloat = 12
     let onTap: () -> Void
     
     private var thumbnailUrl: String {
@@ -76,24 +86,24 @@ struct KeepListeningCard: View {
                         Color.gray.opacity(0.3)
                     }
                 }
-                .frame(width: 64, height: 64)
+                .frame(width: thumbnailSize, height: thumbnailSize)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 
                 // Song info
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: nameFont, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                    
+
                     Text(item.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: artistFont))
                         .foregroundStyle(.gray)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 220)
+            .frame(width: cardWidth)
             .padding(.vertical, 2)
             .contentShape(Rectangle())
         }

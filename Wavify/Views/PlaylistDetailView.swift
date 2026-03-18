@@ -17,6 +17,7 @@ struct PlaylistDetailView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     @State private var playlistPage: HomePage?
     @State private var isLoading = true
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
@@ -49,9 +50,9 @@ struct PlaylistDetailView: View {
                         ProgressView()
                             .tint(.white)
                             .scaleEffect(1.2)
-                        
+
                         Text("Loading playlist...")
-                            .font(.system(size: 14))
+                            .font(.system(size: layout.fontCaption))
                             .foregroundStyle(.tertiary)
                     }
                     .frame(maxWidth: .infinity)
@@ -65,15 +66,15 @@ struct PlaylistDetailView: View {
                         // Empty state - graceful full-width display
                         VStack(spacing: 16) {
                             Image(systemName: "music.note.list")
-                                .font(.system(size: 48))
+                                .font(.system(size: layout.isRegularWidth ? 64 : 48))
                                 .foregroundStyle(.white.opacity(0.4))
-                            
+
                             Text("No songs found")
-                                .font(.system(size: 18, weight: .medium))
+                                .font(.system(size: layout.fontBody, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            
+
                             Text("This playlist may be empty or unavailable")
-                                .font(.system(size: 14))
+                                .font(.system(size: layout.fontCaption))
                                 .foregroundStyle(.tertiary)
                                 .multilineTextAlignment(.center)
                         }
@@ -164,25 +165,25 @@ struct PlaylistDetailView: View {
                         )
                         .overlay {
                             Image(systemName: "music.note.list")
-                                .font(.system(size: 48))
+                                .font(.system(size: layout.isRegularWidth ? 64 : 48))
                                 .foregroundStyle(.white.opacity(0.8))
                         }
                 }
             }
-            .frame(width: 200, height: 200)
+            .frame(width: layout.detailArtworkSize, height: layout.detailArtworkSize)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
             
             // Info
             VStack(spacing: 8) {
                 Text(initialName)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: layout.fontHeadline, weight: .bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                
+
                 Text("\(songs.count) songs")
-                    .font(.system(size: 14))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -198,17 +199,16 @@ struct PlaylistDetailView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButtonIcon, weight: .semibold))
                     Text("Play")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButton, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
-            .padding(.horizontal, 40)
-            
+
             // Action buttons row
             HStack(spacing: 12) {
                 // Shuffle
@@ -217,34 +217,35 @@ struct PlaylistDetailView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "shuffle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                         Text("Shuffle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: layout.buttonHeight)
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
-                
+
                 // Save/Remove Button
                 Button {
                     toggleSavePlaylist()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: isSaved ? "checkmark.circle.fill" : "plus.circle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                         Text(isSaved ? "Saved" : "Save")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                     }
                     .foregroundColor(isSaved ? .green : .white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: layout.buttonHeight)
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
             }
-            .padding(.horizontal, 40)
         }
+        .frame(maxWidth: layout.detailButtonMaxWidth)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - List
@@ -274,12 +275,19 @@ struct PlaylistDetailView: View {
                     },
                     onAddToQueue: {
                         _ = audioPlayer.addToQueue(song)
-                    }
+                    },
+                    imageSize: layout.songRowImageSize,
+                    trackNumWidth: layout.trackNumberWidth,
+                    titleFont: layout.fontBody,
+                    artistFont: layout.fontCaption,
+                    menuIconSize: layout.fontButtonIcon,
+                    menuFrameSize: layout.isRegularWidth ? 32 : 24,
+                    rowPadding: layout.isRegularWidth ? 16 : 12
                 )
-                
+
                 if index < songs.count - 1 {
                     Divider()
-                        .padding(.leading, 50)
+                        .padding(.leading, layout.dividerLeading)
                         .opacity(0.3)
                 }
             }

@@ -14,6 +14,7 @@ struct HomeView: View {
     var audioPlayer: AudioPlayer
     @State var navigationManager: NavigationManager = .shared
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
@@ -42,7 +43,7 @@ struct HomeView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 24) {
+                        LazyVStack(spacing: layout.sectionSpacing) {
                             // Your Favourites Section (2-column grid, shown first)
                             if viewModel.favouriteItems.count >= 2 {
                                 YourFavouritesGridView(

@@ -18,6 +18,8 @@ struct SongRow: View {
     var onAddToQueue: (() -> Void)? = nil
     var isInQueue: Bool = false
     var isCurrentlyPlaying: Bool = false
+
+    @Environment(\.layoutContext) private var layout
     
     init(
         song: Song,
@@ -68,27 +70,27 @@ struct SongRow: View {
                                 .fill(Color(white: 0.15))
                         }
                     }
-                    .frame(width: 52, height: 52)
+                    .frame(width: layout.songRowImageSize, height: layout.songRowImageSize)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(song.title)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: layout.fontBody, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    
+
                     Text(song.artist)
-                        .font(.system(size: 13))
+                        .font(.system(size: layout.fontCardTitle))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                
+
                 Spacer()
-                
+
                 if !song.duration.isEmpty {
                     Text(song.duration)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: layout.fontCaption, weight: .medium))
                         .foregroundStyle(.tertiary)
                 }
                 
@@ -140,22 +142,22 @@ struct SongRow: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: 16))
+                            .font(.system(size: layout.fontButtonIcon))
                             .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 28)
+                            .frame(width: layout.isRegularWidth ? 36 : 28, height: layout.isRegularWidth ? 36 : 28)
                     }
                 } else if let onLike = onLike {
                     // Legacy like button (when menu is not shown)
                     Button(action: onLike) {
                         Image(systemName: song.isLiked ? "heart.fill" : "heart")
-                            .font(.system(size: 16))
+                            .font(.system(size: layout.fontButtonIcon))
                             .foregroundStyle(song.isLiked ? .red : .secondary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, layout.isRegularWidth ? 20 : 16)
+            .padding(.vertical, layout.isRegularWidth ? 14 : 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -169,6 +171,8 @@ struct CompactSongRow: View {
     let isCurrentlyPlaying: Bool
     var showDragHandle: Bool = false
     let onTap: () -> Void
+
+    @Environment(\.layoutContext) private var layout
 
     var body: some View {
         Button(action: { onTap() }) {
@@ -184,7 +188,7 @@ struct CompactSongRow: View {
                             .fill(Color(white: 0.15))
                     }
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: layout.thumbnailSmall, height: layout.thumbnailSmall)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay {
                     if isCurrentlyPlaying {
@@ -195,12 +199,12 @@ struct CompactSongRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
-                        .font(.system(size: 14, weight: isCurrentlyPlaying ? .semibold : .regular))
+                        .font(.system(size: layout.fontBody, weight: isCurrentlyPlaying ? .semibold : .regular))
                         .foregroundStyle(isCurrentlyPlaying ? .primary : .secondary)
                         .lineLimit(1)
 
                     Text(song.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: layout.fontCaption))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
@@ -209,13 +213,13 @@ struct CompactSongRow: View {
 
                 if isCurrentlyPlaying {
                     Image(systemName: "waveform.low")
-                        .font(.system(size: 14))
+                        .font(.system(size: layout.fontBody))
                         .foregroundStyle(.primary)
                         .symbolEffect(.variableColor.iterative)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, layout.isRegularWidth ? 16 : 12)
+            .padding(.vertical, layout.isRegularWidth ? 12 : 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

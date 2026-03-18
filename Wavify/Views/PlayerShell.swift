@@ -17,6 +17,7 @@ struct PlayerShell: View {
     @State private var equalizerManager = EqualizerManager.shared
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
 
     // MARK: - Full player state (migrated from NowPlayingView)
 
@@ -75,6 +76,26 @@ struct PlayerShell: View {
         return min(1.0, max(0.0, audioPlayer.currentTime / audioPlayer.duration))
     }
 
+    // MARK: - iPad-scaled sizes
+
+    private var miniHeight: CGFloat { layout.isRegularWidth ? 82 : 70 }
+    private var miniRingSize: CGFloat { layout.isRegularWidth ? 62 : 50 }
+    private var miniArtSize: CGFloat { layout.isRegularWidth ? 50 : 40 }
+    private var miniTitleFont: CGFloat { layout.isRegularWidth ? 17 : 14 }
+    private var miniArtistFont: CGFloat { layout.isRegularWidth ? 15 : 12 }
+    private var miniPlayIcon: CGFloat { layout.isRegularWidth ? 26 : 22 }
+    private var miniNextIcon: CGFloat { layout.isRegularWidth ? 20 : 16 }
+    private var miniTapSize: CGFloat { layout.isRegularWidth ? 52 : 44 }
+
+    private var fullTitleFont: CGFloat { layout.isRegularWidth ? 30 : 24 }
+    private var fullArtistFont: CGFloat { layout.isRegularWidth ? 21 : 17 }
+    private var controlIcon: CGFloat { layout.isRegularWidth ? 24 : 20 }
+    private var controlIconLarge: CGFloat { layout.isRegularWidth ? 26 : 22 }
+    private var controlTapSize: CGFloat { layout.isRegularWidth ? 52 : 44 }
+    private var handleIconSize: CGFloat { layout.isRegularWidth ? 24 : 20 }
+    private var handleButtonSize: CGFloat { layout.isRegularWidth ? 52 : 46 }
+    private var headerFont: CGFloat { layout.isRegularWidth ? 17 : 14 }
+
     private var topSafeAreaInset: CGFloat {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else { return 59 }
@@ -92,7 +113,15 @@ struct PlayerShell: View {
     private func dynamicArtSize(shellWidth: CGFloat, screenHeight: CGFloat) -> CGFloat {
         let hPad = max(16, shellWidth * 0.06)
         let maxByWidth = shellWidth - hPad * 2
-        let maxByHeight = screenHeight * 0.44
+        let heightFraction: CGFloat
+        if layout.isIPad && layout.isLandscape {
+            heightFraction = 0.7
+        } else if layout.isIPad {
+            heightFraction = 0.52
+        } else {
+            heightFraction = 0.44
+        }
+        let maxByHeight = screenHeight * heightFraction
         return min(maxByWidth, maxByHeight)
     }
 
@@ -105,7 +134,6 @@ struct PlayerShell: View {
             let screenHeight = geometry.size.height
 
             // Interpolated layout values
-            let miniHeight: CGFloat = 70
             let height = miniHeight + (screenHeight - miniHeight) * expansion
             let hPadding = 16 * (1 - expansion)
             // Tab bar (~49pt) + home indicator (bottomSafeAreaInset) + small gap
@@ -149,7 +177,7 @@ struct PlayerShell: View {
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, bottomOffset)
-                .gesture(shellGesture(screenHeight: screenHeight))
+                .gesture(shellGesture(screenHeight: screenHeight, screenWidth: geometry.size.width))
                 .onTapGesture {
                     if expansion < 0.1 {
                         navigationManager.expandPlayer()
@@ -247,11 +275,15 @@ struct PlayerShell: View {
     @ViewBuilder
     private func morphingAlbumArt(expansion: CGFloat, shellHeight: CGFloat, shellWidth: CGFloat, geometry: GeometryProxy) -> some View {
         if let song = audioPlayer.currentSong {
-            // Mini state: 40×40 circle, positioned at left of mini player
-            let miniSize: CGFloat = 40
+            // Mini state: circle, positioned at left of mini player
+            let miniSize: CGFloat = miniArtSize
             // Full state: proportional to screen dimensions
             let screenH = geometry.size.height
-            let fullSize = dynamicArtSize(shellWidth: shellWidth, screenHeight: screenH)
+            let iPadLandscape = layout.isIPad && layout.isLandscape
+
+            let fullSize: CGFloat = iPadLandscape
+                ? dynamicArtSize(shellWidth: shellWidth / 2, screenHeight: screenH)
+                : dynamicArtSize(shellWidth: shellWidth, screenHeight: screenH)
             let artSize = miniSize + (fullSize - miniSize) * expansion
 
             // Corner radius: circle (half size) → 24pt rounded rect
@@ -260,16 +292,19 @@ struct PlayerShell: View {
             let artCorner = miniCorner + (fullCorner - miniCorner) * expansion
 
             // Offsets from center of the shell frame (shellWidth × shellHeight)
-            // Mini: leading padding(16) + ring center(25) from left edge of shell
-            let miniX = 16 + 25 - shellWidth / 2
-            // Mini: vertically centered in the 70pt mini bar at the bottom of shell
-            let miniY = shellHeight / 2 - 35
+            // Mini: leading padding(16) + ring center from left edge of shell
+            let miniX = 16 + miniRingSize / 2 - shellWidth / 2
+            // Mini: vertically centered in the mini bar at the bottom of shell
+            let miniY = shellHeight / 2 - miniHeight / 2
 
-            // Full: horizontally centered (x=0), positioned below header
+            // Full: positioned below header
             let artTopPad = screenH * 0.042
-            let fullY = -(shellHeight / 2) + topSafeAreaInset + 4 + 54 + artTopPad + fullSize / 2
+            let fullX: CGFloat = iPadLandscape ? -(shellWidth / 4) : 0
+            let fullY: CGFloat = iPadLandscape
+                ? 0  // vertically centered
+                : -(shellHeight / 2) + topSafeAreaInset + 4 + 54 + artTopPad + fullSize / 2
 
-            let artX = miniX + (0 - miniX) * expansion
+            let artX = miniX + (fullX - miniX) * expansion
             let artY = miniY + (fullY - miniY) * expansion
 
             ProgressiveAlbumArt(
@@ -291,7 +326,7 @@ struct PlayerShell: View {
 
     // MARK: - Shell Gesture
 
-    private func shellGesture(screenHeight: CGFloat) -> some Gesture {
+    private func shellGesture(screenHeight: CGFloat, screenWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .global)
             .onChanged { value in
                 // Only respond when expanded (not in mini state)
@@ -346,9 +381,9 @@ struct PlayerShell: View {
                     let velocityThreshold: CGFloat = 300
 
                     if value.translation.width < -threshold || velocity < -velocityThreshold {
-                        performTrackTransition(direction: .next, screenWidth: UIScreen.main.bounds.width)
+                        performTrackTransition(direction: .next, screenWidth: screenWidth)
                     } else if value.translation.width > threshold || velocity > velocityThreshold {
-                        performTrackTransition(direction: .previous, screenWidth: UIScreen.main.bounds.width)
+                        performTrackTransition(direction: .previous, screenWidth: screenWidth)
                     } else {
                         // Didn't meet threshold — snap back to center
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -419,7 +454,7 @@ struct PlayerShell: View {
                 ZStack {
                     Circle()
                         .stroke(Color.white.opacity(0.15), lineWidth: 3)
-                        .frame(width: 50, height: 50)
+                        .frame(width: miniRingSize, height: miniRingSize)
 
                     Circle()
                         .trim(from: 0, to: displayedProgress)
@@ -431,7 +466,7 @@ struct PlayerShell: View {
                             ),
                             style: StrokeStyle(lineWidth: 3, lineCap: .round)
                         )
-                        .frame(width: 50, height: 50)
+                        .frame(width: miniRingSize, height: miniRingSize)
                         .rotationEffect(.degrees(-90))
 
                     ProgressiveAlbumArt(
@@ -439,18 +474,18 @@ struct PlayerShell: View {
                         highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
                     )
                     .id(song.id)
-                    .frame(width: 40, height: 40)
+                    .frame(width: miniArtSize, height: miniArtSize)
                     .clipShape(Circle())
                 }
 
                 // Song Info
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: miniTitleFont, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text(song.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: miniArtistFont))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -463,9 +498,9 @@ struct PlayerShell: View {
                 } label: {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.system(size: miniPlayIcon, weight: .medium))
                         .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
+                        .frame(width: miniTapSize, height: miniTapSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -477,9 +512,9 @@ struct PlayerShell: View {
                     Task { await audioPlayer.playNext() }
                 } label: {
                     Image(systemName: "chevron.forward.dotted.chevron.forward")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: miniNextIcon, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
-                        .frame(width: 36, height: 44)
+                        .frame(width: miniTapSize - 8, height: miniTapSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -543,6 +578,37 @@ struct PlayerShell: View {
 
             if lyricsExpanded && showLyrics {
                 expandedLyricsContent(geometry: geometry)
+            } else if layout.isIPad && layout.isLandscape {
+                // iPad landscape: side-by-side layout
+                HStack(spacing: 0) {
+                    // Left half: album art (placeholder for morphing layer)
+                    VStack(spacing: 0) {
+                        albumArtView(shellWidth: shellWidth / 2, screenHeight: screenH)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .offset(x: horizontalSwipeOffset)
+
+                    // Right half: song info + controls grouped & centered
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+
+                        songInfoView
+
+                        Spacer().frame(height: screenH * 0.035)
+
+                        VStack(spacing: controlsGap) {
+                            progressView
+                            controlsView(screenWidth: screenW / 2, screenHeight: screenH)
+                            additionalControlsRow(screenWidth: screenW / 2)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, hPad)
+                }
+                .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
             } else {
                 VStack(spacing: 0) {
                     // Swipeable album art + song info
@@ -588,26 +654,26 @@ struct PlayerShell: View {
                 }
             } label: {
                 Image(systemName: sleepTimerManager.isActive ? "moon.fill" : "moon")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: controlTapSize, height: controlTapSize)
                     .sleepButtonAnimation(trigger: sleepTimerManager.isActive)
             }
 
             // Share
             Button { shareSong() } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
 
             // AirPlay
             Button { showAirPlayPicker = true } label: {
                 Image(systemName: "airplayaudio")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
 
             // Lyrics
@@ -621,9 +687,9 @@ struct PlayerShell: View {
                 }
             } label: {
                 Image(systemName: showLyrics ? "text.word.spacing" : "text.word.spacing")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(showLyrics ? .cyan : .white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
 
             // More menu
@@ -746,9 +812,9 @@ struct PlayerShell: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: controlIconLarge, weight: .medium))
                 .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
+                .frame(width: controlTapSize, height: controlTapSize)
                 .rotationEffect(.degrees(90))
         }
     }
@@ -761,9 +827,9 @@ struct PlayerShell: View {
                 navigationManager.collapsePlayer()
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: handleIconSize, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 46, height: 46)
+                    .frame(width: handleButtonSize, height: handleButtonSize)
             }
             .glassEffect(.regular.interactive(), in: .circle)
 
@@ -772,15 +838,15 @@ struct PlayerShell: View {
             if sharePlayManager.isSessionActive {
                 HStack(spacing: 6) {
                     Image(systemName: "shareplay")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: headerFont - 2, weight: .semibold))
                         .foregroundStyle(.cyan)
                     Text(sharePlayManager.isHost ? "Hosting" : "Listening")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: headerFont, weight: .semibold))
                         .foregroundStyle(.cyan)
                 }
             } else {
                 Text("Now Playing")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: headerFont, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
 
@@ -790,9 +856,9 @@ struct PlayerShell: View {
                 showQueue = true
             } label: {
                 Image(systemName: "list.bullet")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: handleIconSize, weight: .medium))
                     .foregroundStyle(sharePlayManager.isGuest ? .white.opacity(0.4) : .white)
-                    .frame(width: 46, height: 46)
+                    .frame(width: handleButtonSize, height: handleButtonSize)
             }
             .glassEffect(.regular.interactive(), in: .circle)
             .disabled(sharePlayManager.isGuest)
@@ -887,7 +953,7 @@ struct PlayerShell: View {
         VStack(alignment: .leading, spacing: 6) {
             if let song = audioPlayer.currentSong {
                 Text(song.title)
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: fullTitleFont, weight: .bold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -902,7 +968,7 @@ struct PlayerShell: View {
                     }
                 } label: {
                     Text(song.artist)
-                        .font(.system(size: 17))
+                        .font(.system(size: fullArtistFont))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -931,24 +997,28 @@ struct PlayerShell: View {
                 toggleLike()
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: controlIcon, weight: .medium))
                     .foregroundStyle(isLiked ? .red : .secondary)
                     .likeButtonAnimation(trigger: isLiked)
             }
 
-            GlassPlayerButton(icon: "chevron.backward.chevron.backward.dotted", size: 22) {
+            GlassPlayerButton(icon: "chevron.backward.chevron.backward.dotted", size: controlIconLarge) {
                 Task { await audioPlayer.playPrevious() }
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
-            LargePlayButton(isPlaying: audioPlayer.isPlaying) {
+            LargePlayButton(
+                isPlaying: audioPlayer.isPlaying,
+                iconSize: layout.isRegularWidth ? 38 : 32,
+                buttonSize: layout.isRegularWidth ? 84 : 72
+            ) {
                 audioPlayer.togglePlayPause()
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
-            GlassPlayerButton(icon: "chevron.forward.dotted.chevron.forward", size: 22) {
+            GlassPlayerButton(icon: "chevron.forward.dotted.chevron.forward", size: controlIconLarge) {
                 Task { await audioPlayer.playNext() }
             }
             .disabled(sharePlayManager.isGuest)
@@ -958,7 +1028,7 @@ struct PlayerShell: View {
                 audioPlayer.toggleLoopMode()
             } label: {
                 Image(systemName: audioPlayer.loopMode.icon)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: controlIcon, weight: .medium))
                     .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
             }
             .disabled(sharePlayManager.isGuest)
@@ -999,7 +1069,8 @@ struct PlayerShell: View {
     }
 
     private var compactSongInfoView: some View {
-        HStack(spacing: 12) {
+        let compactArt: CGFloat = layout.isRegularWidth ? 64 : 48
+        return HStack(spacing: 12) {
             if let song = audioPlayer.currentSong {
                 CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                     switch phase {
@@ -1009,16 +1080,16 @@ struct PlayerShell: View {
                         Rectangle().fill(.white.opacity(0.1))
                     }
                 }
-                .frame(width: 48, height: 48)
+                .frame(width: compactArt, height: compactArt)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.isRegularWidth ? 20 : 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(song.artist)
-                        .font(.system(size: 13))
+                        .font(.system(size: layout.isRegularWidth ? 16 : 13))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -1030,9 +1101,9 @@ struct PlayerShell: View {
                 } label: {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
-                        .font(.system(size: 20, weight: .medium))
+                        .font(.system(size: controlIcon, weight: .medium))
                         .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
+                        .frame(width: controlTapSize, height: controlTapSize)
                 }
             }
         }
@@ -1478,7 +1549,7 @@ private struct SwipeableQueueRow: View {
                         if finalOffset < -threshold {
                             // Swipe left → Play Next
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                offset = -UIScreen.main.bounds.width
+                                offset = -500
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                                 onPlayNext()
@@ -1487,7 +1558,7 @@ private struct SwipeableQueueRow: View {
                         } else if finalOffset > threshold {
                             // Swipe right → Remove
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                offset = UIScreen.main.bounds.width
+                                offset = 500
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                                 onRemove()

@@ -12,10 +12,26 @@ struct MainTabView: View {
     @State private var audioPlayer = AudioPlayer.shared
     @State private var navigationManager = NavigationManager.shared
     @State private var lastTrackedSongId: String = ""
-    
+
     @Environment(\.modelContext) private var modelContext
-    
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
+
     var body: some View {
+        GeometryReader { geometry in
+            let layoutContext = LayoutContext(
+                isRegularWidth: hSizeClass == .regular,
+                isRegularHeight: vSizeClass == .regular,
+                isLandscape: geometry.size.width > geometry.size.height,
+                containerWidth: geometry.size.width
+            )
+
+            mainContent
+                .environment(\.layoutContext, layoutContext)
+        }
+    }
+
+    private var mainContent: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $navigationManager.selectedTab) {
                 HomeView(audioPlayer: audioPlayer, navigationManager: navigationManager)

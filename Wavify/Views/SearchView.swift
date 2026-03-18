@@ -17,6 +17,7 @@ struct SearchView: View {
     
     @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     
     // Add to playlist and liked status
     @State private var selectedSongForPlaylist: Song?
@@ -72,7 +73,7 @@ struct SearchView: View {
                                     viewModel.removeFromHistory(term)
                                 } label: {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: layout.isRegularWidth ? 15 : 12))
                                         .foregroundStyle(.secondary)
                                         .padding(8)
                                 }
@@ -122,15 +123,15 @@ struct SearchView: View {
                                             Color(white: 0.15)
                                         }
                                     }
-                                    .frame(width: 40, height: 40)
+                                    .frame(width: layout.thumbnailSmall, height: layout.thumbnailSmall)
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    
+
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(result.name)
-                                            .font(.system(size: 16))
+                                            .font(.system(size: layout.fontBody))
                                             .foregroundStyle(.primary)
                                         Text(result.artist)
-                                            .font(.system(size: 12))
+                                            .font(.system(size: layout.fontCaption))
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -252,10 +253,7 @@ struct SearchView: View {
                         .padding(.top)
                     
                     LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)
-                        ],
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: layout.gridColumns),
                         spacing: 12
                     ) {
                         ForEach(viewModel.chips) { chip in
@@ -275,10 +273,10 @@ struct SearchView: View {
                                                 endPoint: .bottomTrailing
                                             )
                                         )
-                                        .frame(height: 100)
-                                    
+                                        .frame(height: layout.categoryBrowseHeight)
+
                                     Text(chip.title)
-                                        .font(.system(size: 16, weight: .bold))
+                                        .font(.system(size: layout.fontBody, weight: .bold))
                                         .foregroundStyle(.white)
                                         .padding()
                                 }
@@ -292,7 +290,7 @@ struct SearchView: View {
                     VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 48))
+                            .font(.system(size: layout.isRegularWidth ? 64 : 48))
                             .foregroundStyle(.secondary)
                         
                         Text("Search for music")
@@ -398,10 +396,10 @@ struct SearchView: View {
                         viewModel.applyFilter(filter)
                     } label: {
                         Text(filter.rawValue)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                             .foregroundColor(viewModel.selectedFilter == filter ? .black : .white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, layout.isRegularWidth ? 20 : 16)
+                            .padding(.vertical, layout.isRegularWidth ? 10 : 8)
                             .background(
                                 Capsule()
                                     .fill(viewModel.selectedFilter == filter ? .white : Color.white.opacity(0.15))
@@ -418,7 +416,7 @@ struct SearchView: View {
     private var topResultsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Top Results")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: layout.fontSectionTitle, weight: .bold))
                 .padding(.horizontal)
                 .padding(.top, 16)
             
@@ -428,7 +426,7 @@ struct SearchView: View {
                     
                     if index < min(viewModel.topResults.count, 4) - 1 {
                         Divider()
-                            .padding(.leading, 76)
+                            .padding(.leading, layout.searchResultImageSize + 20)
                             .opacity(0.3)
                     }
                 }
@@ -519,12 +517,12 @@ struct SearchView: View {
                         }
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: layout.searchResultImageSize, height: layout.searchResultImageSize)
             .clipShape(result.type == .artist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 8)))
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(result.name)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: layout.fontBody, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 
@@ -533,27 +531,27 @@ struct SearchView: View {
                         // For songs/videos, show artist name directly
                         if !result.artist.isEmpty {
                             Text(result.artist)
-                                .font(.system(size: 12))
+                                .font(.system(size: layout.fontCaption))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     } else if result.type == .artist {
                         // For artists, just show type label
                         Text(labelForType(result.type))
-                            .font(.system(size: 12))
+                            .font(.system(size: layout.fontCaption))
                             .foregroundStyle(.secondary)
                     } else {
                         // For albums/playlists, show type and artist
                         Text(labelForType(result.type))
-                            .font(.system(size: 12))
+                            .font(.system(size: layout.fontCaption))
                             .foregroundStyle(.secondary)
-                        
+
                         if !result.artist.isEmpty {
                             Text("•")
-                                .font(.system(size: 12))
+                                .font(.system(size: layout.fontCaption))
                                 .foregroundStyle(.secondary)
                             Text(result.artist)
-                                .font(.system(size: 12))
+                                .font(.system(size: layout.fontCaption))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -565,15 +563,15 @@ struct SearchView: View {
             
             if result.type == .song || result.type == .video {
                 Image(systemName: "play.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.secondary)
             } else {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12))
+                    .font(.system(size: layout.fontSmallCaption))
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, layout.isRegularWidth ? 12 : 8)
         .contentShape(Rectangle())
     }
     
@@ -605,18 +603,18 @@ struct SearchView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let title = title {
                 Text(title)
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: layout.fontSectionTitle, weight: .bold))
                     .padding(.horizontal)
                     .padding(.top, 16)
             }
-            
+
             VStack(spacing: 0) {
                 ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                     content(result)
-                    
+
                     if index < results.count - 1 {
                         Divider()
-                            .padding(.leading, 76)
+                            .padding(.leading, layout.searchResultImageSize + 20)
                             .opacity(0.3)
                     }
                 }
@@ -628,12 +626,12 @@ struct SearchView: View {
     private func artistSection(artists: [SearchResult]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Artists")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: layout.fontSectionTitle, weight: .bold))
                 .padding(.horizontal)
                 .padding(.top, 20)
-            
+
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
+                LazyHStack(spacing: layout.isRegularWidth ? 24 : 16) {
                     ForEach(artists) { artist in
                         NavigationLink {
                             ArtistDetailView(
@@ -655,19 +653,19 @@ struct SearchView: View {
                                             .fill(.ultraThinMaterial)
                                             .overlay {
                                                 Image(systemName: "person.fill")
-                                                    .font(.system(size: 32))
+                                                    .font(.system(size: layout.isRegularWidth ? 42 : 32))
                                                     .foregroundStyle(.secondary)
                                             }
                                     }
                                 }
-                                .frame(width: 100, height: 100)
+                                .frame(width: layout.artistAvatarSize, height: layout.artistAvatarSize)
                                 .clipShape(Circle())
                                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-                                
+
                                 Text(artist.name)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: layout.fontCardTitle, weight: .medium))
                                     .lineLimit(1)
-                                    .frame(width: 100)
+                                    .frame(width: layout.artistAvatarSize)
                             }
                         }
                         .buttonStyle(.plain)
@@ -681,15 +679,12 @@ struct SearchView: View {
     private func albumSection(albums: [SearchResult], title: String = "Albums") -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: layout.fontSectionTitle, weight: .bold))
                 .padding(.horizontal)
                 .padding(.top, 20)
             
             LazyVGrid(
-                columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ],
+                columns: Array(repeating: GridItem(.flexible()), count: layout.gridColumns),
                 spacing: 16
             ) {
                 ForEach(albums) { album in
@@ -715,7 +710,8 @@ struct SearchView: View {
                                     Color.gray.opacity(0.3)
                                 }
                             }
-                            .frame(width: (UIScreen.main.bounds.width - 48 - 16) / 2, height: (UIScreen.main.bounds.width - 48 - 16) / 2)
+                            .aspectRatio(1, contentMode: .fill)
+                            .frame(maxWidth: .infinity)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .id(searchRefreshId) // Force recreate when returning from detail
@@ -724,12 +720,12 @@ struct SearchView: View {
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.name)
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: layout.fontCardTitle, weight: .semibold))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
-                                
+
                                 Text(album.artist)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: layout.fontCaption))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
@@ -746,15 +742,12 @@ struct SearchView: View {
     private func playlistSection(playlists: [SearchResult]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Playlists")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: layout.fontSectionTitle, weight: .bold))
                 .padding(.horizontal)
                 .padding(.top, 20)
             
             LazyVGrid(
-                columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ],
+                columns: Array(repeating: GridItem(.flexible()), count: layout.gridColumns),
                 spacing: 16
             ) {
                 ForEach(playlists) { playlist in
@@ -769,31 +762,36 @@ struct SearchView: View {
                         )
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                default:
-                                    Color.gray.opacity(0.3)
+                            Color.clear
+                                .aspectRatio(1, contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .background(Color(white: 0.1))
+                                .overlay {
+                                    CachedAsyncImagePhase(url: URL(string: playlist.thumbnailUrl)) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .scaledToFill()
+                                        default:
+                                            Color.gray.opacity(0.3)
+                                        }
+                                    }
                                 }
-                            }
-                            .frame(width: (UIScreen.main.bounds.width - 48 - 16) / 2, height: (UIScreen.main.bounds.width - 48 - 16) / 2)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .id(searchRefreshId) // Force recreate when returning from detail
-                            .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
-                            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .id(searchRefreshId) // Force recreate when returning from detail
+                                .matchedTransitionSource(id: playlist.id, in: searchHeroAnimation)
+                                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playlist.name)
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: layout.fontCardTitle, weight: .semibold))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
-                                
+
                                 Text(playlist.artist)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: layout.fontCaption))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }

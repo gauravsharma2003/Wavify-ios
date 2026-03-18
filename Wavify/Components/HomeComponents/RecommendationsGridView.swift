@@ -21,14 +21,20 @@ struct RecommendationsGridView: View {
     let onToggleLike: (SearchResult) -> Void
     let onPlayNext: (SearchResult) -> Void
     let onAddToQueue: (SearchResult) -> Void
-    
+
+    @Environment(\.layoutContext) private var layout
+
     // Grid configuration: 4 fixed rows
-    private let rows = [
-        GridItem(.fixed(56), spacing: 8),
-        GridItem(.fixed(56), spacing: 8),
-        GridItem(.fixed(56), spacing: 8),
-        GridItem(.fixed(56), spacing: 8)
-    ]
+    private var rows: [GridItem] {
+        let h = layout.recommendationRowHeight
+        let s: CGFloat = layout.isRegularWidth ? 14 : 8
+        return [
+            GridItem(.fixed(h), spacing: s),
+            GridItem(.fixed(h), spacing: s),
+            GridItem(.fixed(h), spacing: s),
+            GridItem(.fixed(h), spacing: s)
+        ]
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -53,6 +59,10 @@ struct RecommendationsGridView: View {
                             item: song,
                             isLiked: likedSongIds.contains(song.id),
                             isInQueue: queueSongIds.contains(song.id),
+                            itemWidth: layout.recommendationItemWidth,
+                            thumbnailSize: layout.thumbnailSmall,
+                            nameFont: layout.fontBody,
+                            secondaryFont: layout.fontCaption,
                             onTap: {
                                 onSongTap(song)
                             },
@@ -83,6 +93,10 @@ struct RecommendationListRow: View {
     let item: SearchResult
     let isLiked: Bool
     let isInQueue: Bool
+    var itemWidth: CGFloat = 280
+    var thumbnailSize: CGFloat = 48
+    var nameFont: CGFloat = 14
+    var secondaryFont: CGFloat = 12
     let onTap: () -> Void
     let onAddToPlaylist: () -> Void
     let onToggleLike: () -> Void
@@ -114,28 +128,28 @@ struct RecommendationListRow: View {
                         Color.gray.opacity(0.3)
                     }
                 }
-                .frame(width: 48, height: 48)
+                .frame(width: thumbnailSize, height: thumbnailSize)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 
                 // Song info
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: nameFont, weight: .medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    
+
                     Text(item.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: secondaryFont))
                         .foregroundStyle(.gray)
                         .lineLimit(1)
                 }
-                
+
                 Spacer()
-                
+
                 // Duration (if available from year field)
                 if !item.year.isEmpty {
                     Text(item.year)
-                        .font(.system(size: 12))
+                        .font(.system(size: secondaryFont))
                         .foregroundStyle(.gray)
                 }
                 
@@ -148,7 +162,7 @@ struct RecommendationListRow: View {
                     onAddToQueue: onAddToQueue
                 )
             }
-            .frame(width: 280)
+            .frame(width: itemWidth)
             .padding(.vertical, 4)
         }
     }

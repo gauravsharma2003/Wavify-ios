@@ -20,9 +20,10 @@ struct LanguageChartsCarouselView: View {
     let onToggleLike: (SearchResult) -> Void
     let onPlayNext: (SearchResult) -> Void
     let onAddToQueue: (SearchResult) -> Void
-    
-    private let cardWidth: CGFloat = UIScreen.main.bounds.width * 0.85
+
+    @Environment(\.layoutContext) private var layout
     private let cardSpacing: CGFloat = 12
+    private var cardWidth: CGFloat { layout.carouselCardWidth }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -60,12 +61,13 @@ struct LanguageChartsCarouselView: View {
                             onPlayNext: onPlayNext,
                             onAddToQueue: onAddToQueue,
                             likedSongIds: likedSongIds,
-                            queueSongIds: queueSongIds
+                            queueSongIds: queueSongIds,
+                            cardWidth: cardWidth
                         )
                     }
                 }
                 .scrollTargetLayout()
-                .padding(.horizontal, (UIScreen.main.bounds.width - cardWidth) / 2)
+                .padding(.horizontal, charts.count == 1 ? (layout.containerWidth - cardWidth) / 2 : 16)
             }
             .scrollTargetBehavior(.viewAligned)
             .id(scrollResetId) // Reset scroll position on refresh

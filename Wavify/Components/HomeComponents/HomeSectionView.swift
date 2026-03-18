@@ -13,7 +13,9 @@ struct HomeSectionView: View {
     let namespace: Namespace.ID
     let refreshId: UUID // Force refresh after transition
     let onResultTap: (SearchResult) -> Void
-    
+
+    @Environment(\.layoutContext) private var layout
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
@@ -33,12 +35,15 @@ struct HomeSectionView: View {
             
             // Content
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
+                LazyHStack(spacing: layout.isRegularWidth ? 24 : 16) {
                     ForEach(section.items) { item in
                         ItemCard(
                             item: item,
                             namespace: namespace,
                             refreshId: refreshId,
+                            itemSize: layout.homeSectionItemSize,
+                            nameFont: layout.fontBody,
+                            artistFont: layout.fontCaption,
                             onTap: {
                                 onResultTap(item)
                             }
@@ -56,6 +61,9 @@ struct ItemCard: View {
     let item: SearchResult
     let namespace: Namespace.ID
     let refreshId: UUID // Force refresh after transition
+    var itemSize: CGFloat = 160
+    var nameFont: CGFloat = 14
+    var artistFont: CGFloat = 12
     let onTap: () -> Void
     
     // Helper to get high quality image
@@ -86,7 +94,7 @@ struct ItemCard: View {
                         Color.gray.opacity(0.3)
                     }
                 }
-                .frame(width: 160, height: 160)
+                .frame(width: itemSize, height: itemSize)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .id(refreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: (item.type == .album || item.type == .playlist) ? item.id : "non_hero_\(item.id)", in: namespace)
@@ -95,17 +103,17 @@ struct ItemCard: View {
                 // Text
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.name)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: nameFont, weight: .medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    
+
                     Text(item.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: artistFont))
                         .foregroundStyle(.gray)
                         .lineLimit(1)
                 }
             }
-            .frame(width: 160)
+            .frame(width: itemSize)
         }
         .buttonStyle(.plain)
     }

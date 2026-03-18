@@ -15,7 +15,9 @@ struct CategoryPlaylistCard: View {
     let namespace: Namespace.ID
     let onCardTap: () -> Void
     let onPlayTap: () -> Void
-    
+    var cardWidth: CGFloat = 320
+
+    @Environment(\.layoutContext) private var layout
     @Environment(\.modelContext) private var modelContext
     @State private var gradientColors: [Color] = [Color(red: 0.15, green: 0.1, blue: 0.2), Color(red: 0.1, green: 0.08, blue: 0.15), Color(white: 0.08)]
     @State private var isSaved: Bool = false
@@ -43,7 +45,7 @@ struct CategoryPlaylistCard: View {
                             }
                     }
                 }
-                .frame(width: 160, height: 160)
+                .frame(width: layout.thumbnailLarge, height: layout.thumbnailLarge)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .matchedTransitionSource(id: playlist.playlistId, in: namespace)
                 .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -52,7 +54,7 @@ struct CategoryPlaylistCard: View {
                 VStack(spacing: 4) {
                     // Playlist title - bigger font
                     Text(playlist.name)
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: layout.fontHeadline, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
@@ -61,7 +63,7 @@ struct CategoryPlaylistCard: View {
                     // Subtitle (artist/description) below title
                     if let subtitle = playlist.subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 14))
+                            .font(.system(size: layout.fontBody))
                             .foregroundStyle(.white.opacity(0.6))
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
@@ -79,13 +81,13 @@ struct CategoryPlaylistCard: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: isSaved ? "checkmark.circle.fill" : "plus")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: layout.fontButtonIcon, weight: .medium))
                             Text(isSaved ? "Saved" : "Save")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(isSaved ? .green : .white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
 
@@ -93,19 +95,19 @@ struct CategoryPlaylistCard: View {
                     Button(action: onPlayTap) {
                         HStack(spacing: 8) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: layout.fontButtonIcon, weight: .medium))
                             Text("Play")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: layout.fontButton, weight: .medium))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: layout.buttonHeight)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
                 }
             }
-            .padding(16)
-            .frame(width: UIScreen.main.bounds.width * 0.85, height: 340)
+            .padding(layout.isRegularWidth ? 24 : 16)
+            .frame(width: cardWidth, height: layout.categoryCardHeight)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(

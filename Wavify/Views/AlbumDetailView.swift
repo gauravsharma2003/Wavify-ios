@@ -22,6 +22,7 @@ struct AlbumDetailView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutContext) private var layout
     @Query private var savedPlaylists: [LocalPlaylist]
     
     @State private var albumDetail: AlbumDetail?
@@ -97,7 +98,7 @@ struct AlbumDetailView: View {
                                 .scaleEffect(1.2)
 
                             Text("Loading album...")
-                                .font(.system(size: 14))
+                                .font(.system(size: layout.fontCaption))
                                 .foregroundStyle(.tertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -113,7 +114,7 @@ struct AlbumDetailView: View {
                     }
                 }
                 .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
-                .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height - 420, alignment: .top)
+                .frame(maxWidth: .infinity, minHeight: max(UIScreen.main.bounds.height, 600) - layout.detailHeaderHeight, alignment: .top)
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
                         .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
@@ -190,7 +191,8 @@ struct AlbumDetailView: View {
     private var headerView: some View {
         GeometryReader { geometry in
             let minY = geometry.frame(in: .global).minY
-            let height = max(420, 420 + (minY > 0 ? minY : 0))
+            let headerH = layout.detailHeaderHeight
+            let height = max(headerH, headerH + (minY > 0 ? minY : 0))
             let offset = minY > 0 ? -minY : 0
 
             CachedAsyncImagePhase(url: URL(string: ImageUtils.thumbnailForPlayer(displayThumbnail))) { phase in
@@ -221,7 +223,7 @@ struct AlbumDetailView: View {
             }
             .offset(y: offset)
         }
-        .frame(height: 420)
+        .frame(height: layout.detailHeaderHeight)
     }
 
     private var albumInfo: some View {
@@ -232,14 +234,14 @@ struct AlbumDetailView: View {
                     showRenameAlert = true
                 } label: {
                     Text(displayName)
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: layout.fontHeadline, weight: .bold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                 }
             } else {
                 Text(displayName)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: layout.fontHeadline, weight: .bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -247,7 +249,7 @@ struct AlbumDetailView: View {
 
             if !displayArtist.isEmpty || !displayYear.isEmpty {
                 Text([displayArtist, displayYear].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.system(size: 14))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.white.opacity(0.7))
             }
         }
@@ -266,17 +268,16 @@ struct AlbumDetailView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButtonIcon, weight: .semibold))
                     Text("Play")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButton, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
-            .padding(.horizontal, 40)
-            
+
             // Shuffle & Save/Delete Buttons
             HStack(spacing: 16) {
                 // Shuffle Button
@@ -285,34 +286,35 @@ struct AlbumDetailView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "shuffle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                         Text("Shuffle")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: layout.buttonHeight)
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
-                
+
                 // Save/Delete Button
                 Button {
                     toggleSave()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: isSaved ? (showDelete ? "trash" : "checkmark") : "plus")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                         Text(isSaved ? (showDelete ? "Delete" : "Saved") : "Save")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontButton, weight: .medium))
                     }
                     .foregroundStyle(isSaved ? (showDelete ? .red : .green) : .white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: layout.buttonHeight)
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
             }
-            .padding(.horizontal, 40)
         }
+        .frame(maxWidth: layout.detailButtonMaxWidth)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - Song List
@@ -345,12 +347,19 @@ struct AlbumDetailView: View {
                     },
                     onRemoveFromPlaylist: isUserCreatedPlaylist ? {
                         removeSongFromPlaylist(song)
-                    } : nil
+                    } : nil,
+                    imageSize: layout.songRowImageSize,
+                    trackNumWidth: layout.trackNumberWidth,
+                    titleFont: layout.fontBody,
+                    artistFont: layout.fontCaption,
+                    menuIconSize: layout.fontButtonIcon,
+                    menuFrameSize: layout.isRegularWidth ? 32 : 24,
+                    rowPadding: layout.isRegularWidth ? 16 : 12
                 )
-                
+
                 if index < songs.count - 1 {
                     Divider()
-                        .padding(.leading, 50)
+                        .padding(.leading, layout.dividerLeading)
                         .opacity(0.3)
                 }
             }
@@ -365,18 +374,18 @@ struct AlbumDetailView: View {
         VStack(spacing: 24) {
             Spacer()
                 .frame(height: 40)
-            
+
             Image(systemName: "plus.circle")
-                .font(.system(size: 64))
+                .font(.system(size: layout.isRegularWidth ? 80 : 64))
                 .foregroundStyle(.secondary)
-            
+
             VStack(spacing: 8) {
                 Text("No songs yet")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: layout.fontHeadline, weight: .semibold))
                     .foregroundStyle(.primary)
-                
+
                 Text("Add songs to this playlist")
-                    .font(.system(size: 16))
+                    .font(.system(size: layout.fontBody))
                     .foregroundStyle(.secondary)
             }
             
@@ -391,15 +400,15 @@ struct AlbumDetailView: View {
     private var remoteEmptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "music.note.list")
-                .font(.system(size: 48))
+                .font(.system(size: layout.isRegularWidth ? 64 : 48))
                 .foregroundStyle(.white.opacity(0.4))
-            
+
             Text("No songs found")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: layout.fontBody, weight: .medium))
                 .foregroundStyle(.secondary)
-            
+
             Text("This album may be empty or unavailable")
-                .font(.system(size: 14))
+                .font(.system(size: layout.fontCaption))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
         }
@@ -554,6 +563,15 @@ struct AlbumSongRow: View {
     var isLiked: Bool = false
     var isInQueue: Bool = false
     var showImage: Bool = false
+
+    // Layout-driven sizes (iPhone defaults)
+    var imageSize: CGFloat = 48
+    var trackNumWidth: CGFloat = 28
+    var titleFont: CGFloat = 15
+    var artistFont: CGFloat = 13
+    var menuIconSize: CGFloat = 16
+    var menuFrameSize: CGFloat = 24
+    var rowPadding: CGFloat = 12
     
     // Legacy initializer for backward compatibility
     init(
@@ -593,7 +611,14 @@ struct AlbumSongRow: View {
         onToggleLike: (() -> Void)? = nil,
         onPlayNext: (() -> Void)? = nil,
         onAddToQueue: (() -> Void)? = nil,
-        onRemoveFromPlaylist: (() -> Void)? = nil
+        onRemoveFromPlaylist: (() -> Void)? = nil,
+        imageSize: CGFloat = 48,
+        trackNumWidth: CGFloat = 28,
+        titleFont: CGFloat = 15,
+        artistFont: CGFloat = 13,
+        menuIconSize: CGFloat = 16,
+        menuFrameSize: CGFloat = 24,
+        rowPadding: CGFloat = 12
     ) {
         self.index = index
         self.song = song
@@ -607,6 +632,13 @@ struct AlbumSongRow: View {
         self.onPlayNext = onPlayNext
         self.onAddToQueue = onAddToQueue
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
+        self.imageSize = imageSize
+        self.trackNumWidth = trackNumWidth
+        self.titleFont = titleFont
+        self.artistFont = artistFont
+        self.menuIconSize = menuIconSize
+        self.menuFrameSize = menuFrameSize
+        self.rowPadding = rowPadding
     }
     
     var body: some View {
@@ -623,37 +655,37 @@ struct AlbumSongRow: View {
                                 Rectangle().fill(Color.gray.opacity(0.3))
                             }
                         }
-                        .frame(width: 48, height: 48)
+                        .frame(width: imageSize, height: imageSize)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                        
+
                         // Playing overlay for image
                         if isPlaying {
                             ZStack {
                                 Color.black.opacity(0.4)
                                 Image(systemName: "waveform.low")
-                                    .font(.system(size: 20))
+                                    .font(.system(size: imageSize * 0.42))
                                     .foregroundStyle(.white)
                                     .symbolEffect(.variableColor.iterative)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                     }
-                    .frame(width: 48, height: 48)
+                    .frame(width: imageSize, height: imageSize)
                 } else {
                     // Standard Track Number / Waveform
                     ZStack {
                         if isPlaying {
                             Image(systemName: "waveform.low")
-                                .font(.system(size: 14))
+                                .font(.system(size: artistFont))
                                 .foregroundStyle(.white)
                                 .symbolEffect(.variableColor.iterative)
                         } else {
                             Text("\(index)")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: artistFont, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .frame(width: 28)
+                    .frame(width: trackNumWidth)
                 }
                 
                 // Song Title & Artist (if image shown, likely want artist too?)
@@ -661,13 +693,13 @@ struct AlbumSongRow: View {
                 // but here it's Artist Page so artist is implied.
                 VStack(alignment: .leading, spacing: 4) {
                     Text(song.title)
-                        .font(.system(size: 15))
+                        .font(.system(size: titleFont))
                         .foregroundStyle(isPlaying ? .white : .primary)
                         .lineLimit(1)
-                    
+
                     if showImage {
                         Text(song.artist)
-                            .font(.system(size: 13))
+                            .font(.system(size: artistFont))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -736,12 +768,12 @@ struct AlbumSongRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16))
+                        .font(.system(size: menuIconSize))
                         .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
+                        .frame(width: menuFrameSize, height: menuFrameSize)
                 }
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, rowPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

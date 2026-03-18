@@ -17,6 +17,7 @@ struct ArtistDetailView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     @State private var artistDetail: ArtistDetail?
     @State private var isLoading = true
     @State private var gradientColors: [Color] = [.black, Color(white: 0.05)]
@@ -62,7 +63,7 @@ struct ArtistDetailView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .frame(minHeight: UIScreen.main.bounds.height - 350)  // Subtract header height
+                .frame(minHeight: max(UIScreen.main.bounds.height, 600) - layout.artistHeaderHeight)  // Subtract header height
                 .background(
                     LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
                         .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
@@ -107,7 +108,8 @@ struct ArtistDetailView: View {
         GeometryReader { geometry in
             let minY = geometry.frame(in: .global).minY
             // Only stretch when pulling down (minY > 0)
-            let height = max(350, 350 + (minY > 0 ? minY : 0))
+            let headerH = layout.artistHeaderHeight
+            let height = max(headerH, headerH + (minY > 0 ? minY : 0))
             let offset = minY > 0 ? -minY : 0
             
             ZStack(alignment: .bottom) {
@@ -142,13 +144,13 @@ struct ArtistDetailView: View {
                 // Content Overlay (Name only) - no material, just text on gradient
                 VStack(alignment: .leading, spacing: 4) {
                     Text(artistDetail?.name ?? initialName)
-                        .font(.system(size: 32, weight: .bold))
+                        .font(.system(size: layout.fontLargeHeadline, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                    
+
                     if let subscribers = artistDetail?.subscribers, !subscribers.isEmpty, artistDetail?.isChannel != true {
                         Text("\(subscribers) • Listeners")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: layout.fontCaption, weight: .medium))
                             .foregroundStyle(.white.opacity(0.8))
                     }
                 }
@@ -157,7 +159,7 @@ struct ArtistDetailView: View {
             }
             .offset(y: offset)
         }
-        .frame(height: 350)
+        .frame(height: layout.artistHeaderHeight)
     }
     
     // MARK: - Action Buttons
@@ -169,31 +171,33 @@ struct ArtistDetailView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButtonIcon, weight: .semibold))
                     Text("Play")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButton, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
-            
+
             Button {
                 shuffleTopSongs()
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButtonIcon, weight: .semibold))
                     Text("Shuffle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: layout.fontButton, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .frame(height: layout.buttonHeight)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
         }
+        .frame(maxWidth: layout.detailButtonMaxWidth)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal)
     }
     
@@ -232,7 +236,7 @@ struct ArtistDetailView: View {
                                 .foregroundStyle(.primary)
                             
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: layout.fontButtonIcon, weight: .semibold))
                                 .foregroundStyle(.primary)
                         }
                     }
@@ -290,17 +294,17 @@ struct ArtistDetailView: View {
                                             Rectangle().fill(Color.gray.opacity(0.3))
                                         }
                                     }
-                                    .frame(width: 50, height: 50)
+                                    .frame(width: layout.songRowImageSize, height: layout.songRowImageSize)
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(item.title)
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(.system(size: layout.fontBody, weight: .medium))
                                             .foregroundStyle(.white)
                                             .lineLimit(1)
 
                                         Text(item.subtitle ?? "")
-                                            .font(.system(size: 12))
+                                            .font(.system(size: layout.fontCaption))
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                     }
@@ -340,10 +344,12 @@ struct ArtistDetailView: View {
                                     guard let videoId = item.videoId else { return }
                                     let song = Song(from: item, artist: artistDetail?.name ?? initialName)
                                     _ = audioPlayer.addToQueue(song)
-                                }
+                                },
+                                iconSize: layout.fontButtonIcon,
+                                frameSize: layout.isRegularWidth ? 32 : 24
                             )
                         }
-                        .padding(.vertical, 6)
+                        .padding(.vertical, layout.isRegularWidth ? 10 : 6)
                     }
                 }
             }
@@ -366,7 +372,7 @@ struct ArtistDetailView: View {
                 }
                 .padding(.horizontal)
             }
-            .frame(height: 200)
+            .frame(height: layout.artistCardSize + 60)
         } else {
             // Two rows for more items
             ScrollView(.horizontal, showsIndicators: false) {
@@ -380,7 +386,7 @@ struct ArtistDetailView: View {
                 }
                 .padding(.horizontal)
             }
-            .frame(height: 400)
+            .frame(height: (layout.artistCardSize + 60) * 2)
         }
     }
     
@@ -410,22 +416,22 @@ struct ArtistDetailView: View {
                         Color.gray.opacity(0.3)
                     }
                 }
-                .frame(width: 140, height: 140)
+                .frame(width: layout.artistCardSize, height: layout.artistCardSize)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .id(albumRefreshId) // Force recreate when returning from detail
                 .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
-                
+
                 Text(item.title)
-                    .font(.system(size: 14))
+                    .font(.system(size: layout.fontCardTitle))
                     .fontWeight(.medium)
                     .lineLimit(1)
-                    .frame(width: 140, alignment: .leading)
-                
+                    .frame(width: layout.artistCardSize, alignment: .leading)
+
                 Text(item.subtitle ?? "")
-                    .font(.system(size: 12))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 140, alignment: .leading)
+                    .frame(width: layout.artistCardSize, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
@@ -434,7 +440,7 @@ struct ArtistDetailView: View {
     // Similar Artists: Circular profiles
     private func similarArtistsList(_ items: [ArtistItem]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 20) {
+            HStack(spacing: layout.isRegularWidth ? 28 : 20) {
                 ForEach(items) { item in
                     NavigationLink {
                         if let browseId = item.browseId {
@@ -459,16 +465,16 @@ struct ArtistDetailView: View {
                                     Circle().fill(Color.gray.opacity(0.3))
                                 }
                             }
-                            .frame(width: 100, height: 100)
+                            .frame(width: layout.artistAvatarSize, height: layout.artistAvatarSize)
                             .clipShape(Circle())
                             .id(artistRefreshId) // Force recreate when returning from detail
                             .matchedTransitionSource(id: item.id, in: artistHeroAnimation)
-                            
+
                             Text(item.title)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: layout.fontCardTitle, weight: .medium))
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .frame(width: 100)
+                                .frame(width: layout.artistAvatarSize)
                         }
                     }
                     .buttonStyle(.plain)
@@ -749,7 +755,7 @@ private struct SwipeUpNextRow<Content: View>: View {
 
                     if value.translation.width < -threshold {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            offset = -UIScreen.main.bounds.width
+                            offset = -500
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                             onPlayNext()
