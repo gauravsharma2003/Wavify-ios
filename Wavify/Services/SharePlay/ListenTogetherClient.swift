@@ -2,8 +2,9 @@
 //  ListenTogetherClient.swift
 //  Wavify
 //
-//  WebSocket client for the Metrolist relay server.
+//  WebSocket client for the Listen Together relay server.
 //  Uses URLSessionWebSocketTask (built-in, no dependencies).
+//  Wire format: protobuf binary frames (LT_Envelope).
 //
 
 import Foundation
@@ -28,7 +29,7 @@ actor ListenTogetherClient {
 
     private(set) var state: ConnectionState = .disconnected
 
-    /// Called on every decoded message (type, raw payload Data).
+    /// Called on every decoded message (type, JSON-encoded payload Data).
     var onMessage: (@Sendable (String, Data) -> Void)?
 
     /// Called when connection state changes.
@@ -75,10 +76,18 @@ actor ListenTogetherClient {
         self.webSocketTask = task
         task.resume()
 
-        reconnectAttempts = 0
-        setState(.connected)
-        startReceiveLoop()
-        startPing()
+        // Verify the handshake completed via a WebSocket-level ping
+        task.sendPing { [weak self] error in
+            Task {
+                if let error {
+                    Logger.warning("WebSocket handshake failed: \(error.localizedDescription)", category: .sharePlay)
+                    await self?.handleDisconnect()
+                } else {
+                    await self?.onHandshakeConfirmed()
+                }
+            }
+        }
+
         startNetworkMonitor()
     }
 
@@ -96,20 +105,27 @@ actor ListenTogetherClient {
         setState(.disconnected)
     }
 
-    // MARK: - Send
+    // MARK: - Handshake Confirmed
 
-    /// Send a message with a typed payload (becomes nested JSON in the envelope).
+    private func onHandshakeConfirmed() {
+        reconnectAttempts = 0
+        setState(.connected)
+        startReceiveLoop()
+        startPing()
+    }
+
+    // MARK: - Send (Protobuf Binary)
+
+    /// Send a message with a typed payload, encoded as protobuf binary.
     func send<T: Encodable>(type: String, payload: T) async throws {
         guard let task = webSocketTask else {
             throw URLError(.notConnectedToInternet)
         }
 
-        let payloadData = try JSONEncoder().encode(payload)
-        let payloadWrapper = AnyCodablePayload(payloadData)
-        let envelope = WSEnvelope(type: type, payload: payloadWrapper)
-        let data = try JSONEncoder().encode(envelope)
-        let string = String(data: data, encoding: .utf8) ?? "{}"
-        try await task.send(.string(string))
+        let jsonData = try JSONEncoder().encode(payload)
+        let protoMsg = ProtoMapping.toProto(type: type, jsonPayload: jsonData)
+        let wireData = try ProtobufCodec.encode(type: type, payload: protoMsg)
+        try await task.send(.data(wireData))
     }
 
     /// Send a message with no payload (e.g., ping, leave_room, request_sync).
@@ -118,10 +134,8 @@ actor ListenTogetherClient {
             throw URLError(.notConnectedToInternet)
         }
 
-        let envelope = WSEnvelope(type: type, payload: nil)
-        let data = try JSONEncoder().encode(envelope)
-        let string = String(data: data, encoding: .utf8) ?? "{}"
-        try await task.send(.string(string))
+        let wireData = try ProtobufCodec.encode(type: type, payload: nil)
+        try await task.send(.data(wireData))
     }
 
     // MARK: - Receive Loop
@@ -153,14 +167,13 @@ actor ListenTogetherClient {
             return
         }
 
-        // Decode the envelope to get type + inner payload Data
-        guard let envelope = try? JSONDecoder().decode(WSEnvelope.self, from: data) else {
-            Logger.warning("Failed to decode WS envelope", category: .sharePlay)
-            return
+        do {
+            let (type, protoPayload) = try ProtobufCodec.decode(data: data)
+            let jsonPayload = ProtoMapping.toJSON(type: type, protoPayload: protoPayload)
+            onMessage?(type, jsonPayload)
+        } catch {
+            Logger.warning("Failed to decode protobuf envelope: \(error.localizedDescription)", category: .sharePlay)
         }
-
-        let payloadData = envelope.payload?.data ?? Data("{}".utf8)
-        onMessage?(envelope.type, payloadData)
     }
 
     // MARK: - Ping
@@ -171,7 +184,6 @@ actor ListenTogetherClient {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(25 * 1_000_000_000))
                 guard !Task.isCancelled else { break }
-                // Server ping has no payload
                 try? await self?.send(type: "ping")
             }
         }
@@ -224,16 +236,20 @@ actor ListenTogetherClient {
         self.webSocketTask = task
         task.resume()
 
-        reconnectAttempts = 0
-        setState(.connected)
-        startReceiveLoop()
-        startPing()
-
-        // If we have persisted session data, send a reconnect message
-        if let token = persistedToken {
-            let payload = ReconnectPayload(sessionToken: token)
+        // Verify handshake before declaring connected (backoff counter NOT reset here)
+        task.sendPing { [weak self] error in
             Task {
-                try? await send(type: "reconnect", payload: payload)
+                if let error {
+                    Logger.warning("Reconnect handshake failed: \(error.localizedDescription)", category: .sharePlay)
+                    await self?.handleDisconnect()
+                } else {
+                    await self?.onHandshakeConfirmed()
+                    // If we have persisted session data, send a reconnect message
+                    if let token = await self?.persistedToken {
+                        let payload = ReconnectPayload(sessionToken: token)
+                        try? await self?.send(type: "reconnect", payload: payload)
+                    }
+                }
             }
         }
     }

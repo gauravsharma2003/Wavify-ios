@@ -69,6 +69,8 @@ class PlaybackService {
     
     /// Pending seek position to apply when player is ready (for session resume)
     private var pendingSeekTime: Double?
+    /// Gates time observer updates until pending seek is applied
+    private var isSeekPending: Bool = false
     
     // Callbacks for coordinator
     var onPlayPauseChanged: ((Bool) -> Void)?
@@ -146,6 +148,7 @@ class PlaybackService {
         // Set duration from API before player reports
         duration = expectedDuration
         pendingSeekTime = seekTo
+        isSeekPending = seekTo != nil && seekTo! > 0
 
         if let headers = headers {
             let options = ["AVURLAssetHTTPHeaderFieldsKey": headers]
@@ -175,6 +178,10 @@ class PlaybackService {
                         await self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
                         self.currentTime = seekTime
                         self.pendingSeekTime = nil
+                        self.isSeekPending = false
+                        self.onTimeUpdated?(seekTime)
+                    } else {
+                        self.isSeekPending = false
                     }
 
                     // Check current AirPlay state BEFORE onReady so AudioPlayer
@@ -545,6 +552,8 @@ class PlaybackService {
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
+                // Don't propagate time updates until pending seek is applied
+                guard !self.isSeekPending else { return }
                 let seconds = time.seconds.isNaN ? 0 : time.seconds
                 self.currentTime = min(seconds, self.duration)
 
@@ -665,6 +674,7 @@ class PlaybackService {
         player = nil
         playerItem = nil
         currentTime = 0
+        isSeekPending = false
 
         cachedArtwork = nil
         cachedSongId = nil

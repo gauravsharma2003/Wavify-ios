@@ -29,7 +29,9 @@
       "Bash(security find-internet-password:*)",
       "Bash(ls /Users/Gaurav.Sharma4/Desktop/Screenshot*.heic)",
       "Bash(ls:*)",
-      "Bash(sips:*)"
+      "Bash(sips:*)",
+      "Bash(protoc --version)",
+      "Bash(protoc-gen-swift --version)"
     ]
   }
 }

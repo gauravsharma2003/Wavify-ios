@@ -10,19 +10,11 @@
 		DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */; };
 		DA7930992F1E05A100CE1CFB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930982F1E05A100CE1CFB /* WidgetKit.framework */; };
 		DA79309B2F1E05A100CE1CFB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA79309A2F1E05A100CE1CFB /* SwiftUI.framework */; };
-		DA7930AC2F1E05A300CE1CFB /* widgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA7930972F1E05A100CE1CFB /* widgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA7930B32F1E103D00CE1CFB /* GroupActivities.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */; };
 		DA7930B42F1E105200CE1CFB /* GroupActivities.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		DA7930AA2F1E05A300CE1CFB /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DAC714D22F03FCB200B08888 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DA7930962F1E05A100CE1CFB;
-			remoteInfo = widgetExtension;
-		};
 		DAC714E82F03FCB400B08888 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DAC714D22F03FCB200B08888 /* Project object */;
@@ -38,20 +30,6 @@
 			remoteInfo = Wavify;
 		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		DA7930B12F1E05A300CE1CFB /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				DA7930AC2F1E05A300CE1CFB /* widgetExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		DA038AC32F1FEB0C004EE11B /* widgetExtensionDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = widgetExtensionDebug.entitlements; sourceTree = "<group>"; };
@@ -225,6 +203,7 @@
 			);
 			name = Wavify;
 			packageProductDependencies = (
+				DA0000012F6C000000000002 /* SwiftProtobuf */,
 			);
 			productName = Wavify;
 			productReference = DAC714DA2F03FCB200B08888 /* Wavify.app */;
@@ -312,6 +291,7 @@
 			mainGroup = DAC714D12F03FCB200B08888;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				DA0000012F6C000000000001 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DAC714DB2F03FCB200B08888 /* Products */;
@@ -389,11 +369,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		DA7930AB2F1E05A300CE1CFB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DA7930962F1E05A100CE1CFB /* widgetExtension */;
-			targetProxy = DA7930AA2F1E05A300CE1CFB /* PBXContainerItemProxy */;
-		};
 		DAC714E92F03FCB400B08888 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DAC714D92F03FCB200B08888 /* Wavify */;
@@ -789,6 +764,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DA0000012F6C000000000001 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.36.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DA0000012F6C000000000002 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000012F6C000000000001 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DAC714D22F03FCB200B08888 /* Project object */;
 }
