@@ -20,6 +20,7 @@ struct ArtistItemsGridView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     
     @State private var items: [ArtistItem] = []
     @State private var isLoading = true
@@ -53,7 +54,7 @@ struct ArtistItemsGridView: View {
             } else if items.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "music.note.list")
-                        .font(.system(size: 48))
+                        .font(.system(size: layout.isRegularWidth ? 64 : 48))
                         .foregroundStyle(.secondary)
                     Text("No \(title.lowercased()) available")
                         .font(.headline)
@@ -61,7 +62,7 @@ struct ArtistItemsGridView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: layout.artistCardSize), spacing: 16)], spacing: 16) {
                         ForEach(items) { item in
                             itemView(for: item)
                         }
@@ -157,7 +158,8 @@ struct ArtistItemsGridView: View {
                         Rectangle().fill(Color.gray.opacity(0.3))
                     }
                 }
-                .frame(width: 160, height: isVideo ? 90 : 160)  // 16:9 for videos
+                .frame(maxWidth: .infinity)
+                .aspectRatio(isVideo ? 16.0/9.0 : 1.0, contentMode: .fill)  // 16:9 for videos, square for albums
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
@@ -177,12 +179,12 @@ struct ArtistItemsGridView: View {
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: layout.fontCardTitle, weight: .medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                
+
                 Text(item.subtitle ?? "")
-                    .font(.system(size: 12))
+                    .font(.system(size: layout.fontCaption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }

@@ -15,6 +15,7 @@ struct ArtistTopSongsView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.layoutContext) private var layout
     
     @State private var songs: [Song] = []
     @State private var isLoading = true
@@ -62,12 +63,18 @@ struct ArtistTopSongsView: View {
                                 },
                                 onToggleLike: {
                                     toggleLikeSong(song)
-                                }
+                                },
+                                imageSize: layout.songRowImageSize,
+                                titleFont: layout.fontBody,
+                                artistFont: layout.fontCaption,
+                                menuIconSize: layout.fontButtonIcon,
+                                menuFrameSize: layout.isRegularWidth ? 32 : 24,
+                                rowPadding: layout.isRegularWidth ? 16 : 12
                             )
 
                             if index < songs.count - 1 {
                                 Divider()
-                                    .padding(.leading, 72) // Increased padding for image
+                                    .padding(.leading, layout.songRowImageSize + 20)
                                     .opacity(0.3)
                             }
                         }
