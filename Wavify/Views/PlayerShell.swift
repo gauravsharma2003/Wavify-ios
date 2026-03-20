@@ -57,8 +57,6 @@ struct PlayerShell: View {
     @State private var displayedProgress: Double = 0
     @State private var isProgressTransitioning: Bool = false
     @State private var lastMiniSongId: String = ""
-    @State private var lastSyncTime: Double = 0
-    @State private var lastSyncDate: Date = Date()
 
     // Interactive drag state
     @State private var dragStartExpansion: CGFloat = 0
@@ -236,16 +234,10 @@ struct PlayerShell: View {
             showLyrics = false
             lyricsState = .idle
         }
-        .onChange(of: audioPlayer.currentTime) { _, newValue in
-            lastSyncTime = newValue
-            lastSyncDate = Date()
-        }
         .onAppear {
             if let id = audioPlayer.currentSong?.id {
                 lastMiniSongId = id
                 displayedProgress = actualProgress
-                lastSyncTime = audioPlayer.currentTime
-                lastSyncDate = Date()
                 extractColorsFromArtwork()
                 checkLikeStatus()
             }
@@ -460,31 +452,12 @@ struct PlayerShell: View {
                         .stroke(Color.white.opacity(0.15), lineWidth: 3)
                         .frame(width: miniRingSize, height: miniRingSize)
 
-                    TimelineView(.animation(minimumInterval: nil, paused: !audioPlayer.isPlaying)) { timeline in
-                        let smoothProgress: Double = {
-                            guard !isProgressTransitioning else { return displayedProgress }
-                            guard audioPlayer.duration > 0 else { return 0 }
-                            if audioPlayer.isPlaying {
-                                let elapsed = timeline.date.timeIntervalSince(lastSyncDate)
-                                let predicted = lastSyncTime + elapsed
-                                return min(1.0, max(0.0, predicted / audioPlayer.duration))
-                            } else {
-                                return min(1.0, max(0.0, audioPlayer.currentTime / audioPlayer.duration))
-                            }
-                        }()
-                        Circle()
-                            .trim(from: 0, to: smoothProgress)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.9), .white.opacity(0.6)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                            )
-                            .frame(width: miniRingSize, height: miniRingSize)
-                            .rotationEffect(.degrees(-90))
-                    }
+                    MiniProgressRing(
+                        audioPlayer: audioPlayer,
+                        ringSize: miniRingSize,
+                        displayedProgress: displayedProgress,
+                        isProgressTransitioning: isProgressTransitioning
+                    )
 
                     ProgressiveAlbumArt(
                         lowQualityUrl: song.thumbnailUrl,
@@ -1122,6 +1095,54 @@ struct PlayerShell: View {
                         .foregroundStyle(.white)
                         .frame(width: controlTapSize, height: controlTapSize)
                 }
+            }
+        }
+    }
+
+    // MARK: - Mini Progress Ring (isolated to avoid invalidating parent)
+
+    private struct MiniProgressRing: View {
+        let audioPlayer: AudioPlayer
+        let ringSize: CGFloat
+        let displayedProgress: Double
+        let isProgressTransitioning: Bool
+
+        @State private var lastSyncTime: Double = 0
+        @State private var lastSyncDate: Date = Date()
+
+        var body: some View {
+            TimelineView(.animation(minimumInterval: 1.0/10, paused: !audioPlayer.isPlaying)) { timeline in
+                let smoothProgress: Double = {
+                    guard !isProgressTransitioning else { return displayedProgress }
+                    guard audioPlayer.duration > 0 else { return 0 }
+                    if audioPlayer.isPlaying {
+                        let elapsed = timeline.date.timeIntervalSince(lastSyncDate)
+                        let predicted = lastSyncTime + elapsed
+                        return min(1.0, max(0.0, predicted / audioPlayer.duration))
+                    } else {
+                        return min(1.0, max(0.0, audioPlayer.currentTime / audioPlayer.duration))
+                    }
+                }()
+                Circle()
+                    .trim(from: 0, to: smoothProgress)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.9), .white.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .frame(width: ringSize, height: ringSize)
+                    .rotationEffect(.degrees(-90))
+            }
+            .onChange(of: audioPlayer.currentTime) { _, newValue in
+                lastSyncTime = newValue
+                lastSyncDate = Date()
+            }
+            .onAppear {
+                lastSyncTime = audioPlayer.currentTime
+                lastSyncDate = Date()
             }
         }
     }

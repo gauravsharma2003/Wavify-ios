@@ -38,29 +38,29 @@ enum EqualizerPreset: String, Codable, CaseIterable, Identifiable {
     
     /// Pre-configured gain values for 10-band EQ (in dB, range -12 to +12)
     /// Frequencies: 32Hz, 64Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
-    /// Note: Values kept very conservative (max ±4dB) for clean, distortion-free audio
+    /// Gain compensation in AudioEngineService prevents clipping; presets can be bold
     var bandGains: [Float] {
         switch self {
         case .flat:
             return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         case .megaBass:
-            // Deep bass boost, balanced mids and highs
-            return [4, 3.5, 3, 2, 0, 0, 0, 0.5, 1, 1]
+            // Deep bass boost with mid scoop — post-filtered bass enhancement
+            return [7, 6, 4, 0.5, -1, -0.5, 0.5, 1, 2, 2]
         case .pop:
-            // V-shaped: gentle bass and treble lift, slight mid scoop
-            return [2, 1.5, 1, 0, -0.5, -0.5, 0, 1.5, 2, 2]
+            // V-shaped: punchy bass and sparkling treble, deeper mid scoop
+            return [3.5, 2.5, 1, -1, -1.5, -0.5, 0.5, 3, 3.5, 3.5]
         case .jazz:
-            // Warm and smooth with slight sparkle
-            return [1.5, 1.5, 1, 0.5, 0, 0.5, 1, 1.5, 1, 0.5]
+            // Warm and smooth with subtle sparkle
+            return [2.5, 2.5, 2, 0.5, 0, 0.5, 1.5, 2.5, 2, 1.5]
         case .rock:
-            // Punchy with forward presence
-            return [3, 2.5, 2, 1, 0, 0.5, 1.5, 1.5, 1, 0.5]
+            // Punchy with forward presence and deeper foundation
+            return [5, 4, 3.5, 2, -0.5, 0.5, 2.5, 3, 2.5, 1.5]
         case .classical:
-            // Natural with subtle high-end air
-            return [0, 0, 0, 0, 0, 0, 0, 0.5, 1, 1]
+            // Natural with high-end air and subtle warmth
+            return [1, 0.5, 0, 0, 0, 0, 0.5, 1.5, 2, 2.5]
         case .hiphop:
-            // Deep bass with clear vocals
-            return [4, 3, 2, 0.5, 0, 0, 0.5, 1, 1.5, 1.5]
+            // Deep bass with clear vocals and crisp highs
+            return [7, 6, 3.5, 0, -1, -0.5, 1, 2.5, 3, 2.5]
         case .custom:
             return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }

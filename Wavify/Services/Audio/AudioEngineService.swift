@@ -5,7 +5,7 @@
 //  Manages the AVAudioEngine graph for high-fidelity audio processing.
 //  Receives audio from CircularBuffer and applies:
 //  1. Parametric EQ (10-band, mapped from UI)
-//  2. Parallel Bass Enhancement (Psychoacoustic)
+//  2. Parallel Bass Enhancement (Psychoacoustic: EQ → Distortion → Post-Filter)
 //  3. Compression
 //  4. Limiting
 //
@@ -117,6 +117,7 @@ class AudioEngineService: ObservableObject {
     // Parallel Bass path
     private let bassEQ = AVAudioUnitEQ(numberOfBands: 2)
     private let bassDistortion = AVAudioUnitDistortion()
+    private let bassPostEQ = AVAudioUnitEQ(numberOfBands: 3)
     private let bassMixer = AVAudioMixerNode()
 
     // Dynamics
@@ -264,6 +265,7 @@ class AudioEngineService: ObservableObject {
         engine.attach(mainEQ)
         engine.attach(bassEQ)
         engine.attach(bassDistortion)
+        engine.attach(bassPostEQ)
         engine.attach(bassMixer)
         engine.attach(compressor)
         engine.attach(limiter)
@@ -352,9 +354,10 @@ class AudioEngineService: ObservableObject {
         ]
         engine.connect(inputMixer, to: points, fromBus: 0, format: outputFormat)
 
-        // Parallel Bass Chain
+        // Parallel Bass Chain (with post-distortion filtering)
         engine.connect(bassEQ, to: bassDistortion, format: outputFormat)
-        engine.connect(bassDistortion, to: bassMixer, format: outputFormat)
+        engine.connect(bassDistortion, to: bassPostEQ, format: outputFormat)
+        engine.connect(bassPostEQ, to: bassMixer, format: outputFormat)
 
         // Main Chain
         engine.connect(mainEQ, to: mainMixer, format: outputFormat)
@@ -406,36 +409,59 @@ class AudioEngineService: ObservableObject {
         }
 
         // --- 2. Bass Path Setup ---
-        // Band 0: Low Pass to isolate bass (cutoff 120Hz)
+        // Band 0: Low Pass to isolate bass — 160Hz captures midbass punch zone (100-150Hz)
         bassEQ.bands[0].filterType = .lowPass
-        bassEQ.bands[0].frequency = 120
+        bassEQ.bands[0].frequency = 160
         bassEQ.bands[0].bypass = false
 
-        // Band 1: Boost for harmonics input
-        bassEQ.bands[1].filterType = .lowShelf
-        bassEQ.bands[1].frequency = 60
-        bassEQ.bands[1].gain = 0 // Adaptive/Preset will control this
+        // Band 1: Focused sub-bass drive for harmonic generation
+        // Parametric peak at 55Hz targets sub-bass fundamental more precisely than a broad shelf
+        bassEQ.bands[1].filterType = .parametric
+        bassEQ.bands[1].frequency = 55
+        bassEQ.bands[1].bandwidth = 0.9
+        bassEQ.bands[1].gain = 0     // Adaptive — controlled by updateSettings()
         bassEQ.bands[1].bypass = false
 
         // Harmonic Generation (Distortion)
-        bassDistortion.loadFactoryPreset(.multiCellphoneConcert)
-        bassDistortion.preGain = -6
-        bassDistortion.wetDryMix = 20
+        bassDistortion.loadFactoryPreset(.multiDistortedFunk)
+        bassDistortion.preGain = -6    // More drive — post-filter cleans up artifacts
+        bassDistortion.wetDryMix = 22  // 22% wet — clearly audible, post-filter prevents muddiness
 
-        // --- 3. Compressor (Vocal Protection) ---
-        compressor.threshold = -18
-        compressor.headRoom = 6
+        // --- 2b. Post-Distortion Bass Cleanup ---
+        // Band 0: Subsonic highpass — removes DC offset and rumble from distortion
+        bassPostEQ.bands[0].filterType = .highPass
+        bassPostEQ.bands[0].frequency = 28
+        bassPostEQ.bands[0].bypass = false
+
+        // Band 1: Lowpass — removes ALL mid/high harmonics from distortion output.
+        // This is the key fix: prevents distortion artifacts from muddying vocals (500Hz-3kHz).
+        // Pro bass enhancers (MaxxBass, R-Bass) always lowpass after harmonic generation.
+        bassPostEQ.bands[1].filterType = .lowPass
+        bassPostEQ.bands[1].frequency = 220
+        bassPostEQ.bands[1].bypass = false
+
+        // Band 2: Parametric peak — emphasizes bass "body" after harmonics are generated
+        bassPostEQ.bands[2].filterType = .parametric
+        bassPostEQ.bands[2].frequency = 90
+        bassPostEQ.bands[2].bandwidth = 0.8
+        bassPostEQ.bands[2].gain = 2.0
+        bassPostEQ.bands[2].bypass = false
+
+        // --- 3. Compressor (Transparent Dynamics) ---
+        // Source is mastered (~-14 to -8 LUFS); threshold -10 = safety net only
+        compressor.threshold = -10
+        compressor.headRoom = 10       // ~1.5:1 ratio — very transparent
         compressor.expansionRatio = 1
-        compressor.attackTime = 0.002
-        compressor.releaseTime = 0.08
-        compressor.masterGain = 0
+        compressor.attackTime = 0.012  // 12ms lets transients punch through
+        compressor.releaseTime = 0.2   // 200ms smooth recovery, no audible pumping
+        compressor.masterGain = 2      // Makeup gain so compression isn't perceived as volume loss
 
-        // --- 4. Limiter (Safety) ---
-        limiter.threshold = -2.0
-        limiter.headRoom = 1.0
+        // --- 4. Limiter (Brick-wall clip prevention only) ---
+        limiter.threshold = -0.5   // Just below 0dBFS — catches true clips only
+        limiter.headRoom = 0.3     // Tight ceiling
         limiter.expansionRatio = 1
         limiter.attackTime = 0.001
-        limiter.releaseTime = 0.05
+        limiter.releaseTime = 0.1  // Smoother recovery
         limiter.masterGain = 0
 
         // --- 5. Mix Levels ---
@@ -662,37 +688,32 @@ class AudioEngineService: ObservableObject {
         guard settings.isEnabled else {
             // Bypass all
             for band in mainEQ.bands { band.gain = 0 }
+            mainEQ.globalGain = 0
             bassMixer.outputVolume = 0
+            bassPostEQ.bands[2].gain = 2.0  // Reset body emphasis to default
             return
         }
 
         // 1. Apply UI gains to Main EQ
-        // Safely map up to available bands
         for (i, bandSetting) in settings.bands.enumerated() {
             guard i < mainEQ.bands.count else { break }
             mainEQ.bands[i].gain = bandSetting.gain
         }
 
-        // 2. Intelligent Bass Processing
-        // Analyze low end gains (32Hz, 64Hz, 125Hz)
+        // 2. Frequency-Weighted Gain Compensation
+        // Bass below 200Hz has less perceived loudness than mids/highs (Fletcher-Munson).
+        // Weight bass bands at 0.25 and mid/high at 0.5 to avoid over-compensating bass.
+        let bassGainSum = settings.bands[0...2].map { $0.gain }.filter { $0 > 0 }.reduce(Float(0), +)
+        let midHighGainSum = settings.bands[3...9].map { $0.gain }.filter { $0 > 0 }.reduce(Float(0), +)
+        mainEQ.globalGain = -(bassGainSum * 0.25 + midHighGainSum * 0.5)
+
+        // 3. Parallel Bass Enhancement
+        // Smooth scaling with wider range — post-filter makes higher mix levels safe
         let lowEndGain = (settings.bands[0].gain + settings.bands[1].gain) / 2.0
-
-        if lowEndGain > 3.0 || settings.selectedPreset == .megaBass {
-            // High bass requested -> Engage Parallel Bass
-            bassMixer.outputVolume = 0.25 // 25% mix
-            bassEQ.bands[1].gain = 6.0 // Drive harmonics
-
-            // Compensate Main EQ to avoid mud (don't double boost)
-            // If user asked for +4dB, the parallel path adds perceived bass.
-            // We can slightly reduce the direct low shelf to keep it clean.
-             mainEQ.bands[0].gain = min(mainEQ.bands[0].gain, 4.0) // Cap main bass boost
-        } else {
-            // Normal bass
-            bassMixer.outputVolume = 0.05 // Subtle warmth
-            bassEQ.bands[1].gain = 0
-        }
-
-
+        let bassScale = max(Float(0), min(Float(1), (lowEndGain - 0.5) / 8.0))
+        bassMixer.outputVolume = 0.03 + bassScale * 0.32        // 0.03→0.35 parallel mix
+        bassEQ.bands[1].gain = bassScale * 5.0                   // 0→5dB harmonic drive
+        bassPostEQ.bands[2].gain = 1.0 + bassScale * 2.5         // 1→3.5dB dynamic body emphasis
     }
 
     // MARK: - Adaptive Bass Logic
