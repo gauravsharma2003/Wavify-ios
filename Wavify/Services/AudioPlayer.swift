@@ -870,7 +870,7 @@ class AudioPlayer {
 
         // Cancel crossfade if user seeks backward past the trigger point
         let remaining = duration - time
-        if remaining > 20, crossfadeEngine?.isActive == true, crossfadeEngine?.isFading == false {
+        if remaining > 20, crossfadeEngine?.isActive == true {
             crossfadeEngine?.cancelCrossfade()
         }
     }

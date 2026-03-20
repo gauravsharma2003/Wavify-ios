@@ -131,6 +131,13 @@ final class CrossfadeEngine {
 
         let remaining = duration - currentTime
 
+        // Cancel crossfade if position moved back outside the crossfade zone (e.g. after seek/previous)
+        if remaining > preloadLeadTime && state != .idle {
+            Logger.log("Crossfade: position outside crossfade zone (\(String(format: "%.1f", remaining))s remaining), cancelling", category: .playback)
+            cancelCrossfade()
+            return
+        }
+
         // Trigger preload at preloadLeadTime before end
         if remaining <= preloadLeadTime && !hasTriggeredPreload && state == .idle {
             hasTriggeredPreload = true
