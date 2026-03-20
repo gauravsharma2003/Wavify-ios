@@ -134,10 +134,21 @@ struct AlbumDetailView: View {
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
             scrollOffset = value
         }
+        .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
+        .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(displayName)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .opacity(scrollOffset < -(layout.detailHeaderHeight - 90) ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: scrollOffset < -(layout.detailHeaderHeight - 90))
+            }
+        }
         .task {
             if let albumId = albumId {
                 await loadAlbumDetails(albumId: albumId)

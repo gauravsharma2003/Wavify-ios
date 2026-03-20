@@ -31,7 +31,8 @@
       "Bash(ls:*)",
       "Bash(sips:*)",
       "Bash(protoc --version)",
-      "Bash(protoc-gen-swift --version)"
+      "Bash(protoc-gen-swift --version)",
+      "Bash(xcrun simctl:*)"
     ]
   }
 }

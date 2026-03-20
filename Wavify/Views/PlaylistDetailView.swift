@@ -22,6 +22,7 @@ struct PlaylistDetailView: View {
     @State private var isLoading = true
     @State private var gradientColors: [Color] = [Color(white: 0.1), Color(white: 0.05)]
     @State private var isSaved = false
+    @State private var scrollOffset: CGFloat = 0
     
     // Add to playlist state
     @State private var selectedSongForPlaylist: Song?
@@ -87,28 +88,37 @@ struct PlaylistDetailView: View {
             }
             .padding(.top, 20)
             .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(
+                            key: ScrollOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("scroll")).minY
+                        )
+                }
+            )
         }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+            scrollOffset = value
+        }
+        .scrollEdgeEffectStyle(nil, for: .top)
         .background(
             LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
         )
-        .overlay(alignment: .top) {
-            // Gradient blur at top
-            LinearGradient(
-                stops: [
-                    .init(color: (gradientColors.first ?? .black).opacity(0.9), location: 0),
-                    .init(color: (gradientColors.first ?? .black).opacity(0.6), location: 0.5),
-                    .init(color: .clear, location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 120)
-            .allowsHitTesting(false)
-            .ignoresSafeArea()
-        }
+        .navigationTitle(initialName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(initialName)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .opacity(scrollOffset < -(layout.detailArtworkSize + 20) ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: scrollOffset < -(layout.detailArtworkSize + 20))
+            }
+        }
         .task {
             await loadPlaylist()
             await extractColors()

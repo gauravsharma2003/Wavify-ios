@@ -83,10 +83,21 @@ struct ArtistDetailView: View {
         .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
             scrollOffset = value
         }
+        .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
+        .navigationTitle(initialName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(artistDetail?.name ?? initialName)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .opacity(scrollOffset < -(layout.artistHeaderHeight - 150) ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: scrollOffset < -(layout.artistHeaderHeight - 150))
+            }
+        }
         .task(id: artistId) {
             // Only load if we don't already have data for this artist
             guard artistDetail == nil || artistDetail?.name != initialName else { return }
