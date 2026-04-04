@@ -1354,10 +1354,11 @@ struct QueueView: View {
             .listStyle(.plain)
             .listRowSpacing(0)
             .scrollContentBackground(.hidden)
-            .background(Color(white: 0.06).ignoresSafeArea())
+            .background(.clear)
             .environment(\.editMode, .constant(.active))
             .navigationTitle("Up Next")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
     }
 
@@ -1466,7 +1467,7 @@ private struct SwipeableQueueRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(white: 0.06))
+            .background(.clear)
             .offset(x: offset)
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
@@ -1567,7 +1568,7 @@ private struct CrossfadeIndicatorRow: View {
             .padding(.vertical, 6)
             .background {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(white: 0.06)) // opaque base hides pipe behind box
+                    .fill(Color.white.opacity(0.06)) // translucent base for glass effect
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color.white.opacity(isActive ? 0.12 : 0.06))
