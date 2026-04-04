@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA4DCE1A2F06FBED00721B11 /* BackgroundTasks.framework */; };
+		DA5C9BB42F81AE2400A015E9 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = DA0000012F6C000000000002 /* SwiftProtobuf */; };
 		DA7930992F1E05A100CE1CFB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930982F1E05A100CE1CFB /* WidgetKit.framework */; };
 		DA79309B2F1E05A100CE1CFB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA79309A2F1E05A100CE1CFB /* SwiftUI.framework */; };
 		DA7930B32F1E103D00CE1CFB /* GroupActivities.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA7930B22F1E103D00CE1CFB /* GroupActivities.framework */; };
@@ -104,6 +105,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA5C9BB42F81AE2400A015E9 /* SwiftProtobuf in Frameworks */,
 				DA4DCE1E2F0722F300721B11 /* BackgroundTasks.framework in Frameworks */,
 				DA7930B42F1E105200CE1CFB /* GroupActivities.framework in Frameworks */,
 			);

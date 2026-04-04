@@ -87,9 +87,6 @@ struct ArtistDetailView: View {
         .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .overlay(alignment: .topLeading) {
             Button {
                 dismiss()
@@ -103,6 +100,9 @@ struct ArtistDetailView: View {
             .padding(.leading, 12)
             .padding(.top, 10)
         }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: artistId) {
             // Only load if we don't already have data for this artist
             guard artistDetail == nil || artistDetail?.name != initialName else { return }

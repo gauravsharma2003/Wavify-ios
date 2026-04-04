@@ -103,6 +103,27 @@ struct LyricBlurModifier: ViewModifier {
     }
 }
 
+// MARK: - Bloom Glow Modifier (Apple Music-style self-illumination)
+
+struct BloomGlowModifier: ViewModifier {
+    let radius: CGFloat
+    let intensity: Double
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            ZStack {
+                content
+                    .blur(radius: radius)
+                    .opacity(intensity)
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - View Extensions
 
 extension View {
@@ -119,6 +140,11 @@ extension View {
     /// Apply lyric-specific blur based on offset from current line
     func lyricBlur(offsetFromCurrent: Int) -> some View {
         modifier(LyricBlurModifier(offsetFromCurrent: offsetFromCurrent))
+    }
+
+    /// Apple Music-style bloom glow (blurred copy behind sharp text)
+    func bloomGlow(radius: CGFloat = 8, intensity: Double = 0.35, isActive: Bool = true) -> some View {
+        modifier(BloomGlowModifier(radius: radius, intensity: intensity, isActive: isActive))
     }
 }
 

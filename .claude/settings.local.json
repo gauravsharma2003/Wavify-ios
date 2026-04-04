@@ -42,7 +42,8 @@
       "Bash(/usr/local/bin/gh --version)",
       "Bash(/opt/homebrew/bin/gh api:*)",
       "WebFetch(domain:livsycode.com)",
-      "WebFetch(domain:nilcoalescing.com)"
+      "WebFetch(domain:nilcoalescing.com)",
+      "Bash(gh auth:*)"
     ]
   }
 }

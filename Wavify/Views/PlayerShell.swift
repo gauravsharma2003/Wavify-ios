@@ -581,6 +581,7 @@ struct PlayerShell: View {
                     LyricsView(
                         lyricsState: lyricsState,
                         currentTime: audioPlayer.currentTime,
+                        isPlaying: audioPlayer.isPlaying,
                         onSeek: { time in audioPlayer.seek(to: time) },
                         isExpanded: lyricsExpanded,
                         onExpandToggle: {
@@ -928,6 +929,7 @@ struct PlayerShell: View {
             LyricsView(
                 lyricsState: lyricsState,
                 currentTime: audioPlayer.currentTime,
+                isPlaying: audioPlayer.isPlaying,
                 onSeek: { time in audioPlayer.seek(to: time) },
                 isExpanded: true,
                 onExpandToggle: {
@@ -1568,11 +1570,7 @@ private struct CrossfadeIndicatorRow: View {
             .padding(.vertical, 6)
             .background {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.06)) // translucent base for glass effect
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.white.opacity(isActive ? 0.12 : 0.06))
-                    }
+                    .fill(Color(white: 0.18))
                     .overlay {
                         if isActive {
                             RoundedRectangle(cornerRadius: 8)
