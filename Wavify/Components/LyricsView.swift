@@ -82,7 +82,7 @@ struct LyricsView: View {
     private func syncedLyricsView(lines: [SyncedLyricLine]) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: isExpanded ? 18 : 14) {
+                VStack(alignment: .leading, spacing: isExpanded ? 22 : 18) {
                     // Minimal top padding
                     Color.clear.frame(height: isExpanded ? 4 : 8)
                     
@@ -218,7 +218,7 @@ struct LyricsView: View {
         
         // Use same font size and weight for all lines to prevent text reflow
         return Text(line.text)
-            .font(.system(size: isExpanded ? 22 : 20, weight: .semibold))
+            .font(.system(size: isExpanded ? 28 : 26, weight: .bold))
             .foregroundStyle(.white)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -269,7 +269,7 @@ struct LyricsView: View {
     private func plainLyricsView(text: String) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
             Text(text)
-                .font(.system(size: isExpanded ? 20 : 18, weight: .medium))
+                .font(.system(size: isExpanded ? 26 : 24, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)

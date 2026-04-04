@@ -32,7 +32,11 @@
       "Bash(sips:*)",
       "Bash(protoc --version)",
       "Bash(protoc-gen-swift --version)",
-      "Bash(xcrun simctl:*)"
+      "Bash(xcrun simctl:*)",
+      "WebFetch(domain:iifx.dev)",
+      "WebFetch(domain:juniperphoton.substack.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:fatbobman.com)"
     ]
   }
 }

@@ -87,7 +87,8 @@ struct ArtistDetailView: View {
         .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
-        .navigationBarHidden(true)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .overlay(alignment: .topLeading) {
             Button {
                 dismiss()

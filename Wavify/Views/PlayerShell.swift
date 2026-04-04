@@ -94,8 +94,6 @@ struct PlayerShell: View {
     private var controlTapSize: CGFloat { layout.isRegularWidth ? 52 : 44 }
     private var handleIconSize: CGFloat { layout.isRegularWidth ? 24 : 20 }
     private var handleButtonSize: CGFloat { layout.isRegularWidth ? 52 : 46 }
-    private var headerFont: CGFloat { layout.isRegularWidth ? 17 : 14 }
-
     private var topSafeAreaInset: CGFloat {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else { return 59 }
@@ -106,23 +104,6 @@ struct PlayerShell: View {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else { return 34 }
         return window.safeAreaInsets.bottom
-    }
-
-    /// Compute album art size proportional to actual screen dimensions.
-    /// Works on any device — phones, foldables, tablets — no reference breakpoints.
-    private func dynamicArtSize(shellWidth: CGFloat, screenHeight: CGFloat) -> CGFloat {
-        let hPad = max(16, shellWidth * 0.06)
-        let maxByWidth = shellWidth - hPad * 2
-        let heightFraction: CGFloat
-        if layout.isIPad && layout.isLandscape {
-            heightFraction = 0.7
-        } else if layout.isIPad {
-            heightFraction = 0.52
-        } else {
-            heightFraction = 0.44
-        }
-        let maxByHeight = screenHeight * heightFraction
-        return min(maxByWidth, maxByHeight)
     }
 
     // MARK: - Body
@@ -161,16 +142,16 @@ struct PlayerShell: View {
                         .opacity(Double(max(0, 1 - expansion * 3))) // fade out 0..0.33
                         .allowsHitTesting(expansion < 0.3)
 
-                    // Full content — only in hierarchy when expanding
+                    // Morphing album art — immersive background layer with gradient overlays
+                    if !showLyrics {
+                        morphingAlbumArt(expansion: expansion, shellHeight: height, shellWidth: shellWidth, geometry: geometry)
+                    }
+
+                    // Full content — controls float on top of the blurred art area
                     if expansion > 0.02 {
                         fullContent(geometry: geometry, shellWidth: shellWidth)
                             .opacity(Double(min(1, max(0, (expansion - 0.1) / 0.3)))) // fade in 0.1..0.4
                             .allowsHitTesting(expansion > 0.5)
-                    }
-
-                    // Morphing album art — sits on top, interpolates between mini & full positions
-                    if !showLyrics {
-                        morphingAlbumArt(expansion: expansion, shellHeight: height, shellWidth: shellWidth, geometry: geometry)
                     }
                 }
                 .frame(width: shellWidth, height: height)
@@ -228,11 +209,16 @@ struct PlayerShell: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isProgressTransitioning = false
             }
-            // Color + like + lyrics reset for full player
+            // Color + like reset for full player
             extractColorsFromArtwork()
             checkLikeStatus()
-            showLyrics = false
-            lyricsState = .idle
+            // Keep lyrics view open on track change — just fetch new lyrics
+            if showLyrics {
+                lyricsState = .loading
+                fetchLyrics()
+            } else {
+                lyricsState = .idle
+            }
         }
         .onAppear {
             if let id = audioPlayer.currentSong?.id {
@@ -253,17 +239,9 @@ struct PlayerShell: View {
 
     @ViewBuilder
     private func backgroundLayers(expansion: CGFloat) -> some View {
-        // Dynamic gradient for full player — fades in as we expand
-        ZStack {
-            LinearGradient(
-                colors: [primaryColor, secondaryColor, accentColor],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Rectangle()
-                .fill(.black.opacity(0.2))
-        }
-        .opacity(Double(expansion))
+        // Solid background from extracted colors — only the lower portion (below the image)
+        primaryColor
+            .opacity(Double(expansion))
     }
 
     // MARK: - Morphing Album Art
@@ -273,32 +251,28 @@ struct PlayerShell: View {
         if let song = audioPlayer.currentSong {
             // Mini state: circle, positioned at left of mini player
             let miniSize: CGFloat = miniArtSize
-            // Full state: proportional to screen dimensions
             let screenH = geometry.size.height
             let iPadLandscape = layout.isIPad && layout.isLandscape
 
-            let fullSize: CGFloat = iPadLandscape
-                ? dynamicArtSize(shellWidth: shellWidth / 2, screenHeight: screenH)
-                : dynamicArtSize(shellWidth: shellWidth, screenHeight: screenH)
-            let artSize = miniSize + (fullSize - miniSize) * expansion
+            // Full state: top 60% of screen, edge-to-edge width
+            let fullWidth: CGFloat = iPadLandscape
+                ? shellWidth / 2
+                : shellWidth
+            let fullHeight: CGFloat = screenH * 0.6
+            let artWidth = miniSize + (fullWidth - miniSize) * expansion
+            let artHeight = miniSize + (fullHeight - miniSize) * expansion
 
-            // Corner radius: circle (half size) → 24pt rounded rect
+            // Corner radius: circle (half size) → 0 (edge-to-edge)
             let miniCorner = miniSize / 2
-            let fullCorner: CGFloat = 24
-            let artCorner = miniCorner + (fullCorner - miniCorner) * expansion
+            let artCorner = miniCorner * (1 - expansion)
 
             // Offsets from center of the shell frame (shellWidth × shellHeight)
-            // Mini: leading padding(16) + ring center from left edge of shell
             let miniX = 16 + miniRingSize / 2 - shellWidth / 2
-            // Mini: vertically centered in the mini bar at the bottom of shell
             let miniY = shellHeight / 2 - miniHeight / 2
 
-            // Full: positioned below header
-            let artTopPad = screenH * 0.042
+            // Full: top-aligned
             let fullX: CGFloat = iPadLandscape ? -(shellWidth / 4) : 0
-            let fullY: CGFloat = iPadLandscape
-                ? 0  // vertically centered
-                : -(shellHeight / 2) + topSafeAreaInset + 4 + 54 + artTopPad + fullSize / 2
+            let fullY: CGFloat = -(shellHeight / 2) + fullHeight / 2
 
             let artX = miniX + (fullX - miniX) * expansion
             let artY = miniY + (fullY - miniY) * expansion
@@ -308,13 +282,26 @@ struct PlayerShell: View {
                 highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
             )
             .id(song.id)
-            .frame(width: artSize, height: artSize)
+            .frame(width: artWidth, height: artHeight)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: artCorner, style: .continuous))
-            .shadow(color: .black.opacity(0.4 * Double(expansion)), radius: 24, y: 12)
-            .scaleEffect(audioPlayer.isPlaying ? 1.0 : 1.0 - 0.12 * expansion)
-            .animation(.spring(response: 0.55, dampingFraction: 0.7), value: audioPlayer.isPlaying)
+            .overlay(alignment: .bottom) {
+                // 5-stop gradient overlay matching artist page strategy:
+                // image visible at top, smoothly fading into solid color at bottom
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.0),
+                        .init(color: .clear, location: 0.35),
+                        .init(color: primaryColor.opacity(0.4), location: 0.55),
+                        .init(color: primaryColor.opacity(0.85), location: 0.75),
+                        .init(color: primaryColor, location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(Double(expansion))
+            }
             .offset(x: artX + horizontalSwipeOffset * expansion, y: artY)
-            // Hidden in mini state — mini player has its own image; crossfade during transition
             .opacity(Double(min(1, expansion / 0.15)))
             .allowsHitTesting(false)
         }
@@ -556,142 +543,155 @@ struct PlayerShell: View {
         let screenW = geometry.size.width
         let screenH = geometry.size.height
 
-        // All spacings derived from actual screen dimensions — works on any device
         let hPad = max(16, screenW * 0.06)
-        let artInfoSpacing = screenH * 0.028
-        let controlsGap = screenH * 0.028
+        let controlsGap = screenH * 0.022
 
-        VStack(spacing: 0) {
-            // Header
-            dragHandle
-                .padding(.top, topSafeAreaInset + 4)
-
-            if lyricsExpanded && showLyrics {
+        if lyricsExpanded && showLyrics {
+            VStack(spacing: 0) {
                 expandedLyricsContent(geometry: geometry)
-            } else if layout.isIPad && layout.isLandscape {
-                // iPad landscape: side-by-side layout
-                HStack(spacing: 0) {
-                    // Left half: album art (placeholder for morphing layer)
-                    VStack(spacing: 0) {
-                        albumArtView(shellWidth: shellWidth / 2, screenHeight: screenH)
-                    }
+            }
+            .contentShape(Rectangle())
+        } else if layout.isIPad && layout.isLandscape {
+            // iPad landscape: controls on right half
+            HStack(spacing: 0) {
+                Spacer()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .offset(x: horizontalSwipeOffset)
 
-                    // Right half: song info + controls grouped & centered
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-
-                        songInfoView
-
-                        Spacer().frame(height: screenH * 0.035)
-
-                        VStack(spacing: controlsGap) {
-                            progressView
-                            controlsView(screenWidth: screenW / 2, screenHeight: screenH)
-                            additionalControlsRow(screenWidth: screenW / 2)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, hPad)
-                }
-                .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
-            } else {
                 VStack(spacing: 0) {
-                    // Swipeable album art + song info
-                    VStack(spacing: 0) {
-                        albumArtView(shellWidth: shellWidth, screenHeight: screenH)
-
-                        Spacer().frame(height: artInfoSpacing)
-
-                        songInfoView
+                    Spacer(minLength: 0)
+                    songInfoView
+                    Spacer().frame(height: screenH * 0.035)
+                    VStack(spacing: controlsGap) {
+                        middleActionRow(screenWidth: screenW / 2)
+                        progressView
+                        controlsView(screenWidth: screenW / 2, screenHeight: screenH)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, hPad)
+            }
+            .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
+            .contentShape(Rectangle())
+        } else {
+            // Portrait: immersive layout — content floats over blurred album art
+            VStack(spacing: 0) {
+                if showLyrics {
+                    // Lyrics cover the screen, starting below the Dynamic Island
+                    LyricsView(
+                        lyricsState: lyricsState,
+                        currentTime: audioPlayer.currentTime,
+                        onSeek: { time in audioPlayer.seek(to: time) },
+                        isExpanded: lyricsExpanded,
+                        onExpandToggle: {
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                lyricsExpanded = true
+                            }
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, topSafeAreaInset + 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    // Push content into the lower portion (over the gradient blend)
+                    Spacer()
+                }
+
+                // Song info (centered, swipeable with art)
+                songInfoView
                     .offset(x: horizontalSwipeOffset)
 
-                    // Flexible space — art size absorbs most of the height,
-                    // so this stays small and consistent across devices
-                    Spacer(minLength: screenH * 0.016)
+                Spacer().frame(height: controlsGap * 1.2)
 
-                    // Controls stack
-                    VStack(spacing: controlsGap) {
-                        progressView
-                        controlsView(screenWidth: screenW, screenHeight: screenH)
-                        additionalControlsRow(screenWidth: screenW)
+                // Middle action row: lyrics | heart+share+context | queue
+                middleActionRow(screenWidth: screenW)
+
+                Spacer().frame(height: controlsGap * 1.2)
+
+                // Progress bar
+                progressView
+
+                Spacer().frame(height: controlsGap)
+
+                // Playback controls: airplay | prev | play | next | repeat
+                controlsView(screenWidth: screenW, screenHeight: screenH)
+            }
+            .padding(.horizontal, hPad)
+            .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
+            .contentShape(Rectangle())
+        }
+    }
+
+    // MARK: - Middle Action Row
+
+    private func middleActionRow(screenWidth: CGFloat) -> some View {
+        ZStack {
+            // Center pill: share + heart + queue — true center using ZStack
+            HStack(spacing: 16) {
+                Button { shareSong() } label: {
+                    Image(systemName: "arrowshape.turn.up.right")
+                        .font(.system(size: controlIcon, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    toggleLike()
+                } label: {
+                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: controlIcon, weight: .medium))
+                        .foregroundStyle(isLiked ? .red : .white)
+                        .likeButtonAnimation(trigger: isLiked)
+                }
+
+                Button {
+                    showQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: controlIcon, weight: .medium))
+                        .foregroundStyle(sharePlayManager.isGuest ? .white.opacity(0.4) : .white)
+                }
+                .disabled(sharePlayManager.isGuest)
+            }
+            .padding(.horizontal, 24)
+            .frame(height: handleButtonSize + 8)
+            .glassEffect(.regular.interactive(), in: .capsule)
+
+            // Left: Lyrics button — overlaid at leading edge
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showLyrics.toggle()
                     }
+                    if showLyrics, let song = audioPlayer.currentSong,
+                       song.id != lastLyricsFetchedSongId {
+                        fetchLyrics()
+                    }
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: controlIconLarge, weight: .medium))
+                        .foregroundStyle(showLyrics ? .cyan : .white)
+                        .frame(width: handleButtonSize, height: handleButtonSize)
                 }
-                .padding(.horizontal, hPad)
-                .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
+                .glassEffect(.regular.interactive(), in: .circle)
+
+                Spacer()
+            }
+
+            // Right: Context menu — overlaid at trailing edge
+            HStack {
+                Spacer()
+
+                moreMenuButton
             }
         }
-        .contentShape(Rectangle())
+        .padding(.horizontal, 4)
     }
 
-    // MARK: - Additional Controls Row
-
-    private func additionalControlsRow(screenWidth: CGFloat) -> some View {
-        HStack(spacing: screenWidth * 0.065) {
-            // Sleep Timer
-            Button {
-                if sleepTimerManager.isActive {
-                    showActiveSleepSheet = true
-                } else {
-                    showSleepSheet = true
-                }
-            } label: {
-                Image(systemName: sleepTimerManager.isActive ? "moon.fill" : "moon")
-                    .font(.system(size: controlIconLarge, weight: .medium))
-                    .foregroundStyle(sleepTimerManager.isActive ? .cyan : .white)
-                    .frame(width: controlTapSize, height: controlTapSize)
-                    .sleepButtonAnimation(trigger: sleepTimerManager.isActive)
-            }
-
-            // Share
-            Button { shareSong() } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: controlIconLarge, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: controlTapSize, height: controlTapSize)
-            }
-
-            // AirPlay
-            Button { showAirPlayPicker = true } label: {
-                Image(systemName: "airplayaudio")
-                    .font(.system(size: controlIconLarge, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: controlTapSize, height: controlTapSize)
-            }
-
-            // Lyrics
-            Button {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showLyrics.toggle()
-                }
-                if showLyrics, let song = audioPlayer.currentSong,
-                   song.id != lastLyricsFetchedSongId {
-                    fetchLyrics()
-                }
-            } label: {
-                Image(systemName: showLyrics ? "text.word.spacing" : "text.word.spacing")
-                    .font(.system(size: controlIconLarge, weight: .medium))
-                    .foregroundStyle(showLyrics ? .cyan : .white)
-                    .frame(width: controlTapSize, height: controlTapSize)
-            }
-
-            // More menu
-            moreMenu
-        }
-    }
-
-    // MARK: - More Menu
-
-    private var moreMenu: some View {
+    // Standalone context menu button for the right side of middle action row
+    private var moreMenuButton: some View {
         Menu {
-            // Go to Album + Go to Artist (renders at bottom)
+            // Go to Album + Go to Artist
             if let song = audioPlayer.currentSong {
                 if let artistId = song.artistId {
                     Button {
@@ -727,7 +727,6 @@ struct PlayerShell: View {
 
             Divider()
 
-            // Like + Add to Playlist
             Button {
                 showAddToPlaylist = true
             } label: {
@@ -742,7 +741,20 @@ struct PlayerShell: View {
 
             Divider()
 
-            // Equalizer
+            // Sleep Timer
+            Button {
+                if sleepTimerManager.isActive {
+                    showActiveSleepSheet = true
+                } else {
+                    showSleepSheet = true
+                }
+            } label: {
+                Label(
+                    sleepTimerManager.isActive ? "Sleep Timer (Active)" : "Sleep Timer",
+                    systemImage: sleepTimerManager.isActive ? "moon.fill" : "moon"
+                )
+            }
+
             Toggle(isOn: Binding(
                 get: { equalizerManager.settings.selectedPreset != .flat },
                 set: { newValue in
@@ -757,7 +769,6 @@ struct PlayerShell: View {
                 Label("Equalizer", systemImage: "slider.horizontal.3")
             }
 
-            // Crossfade (disabled for Listen Together guests or AirPlay)
             Toggle(isOn: Binding(
                 get: { crossfadeSettings.isEnabled && !audioPlayer.isAirPlayActive },
                 set: { crossfadeSettings.isEnabled = $0 }
@@ -771,7 +782,6 @@ struct PlayerShell: View {
 
             Divider()
 
-            // Listen Together
             Button {
                 navigationManager.collapsePlayer()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -784,7 +794,6 @@ struct PlayerShell: View {
                 )
             }
 
-            // Radio (renders at top, disabled for Listen Together guests)
             ControlGroup {
                 Button {
                     startRadio()
@@ -804,143 +813,16 @@ struct PlayerShell: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: controlIconLarge, weight: .medium))
                 .foregroundStyle(.white)
-                .frame(width: controlTapSize, height: controlTapSize)
+                .frame(width: handleButtonSize, height: handleButtonSize)
                 .rotationEffect(.degrees(90))
         }
-    }
-
-    // MARK: - Drag Handle
-
-    private var dragHandle: some View {
-        HStack {
-            Button {
-                navigationManager.collapsePlayer()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: handleIconSize, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: handleButtonSize, height: handleButtonSize)
-            }
-            .glassEffect(.regular.interactive(), in: .circle)
-
-            Spacer()
-
-            if sharePlayManager.isSessionActive {
-                HStack(spacing: 6) {
-                    Image(systemName: "shareplay")
-                        .font(.system(size: headerFont - 2, weight: .semibold))
-                        .foregroundStyle(.cyan)
-                    Text(sharePlayManager.isHost ? "Hosting" : "Listening")
-                        .font(.system(size: headerFont, weight: .semibold))
-                        .foregroundStyle(.cyan)
-                }
-            } else {
-                Text("Now Playing")
-                    .font(.system(size: headerFont, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                showQueue = true
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: handleIconSize, weight: .medium))
-                    .foregroundStyle(sharePlayManager.isGuest ? .white.opacity(0.4) : .white)
-                    .frame(width: handleButtonSize, height: handleButtonSize)
-            }
-            .glassEffect(.regular.interactive(), in: .circle)
-            .disabled(sharePlayManager.isGuest)
-        }
-        .padding(.top, 8)
-        .padding(.horizontal, 20)
-    }
-
-    // MARK: - Album Art
-
-    private func albumArtView(shellWidth: CGFloat, screenHeight: CGFloat) -> some View {
-        let size = dynamicArtSize(shellWidth: shellWidth, screenHeight: screenHeight)
-        let lyricsHeight = size
-
-        return Group {
-            if let song = audioPlayer.currentSong {
-                if showLyrics {
-                    LyricsView(
-                        lyricsState: lyricsState,
-                        currentTime: audioPlayer.currentTime,
-                        onSeek: { time in audioPlayer.seek(to: time) },
-                        isExpanded: lyricsExpanded,
-                        onExpandToggle: {
-                            withAnimation(.easeInOut(duration: 0.35)) {
-                                lyricsExpanded = true
-                            }
-                        }
-                    )
-                    .frame(width: size, height: lyricsHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                } else {
-                    // Invisible placeholder — morphing art layer renders the actual image
-                    Color.clear
-                        .frame(width: size, height: size)
-                        .clipShape(RoundedRectangle(cornerRadius: 24))
-                        .contextMenu {
-                            if let albumId = song.albumId {
-                                Button {
-                                    navigationManager.navigateToAlbum(
-                                        id: albumId,
-                                        name: song.title,
-                                        artist: song.artist,
-                                        thumbnail: song.thumbnailUrl
-                                    )
-                                } label: {
-                                    Label("Go to Album", systemImage: "opticaldisc")
-                                }
-                            }
-                            if let artistId = song.artistId {
-                                Button {
-                                    navigationManager.navigateToArtist(
-                                        id: artistId,
-                                        name: song.artist,
-                                        thumbnail: song.thumbnailUrl
-                                    )
-                                } label: {
-                                    Label("Go to Artist", systemImage: "music.mic")
-                                }
-                            }
-                        }
-                }
-            } else {
-                albumPlaceholder
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
-            }
-        }
-        .padding(.top, screenHeight * 0.042)
-        .animation(.easeInOut(duration: 0.3), value: showLyrics)
-    }
-
-    private var albumPlaceholder: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [Color(white: 0.2), Color(white: 0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay {
-                Image(systemName: "music.note")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
+        .glassEffect(.regular.interactive(), in: .circle)
     }
 
     // MARK: - Song Info
 
     private var songInfoView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .center, spacing: 6) {
             if let song = audioPlayer.currentSong {
                 Text(song.title)
                     .font(.system(size: fullTitleFont, weight: .bold))
@@ -966,7 +848,7 @@ struct PlayerShell: View {
                 .disabled(song.artistId == nil)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - Progress & Controls
@@ -982,44 +864,56 @@ struct PlayerShell: View {
 
     private func controlsView(screenWidth: CGFloat, screenHeight: CGFloat) -> some View {
         HStack(spacing: screenWidth * 0.07) {
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                toggleLike()
-            } label: {
-                Image(systemName: isLiked ? "heart.fill" : "heart")
+            // AirPlay
+            Button { showAirPlayPicker = true } label: {
+                Image(systemName: "airplayaudio")
                     .font(.system(size: controlIcon, weight: .medium))
-                    .foregroundStyle(isLiked ? .red : .secondary)
-                    .likeButtonAnimation(trigger: isLiked)
+                    .foregroundStyle(.white)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
 
-            GlassPlayerButton(icon: "chevron.backward.chevron.backward.dotted", size: controlIconLarge) {
+            Button {
                 Task { await audioPlayer.playPrevious() }
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: controlIconLarge, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
-            LargePlayButton(
-                isPlaying: audioPlayer.isPlaying,
-                iconSize: layout.isRegularWidth ? 38 : 32,
-                buttonSize: layout.isRegularWidth ? 84 : 72
-            ) {
+            Button {
                 audioPlayer.togglePlayPause()
+            } label: {
+                Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                    .contentTransition(.symbolEffect(.replace))
+                    .font(.system(size: layout.isRegularWidth ? 38 : 32, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: layout.isRegularWidth ? 84 : 72, height: layout.isRegularWidth ? 84 : 72)
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
-            GlassPlayerButton(icon: "chevron.forward.dotted.chevron.forward", size: controlIconLarge) {
+            Button {
                 Task { await audioPlayer.playNext() }
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: controlIconLarge, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
+            // Repeat/Shuffle
             Button {
                 audioPlayer.toggleLoopMode()
             } label: {
                 Image(systemName: audioPlayer.loopMode.icon)
                     .font(.system(size: controlIcon, weight: .medium))
                     .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
+                    .frame(width: controlTapSize, height: controlTapSize)
             }
             .disabled(sharePlayManager.isGuest)
             .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
@@ -1030,18 +924,7 @@ struct PlayerShell: View {
 
     private func expandedLyricsContent(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            compactSongInfoView
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-                .padding(.bottom, 8)
-
-            SlimProgressView(
-                audioPlayer: audioPlayer,
-                isCrossfadeActive: CrossfadeSettings.shared.isEnabled && audioPlayer.crossfadeEngine?.isActive == true
-            )
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
-
+            // Lyrics fill most of the screen
             LyricsView(
                 lyricsState: lyricsState,
                 currentTime: audioPlayer.currentTime,
@@ -1054,7 +937,19 @@ struct PlayerShell: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.bottom, 30)
+            .padding(.top, topSafeAreaInset)
+
+            // Compact song info + progress pinned at bottom
+            SlimProgressView(
+                audioPlayer: audioPlayer,
+                isCrossfadeActive: CrossfadeSettings.shared.isEnabled && audioPlayer.crossfadeEngine?.isActive == true
+            )
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+
+            compactSongInfoView
+                .padding(.horizontal, 20)
+                .padding(.bottom, bottomSafeAreaInset + 14)
         }
     }
 
@@ -1092,6 +987,15 @@ struct PlayerShell: View {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
                         .font(.system(size: controlIcon, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: controlTapSize, height: controlTapSize)
+                }
+
+                Button {
+                    Task { await audioPlayer.playNext() }
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: controlIcon - 2, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: controlTapSize, height: controlTapSize)
                 }
