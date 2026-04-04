@@ -36,7 +36,11 @@
       "WebFetch(domain:iifx.dev)",
       "WebFetch(domain:juniperphoton.substack.com)",
       "WebFetch(domain:dev.to)",
-      "WebFetch(domain:fatbobman.com)"
+      "WebFetch(domain:fatbobman.com)",
+      "Bash(command -v gh)",
+      "Bash(/opt/homebrew/bin/gh --version)",
+      "Bash(/usr/local/bin/gh --version)",
+      "Bash(/opt/homebrew/bin/gh api:*)"
     ]
   }
 }

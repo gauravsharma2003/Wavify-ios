@@ -1164,6 +1164,11 @@ struct PlayerShell: View {
                 lyricsState = .plain(plain)
             } else {
                 lyricsState = .notFound
+                // Exit lyrics mode if no lyrics available for this track
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showLyrics = false
+                    lyricsExpanded = false
+                }
             }
         }
     }

@@ -140,6 +140,7 @@ struct AlbumDetailView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .overlay(alignment: .topLeading) {
             Button {
                 dismiss()
