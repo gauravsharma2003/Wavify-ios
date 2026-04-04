@@ -41,7 +41,8 @@ struct AlbumDetailView: View {
     @State private var newPlaylistName = ""
     
     private let networkManager = NetworkManager.shared
-    
+    @State private var topInset: CGFloat = 59
+
     // Computed properties for unified data access
     private var displayName: String {
         albumDetail?.albumName ?? localPlaylist?.name ?? initialName
@@ -137,17 +138,19 @@ struct AlbumDetailView: View {
         .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
-        .navigationTitle(displayName)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(displayName)
-                    .font(.headline)
+        .navigationBarHidden(true)
+        .overlay(alignment: .topLeading) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                    .opacity(scrollOffset < -(layout.detailHeaderHeight - 90) ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: scrollOffset < -(layout.detailHeaderHeight - 90))
+                    .frame(width: 48, height: 48)
             }
+            .glassEffect(.regular.interactive(), in: .circle)
+            .padding(.leading, 12)
+            .padding(.top, 10)
         }
         .task {
             if let albumId = albumId {
@@ -201,7 +204,7 @@ struct AlbumDetailView: View {
 
     private var headerView: some View {
         GeometryReader { geometry in
-            let minY = geometry.frame(in: .global).minY
+            let minY = geometry.frame(in: .named("scroll")).minY
             let headerH = layout.detailHeaderHeight
             let height = max(headerH, headerH + (minY > 0 ? minY : 0))
             let offset = minY > 0 ? -minY : 0

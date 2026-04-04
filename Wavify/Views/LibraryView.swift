@@ -100,19 +100,22 @@ struct LibraryView: View {
                 .padding(.bottom, audioPlayer.currentSong != nil ? 80 : 0)
             }
             .background(gradientBackground)
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.brandGradientTop.opacity(0.95), location: 0),
-                        .init(color: Color.brandGradientTop.opacity(0.7), location: 0.5),
-                        .init(color: .clear, location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 140)
-                .allowsHitTesting(false)
-                .ignoresSafeArea()
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 0)
+                    .background(alignment: .top) {
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.brandGradientTop.opacity(0.95), location: 0),
+                                .init(color: Color.brandGradientTop.opacity(0.7), location: 0.5),
+                                .init(color: .clear, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 140)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea()
+                    }
             }
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)

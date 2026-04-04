@@ -35,7 +35,8 @@ struct ArtistDetailView: View {
     @State private var artistRefreshId = UUID()
     
     private let networkManager = NetworkManager.shared
-    
+    @State private var topInset: CGFloat = 59
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -86,17 +87,19 @@ struct ArtistDetailView: View {
         .scrollEdgeEffectStyle(nil, for: .top)
         .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
         .ignoresSafeArea(edges: .top)
-        .navigationTitle(initialName)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(artistDetail?.name ?? initialName)
-                    .font(.headline)
+        .navigationBarHidden(true)
+        .overlay(alignment: .topLeading) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                    .opacity(scrollOffset < -(layout.artistHeaderHeight - 150) ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: scrollOffset < -(layout.artistHeaderHeight - 150))
+                    .frame(width: 48, height: 48)
             }
+            .glassEffect(.regular.interactive(), in: .circle)
+            .padding(.leading, 12)
+            .padding(.top, 10)
         }
         .task(id: artistId) {
             // Only load if we don't already have data for this artist
@@ -117,7 +120,7 @@ struct ArtistDetailView: View {
     
     private var headerView: some View {
         GeometryReader { geometry in
-            let minY = geometry.frame(in: .global).minY
+            let minY = geometry.frame(in: .named("scroll")).minY
             // Only stretch when pulling down (minY > 0)
             let headerH = layout.artistHeaderHeight
             let height = max(headerH, headerH + (minY > 0 ? minY : 0))
@@ -133,7 +136,6 @@ struct ArtistDetailView: View {
                             .frame(width: geometry.size.width, height: height)
                             .clipped()
                             .overlay(
-                                // Gradient that ends exactly where page background begins
                                 LinearGradient(
                                     stops: [
                                         .init(color: .clear, location: 0.0),
@@ -151,7 +153,7 @@ struct ArtistDetailView: View {
                             .fill(gradientColors.first ?? Color(white: 0.1))
                     }
                 }
-                
+
                 // Content Overlay (Name only) - no material, just text on gradient
                 VStack(alignment: .leading, spacing: 4) {
                     Text(artistDetail?.name ?? initialName)

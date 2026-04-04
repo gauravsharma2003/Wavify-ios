@@ -110,6 +110,7 @@ struct PlaylistDetailView: View {
         .navigationTitle(initialName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text(initialName)

@@ -158,19 +158,22 @@ struct SearchView: View {
                 )
                 .ignoresSafeArea()
             )
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.brandGradientTop.opacity(0.95), location: 0),
-                        .init(color: Color.brandGradientTop.opacity(0.7), location: 0.5),
-                        .init(color: .clear, location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 140)
-                .allowsHitTesting(false)
-                .ignoresSafeArea()
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 0)
+                    .background(alignment: .top) {
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.brandGradientTop.opacity(0.95), location: 0),
+                                .init(color: Color.brandGradientTop.opacity(0.7), location: 0.5),
+                                .init(color: .clear, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 140)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea()
+                    }
             }
             .navigationDestination(for: NavigationDestination.self) { destination in
                 switch destination {
