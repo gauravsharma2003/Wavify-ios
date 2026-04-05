@@ -113,7 +113,11 @@ final class TTMLParser: NSObject, XMLParserDelegate {
                 namespaceURI: String?, qualifiedName: String?) {
         switch elementName {
         case "span" where insideSpan:
-            let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            var text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Strip timing/onset markers from Apple Music TTML
+            text = text.replacingOccurrences(of: "<>", with: "")
+            text = text.replacingOccurrences(of: "</>", with: "")
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty, let begin = currentSpanBegin, let end = currentSpanEnd {
                 currentWords.append(SyncedWord(
                     startTime: begin + lyricOffset,
@@ -136,15 +140,35 @@ final class TTMLParser: NSObject, XMLParserDelegate {
             let adjustedEnd = currentPEnd.map { $0 + lyricOffset }
 
             if hadSpans && !currentWords.isEmpty {
-                let lineText = currentWords.map(\.text).joined(separator: " ")
-                lines.append(SyncedLyricLine(
-                    time: adjustedBegin,
-                    text: lineText,
-                    endTime: adjustedEnd,
-                    words: currentWords
-                ))
+                var lineText = currentWords.map(\.text).joined(separator: " ")
+                lineText = Self.cleanLineText(lineText)
+                // If the first word was a section annotation, remove it from words too
+                if let first = currentWords.first {
+                    let cleanedFirst = Self.cleanLineText(first.text)
+                    if cleanedFirst != first.text {
+                        if cleanedFirst.isEmpty {
+                            currentWords.removeFirst()
+                        } else {
+                            currentWords[0] = SyncedWord(
+                                startTime: first.startTime,
+                                endTime: first.endTime,
+                                text: cleanedFirst
+                            )
+                        }
+                        lineText = currentWords.map(\.text).joined(separator: " ")
+                    }
+                }
+                if !lineText.isEmpty && !currentWords.isEmpty {
+                    lines.append(SyncedLyricLine(
+                        time: adjustedBegin,
+                        text: lineText,
+                        endTime: adjustedEnd,
+                        words: currentWords
+                    ))
+                }
             } else {
-                let text = bareLineText.trimmingCharacters(in: .whitespacesAndNewlines)
+                var text = bareLineText.trimmingCharacters(in: .whitespacesAndNewlines)
+                text = Self.cleanLineText(text)
                 if !text.isEmpty {
                     lines.append(SyncedLyricLine(
                         time: adjustedBegin,
@@ -167,6 +191,26 @@ final class TTMLParser: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, parseErrorOccurred parseError: Error) {
         self.parseError = parseError
+    }
+
+    // MARK: - Text Cleaning
+
+    /// Strip section annotations (v1:, c:, b:, etc.) and timing markers from line text
+    private static func cleanLineText(_ text: String) -> String {
+        var cleaned = text
+
+        // Strip verse/chorus/bridge annotations
+        cleaned = cleaned.replacingOccurrences(
+            of: #"^(?:v\d*|c\d*|b\d*|p\d*|i\d*|o\d*|outro|intro|verse|chorus|bridge|hook|pre-chorus|post-chorus):\s*"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Strip timing/onset markers
+        cleaned = cleaned.replacingOccurrences(of: "<>", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "</>", with: "")
+
+        return cleaned.trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - Time Parsing

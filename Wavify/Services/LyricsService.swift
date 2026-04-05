@@ -270,13 +270,40 @@ class LyricsService {
                     guard let text = word.text, !text.isEmpty,
                           let wStart = word.timestamp,
                           let wEnd = word.endtime else { continue }
+
+                    let cleaned = cleanWordText(text)
+                    guard !cleaned.isEmpty else { continue }
+
                     words.append(SyncedWord(
                         startTime: wStart / 1000.0,
                         endTime: wEnd / 1000.0,
-                        text: text.trimmingCharacters(in: .whitespaces)
+                        text: cleaned
                     ))
                 }
                 lineText = words.map(\.text).joined(separator: " ")
+            }
+
+            // Strip section annotations (v1:, c:, b:, etc.) from assembled line text
+            lineText = cleanLineText(lineText)
+
+            if lineText.isEmpty { continue }
+
+            // Rebuild words if line text was cleaned of a prefix
+            // (the first word might have contained the annotation)
+            if let first = words.first {
+                let cleanedFirst = cleanLineText(first.text)
+                if cleanedFirst != first.text {
+                    if cleanedFirst.isEmpty {
+                        words.removeFirst()
+                    } else {
+                        words[0] = SyncedWord(
+                            startTime: first.startTime,
+                            endTime: first.endTime,
+                            text: cleanedFirst
+                        )
+                    }
+                    lineText = words.map(\.text).joined(separator: " ")
+                }
             }
 
             if lineText.isEmpty { continue }
@@ -290,6 +317,43 @@ class LyricsService {
         }
 
         return lines.sorted { $0.time < $1.time }
+    }
+
+    // MARK: - Lyrics Text Cleaning
+
+    /// Strip timing markers (<>, </>, etc.) and trim whitespace from individual word text
+    private func cleanWordText(_ text: String) -> String {
+        var cleaned = text.trimmingCharacters(in: .whitespaces)
+
+        // Remove standalone timing/onset markers: <>, </>, <br>, <br/>, etc.
+        // These appear in Apple Music syllable data as timing markers
+        if cleaned == "<>" || cleaned == "</>" || cleaned == "<br>" || cleaned == "<br/>" {
+            return ""
+        }
+
+        // Remove <> markers embedded in word text (e.g., "<>word" → "word")
+        cleaned = cleaned.replacingOccurrences(of: "<>", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "</>", with: "")
+
+        return cleaned.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Strip section annotations (v1:, c1:, b:, etc.) from line text
+    private func cleanLineText(_ text: String) -> String {
+        var cleaned = text
+
+        // Strip verse/chorus/bridge annotations: v1:, v2:, c:, c1:, b:, b1:, p:, i:, o:, etc.
+        cleaned = cleaned.replacingOccurrences(
+            of: #"^(?:v\d*|c\d*|b\d*|p\d*|i\d*|o\d*|outro|intro|verse|chorus|bridge|hook|pre-chorus|post-chorus):\s*"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Also strip any remaining <> markers from the full line
+        cleaned = cleaned.replacingOccurrences(of: "<>", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "</>", with: "")
+
+        return cleaned.trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - LrcLib Provider
