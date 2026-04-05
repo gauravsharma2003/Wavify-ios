@@ -46,8 +46,9 @@ class LyricsService {
         for (name, fetch) in providers {
             if let result = await fetch() {
                 Logger.debug("Lyrics found via \(name)", category: .lyrics)
-                lyricsCache[cacheKey] = result
-                return result
+                let cleaned = sanitizeLyricsResult(result)
+                lyricsCache[cacheKey] = cleaned
+                return cleaned
             }
         }
 
@@ -71,7 +72,8 @@ class LyricsService {
 
         var urlString = "https://lyrics-api.boidu.dev/getLyrics?s=\(encodedTitle)&a=\(encodedArtist)"
         if duration > 0 {
-            urlString += "&d=\(Int(duration))"
+            // Send duration in milliseconds (matching MetroList/BetterLyrics extension format)
+            urlString += "&d=\(Int(duration * 1000))"
         }
 
         guard let url = URL(string: urlString) else { return nil }
@@ -338,9 +340,59 @@ class LyricsService {
         return cleaned.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Strip section annotations (v1:, c1:, b:, etc.) from line text
+    /// Post-process any LyricsResult to ensure no artifacts remain in text,
+    /// regardless of which provider returned the data.
+    private func sanitizeLyricsResult(_ result: LyricsResult) -> LyricsResult {
+        guard let syncedLines = result.syncedLyrics else { return result }
+
+        let cleanedLines = syncedLines.compactMap { line -> SyncedLyricLine? in
+            let cleanedText = cleanLineText(line.text)
+            guard !cleanedText.isEmpty else { return nil }
+
+            // Clean word-level text if present
+            let cleanedWords: [SyncedWord]? = line.words?.compactMap { word in
+                let cleaned = cleanWordText(word.text)
+                guard !cleaned.isEmpty else { return nil }
+                return SyncedWord(startTime: word.startTime, endTime: word.endTime, text: cleaned)
+            }
+
+            // Rebuild line text from cleaned words if we have them
+            let finalText: String
+            if let words = cleanedWords, !words.isEmpty {
+                finalText = words.map(\.text).joined(separator: " ")
+            } else {
+                finalText = cleanedText
+            }
+
+            guard !finalText.isEmpty else { return nil }
+
+            return SyncedLyricLine(
+                time: line.time,
+                text: finalText,
+                endTime: line.endTime,
+                words: cleanedWords?.isEmpty == true ? nil : cleanedWords
+            )
+        }
+
+        let plainText = result.plainLyrics.map { cleanLineText($0) }
+
+        return LyricsResult(
+            syncedLyrics: cleanedLines.isEmpty ? nil : cleanedLines,
+            plainLyrics: plainText,
+            source: result.source
+        )
+    }
+
+    /// Strip section annotations (v1:, c1:, b:, etc.) and timing artifacts from line text
     private func cleanLineText(_ text: String) -> String {
         var cleaned = text
+
+        // Strip angle-bracket timestamps: <00:13.094>, <01:23.456>, etc.
+        cleaned = cleaned.replacingOccurrences(
+            of: #"<\d{1,2}:\d{1,2}[.:]\d{2,3}>"#,
+            with: "",
+            options: .regularExpression
+        )
 
         // Strip verse/chorus/bridge annotations: v1:, v2:, c:, c1:, b:, b1:, p:, i:, o:, etc.
         cleaned = cleaned.replacingOccurrences(
@@ -349,7 +401,7 @@ class LyricsService {
             options: [.regularExpression, .caseInsensitive]
         )
 
-        // Also strip any remaining <> markers from the full line
+        // Strip any remaining empty markers
         cleaned = cleaned.replacingOccurrences(of: "<>", with: "")
         cleaned = cleaned.replacingOccurrences(of: "</>", with: "")
 
@@ -555,30 +607,45 @@ class LyricsService {
 
     /// Parse LRC format lyrics into timestamped lines
     /// Supports standard LRC [mm:ss.xx], extended [mm:ss.xx][mm:ss.xx], and other common formats
+    /// Also handles non-standard inline word timestamps like <00:13.094> from some LrcLib entries
     func parseLRCFormat(_ lrcString: String) -> [SyncedLyricLine] {
         var lines: [SyncedLyricLine] = []
         let lrcLines = lrcString.components(separatedBy: .newlines)
 
+        // Standard LRC timestamps: [mm:ss.xx] or bare mm:ss.xx
         let timePattern = #"(?:\[)?(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:\.|:)(\d{2,3})(?:\])?"#
 
-        guard let regex = try? NSRegularExpression(pattern: timePattern, options: []) else {
+        // Angle-bracket word timestamps: <00:13.094> — strip the entire <...> including brackets
+        let angleBracketTimePattern = #"<\d{1,2}:\d{1,2}[.:]\d{2,3}>"#
+
+        guard let regex = try? NSRegularExpression(pattern: timePattern, options: []),
+              let angleBracketRegex = try? NSRegularExpression(pattern: angleBracketTimePattern, options: []) else {
             return []
         }
 
         for line in lrcLines {
-            let nsString = line as NSString
+            // Step 1: Strip angle-bracket timestamps FIRST (e.g., <00:13.094>) — removes brackets too
+            let cleanedLine = angleBracketRegex.stringByReplacingMatches(
+                in: line,
+                options: [],
+                range: NSRange(location: 0, length: (line as NSString).length),
+                withTemplate: ""
+            )
+
+            let nsString = cleanedLine as NSString
             let range = NSRange(location: 0, length: nsString.length)
 
-            let matches = regex.matches(in: line, options: [], range: range)
+            let matches = regex.matches(in: cleanedLine, options: [], range: range)
 
             if matches.isEmpty { continue }
 
             guard let firstMatch = matches.first else { continue }
 
-            let timeInSeconds = parseTime(from: firstMatch, in: line)
+            let timeInSeconds = parseTime(from: firstMatch, in: cleanedLine)
 
-            var text = line
+            var text = cleanedLine
 
+            // Step 2: Strip standard LRC timestamps
             for match in matches.reversed() {
                 text = (text as NSString).replacingCharacters(in: match.range, with: "")
             }
@@ -588,6 +655,9 @@ class LyricsService {
             if text.hasPrefix("~") || text.hasPrefix("-") {
                 text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
             }
+
+            // Step 3: Clean section annotations and any remaining markers
+            text = cleanLineText(text)
 
             if !text.isEmpty {
                 lines.append(SyncedLyricLine(time: timeInSeconds, text: text))

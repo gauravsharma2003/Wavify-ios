@@ -124,11 +124,31 @@ struct BetterLyricsResponse: Codable {
 // MARK: - Paxsenix API Responses
 
 struct PaxsenixSearchResult: Codable {
-    let id: Int
+    let id: String
     let songName: String?
     let trackName: String?
     let artistName: String?
     let duration: Int?  // milliseconds
+
+    enum CodingKeys: String, CodingKey {
+        case id, songName, trackName, artistName, duration
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // API returns id as String or Int depending on version
+        if let strId = try? container.decode(String.self, forKey: .id) {
+            id = strId
+        } else if let intId = try? container.decode(Int.self, forKey: .id) {
+            id = String(intId)
+        } else {
+            id = ""
+        }
+        songName = try container.decodeIfPresent(String.self, forKey: .songName)
+        trackName = try container.decodeIfPresent(String.self, forKey: .trackName)
+        artistName = try container.decodeIfPresent(String.self, forKey: .artistName)
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration)
+    }
 }
 
 struct PaxsenixLyricsResponse: Codable {

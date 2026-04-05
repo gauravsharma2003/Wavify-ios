@@ -236,8 +236,14 @@ struct PlayerShell: View {
         let contentOpacity = Double(min(1, expansion * 2.5)) // fades out: 0.4→0
 
         ZStack {
-            // Background
+            // Background — flat color always present, breathing gradient fades in for lyrics
             primaryColor
+            BreathingBackground(
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                accentColor: accentColor
+            )
+            .opacity(showLyrics ? 1 : 0)
 
             // Controls
             fullContent(geometry: geometry, shellWidth: geometry.size.width)
