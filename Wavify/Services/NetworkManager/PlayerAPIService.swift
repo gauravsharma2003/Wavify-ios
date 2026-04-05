@@ -163,7 +163,330 @@ final class PlayerAPIService {
         return try await searchForAlbumInfo(title: title, artist: artist)
     }
 
+    /// Resolve a videoId to its song (ATV) version if it's a music video (OMV).
+    /// YouTube Music has separate "song" (audio-only) and "video" (music video) versions
+    /// of the same track with different videoIds. Music videos can have intros, talking, etc.
+    /// that desync lyrics. This method finds the clean audio version.
+    ///
+    /// Strategy:
+    /// 1. Call `next` — check for `playlistPanelVideoWrapperRenderer` counterpart (fast, exact)
+    /// 2. If no wrapper, check `musicVideoType` from the direct renderer
+    /// 3. If OMV, search for the ATV version by title + artist (fallback for unlinked pairs)
+    ///
+    /// Returns the original videoId if already ATV or no song version can be found.
+    func resolveSongVideoId(for videoId: String) async -> String {
+        do {
+            let body: [String: Any] = [
+                "videoId": videoId,
+                "isAudioOnly": true,
+                "context": YouTubeAPIContext.webContext
+            ]
+
+            let request = try requestManager.createRequest(
+                endpoint: "next",
+                body: body,
+                headers: YouTubeAPIContext.webHeaders
+            )
+
+            let data = try await requestManager.execute(request)
+            let result = parseSongVideoId(from: data, originalVideoId: videoId)
+
+            switch result {
+            case .resolved(let songId):
+                return songId
+            case .alreadyATV:
+                return videoId
+            case .needsSearchFallback(let title, let artist):
+                // No counterpart linked — search for the ATV version
+                Logger.log("[PlayerAPI] No counterpart linked for OMV \(videoId), searching for ATV: \"\(title)\" by \"\(artist)\"", category: .network)
+                if let atvId = try await searchForSongVersion(title: title, artist: artist, originalVideoId: videoId) {
+                    return atvId
+                }
+                return videoId
+            case .unknown:
+                return videoId
+            }
+        } catch {
+            Logger.log("[PlayerAPI] Failed to resolve song videoId, using original: \(error.localizedDescription)", category: .network)
+            return videoId
+        }
+    }
+
     // MARK: - Private Methods
+
+    /// Result of parsing the `next` response for song version
+    private enum SongResolutionResult {
+        case resolved(String)                       // Found ATV counterpart videoId
+        case alreadyATV                             // Already the song version
+        case needsSearchFallback(title: String, artist: String) // OMV with no linked counterpart
+        case unknown                                // Can't determine, keep original
+    }
+
+    /// Parse the `next` response for the song (ATV) counterpart of a music video.
+    /// The response wraps tracks that have both versions in a `playlistPanelVideoWrapperRenderer`,
+    /// with `primaryRenderer` being the requested version and `counterpart` the alternate.
+    private nonisolated func parseSongVideoId(from data: Data, originalVideoId: String) -> SongResolutionResult {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnMusicWatchNextResultsRenderer"] as? [String: Any],
+              let tabbedRenderer = singleColumn["tabbedRenderer"] as? [String: Any],
+              let watchNext = tabbedRenderer["watchNextTabbedResultsRenderer"] as? [String: Any],
+              let tabs = watchNext["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabRenderer["content"] as? [String: Any],
+              let queueRenderer = content["musicQueueRenderer"] as? [String: Any],
+              let queueContent = queueRenderer["content"] as? [String: Any],
+              let playlistPanel = queueContent["playlistPanelRenderer"] as? [String: Any],
+              let panelContents = playlistPanel["contents"] as? [[String: Any]] else {
+            return .unknown
+        }
+
+        guard let firstItem = panelContents.first else { return .unknown }
+
+        // Path A: Wrapper exists — counterpart is directly linked
+        if let wrapper = firstItem["playlistPanelVideoWrapperRenderer"] as? [String: Any] {
+            let primaryType = extractMusicVideoType(from: wrapper, path: "primaryRenderer")
+            let counterpartType = extractMusicVideoType(fromCounterpart: wrapper)
+            let counterpartVideoId = extractVideoId(fromCounterpart: wrapper)
+
+            if primaryType == "MUSIC_VIDEO_TYPE_ATV" {
+                Logger.log("[PlayerAPI] videoId \(originalVideoId) is already ATV (via wrapper)", category: .network)
+                return .alreadyATV
+            }
+
+            if counterpartType == "MUSIC_VIDEO_TYPE_ATV", let songVideoId = counterpartVideoId {
+                Logger.log("[PlayerAPI] Resolved OMV → ATV via counterpart: \(originalVideoId) → \(songVideoId)", category: .network)
+                return .resolved(songVideoId)
+            }
+
+            if primaryType == "MUSIC_VIDEO_TYPE_OMV", let altVideoId = counterpartVideoId {
+                Logger.log("[PlayerAPI] Resolved OMV → counterpart: \(originalVideoId) → \(altVideoId)", category: .network)
+                return .resolved(altVideoId)
+            }
+
+            return .unknown
+        }
+
+        // Path B: Direct renderer (no wrapper) — check musicVideoType
+        if let videoRenderer = firstItem["playlistPanelVideoRenderer"] as? [String: Any] {
+            let musicVideoType = extractMusicVideoTypeFromRenderer(videoRenderer)
+
+            if musicVideoType == "MUSIC_VIDEO_TYPE_ATV" {
+                Logger.log("[PlayerAPI] videoId \(originalVideoId) is already ATV", category: .network)
+                return .alreadyATV
+            }
+
+            if musicVideoType == "MUSIC_VIDEO_TYPE_OMV" || musicVideoType == "MUSIC_VIDEO_TYPE_UGC" {
+                // It's a video/UGC — try to find the song version via search
+                let title = ResponseParser.extractTitleFromVideoRenderer(videoRenderer)
+                let artist = ResponseParser.extractArtistFromVideoRenderer(videoRenderer)
+                if !title.isEmpty, !artist.isEmpty {
+                    return .needsSearchFallback(title: title, artist: artist)
+                }
+            }
+        }
+
+        return .unknown
+    }
+
+    /// Extract `musicVideoType` directly from a `playlistPanelVideoRenderer`
+    private nonisolated func extractMusicVideoTypeFromRenderer(_ videoRenderer: [String: Any]) -> String? {
+        guard let navEndpoint = videoRenderer["navigationEndpoint"] as? [String: Any],
+              let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any],
+              let configs = watchEndpoint["watchEndpointMusicSupportedConfigs"] as? [String: Any],
+              let musicConfig = configs["watchEndpointMusicConfig"] as? [String: Any],
+              let musicVideoType = musicConfig["musicVideoType"] as? String else {
+            return nil
+        }
+        return musicVideoType
+    }
+
+    /// Search for the ATV (song) version of a track by title and artist.
+    /// Uses the "Songs" filter to only get ATV results.
+    private func searchForSongVersion(title: String, artist: String, originalVideoId: String) async throws -> String? {
+        let query = "\(title) \(artist)"
+        let body: [String: Any] = [
+            "query": query,
+            "context": YouTubeAPIContext.webContext,
+            // Songs filter — returns only MUSIC_VIDEO_TYPE_ATV results
+            "params": "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"
+        ]
+
+        let request = try requestManager.createRequest(
+            endpoint: "search",
+            body: body,
+            headers: YouTubeAPIContext.webHeaders
+        )
+
+        let data = try await requestManager.execute(request)
+        return parseATVFromSearchResults(data, expectedTitle: title, originalVideoId: originalVideoId)
+    }
+
+    /// Parse search results for the best matching ATV videoId
+    private nonisolated func parseATVFromSearchResults(_ data: Data, expectedTitle: String, originalVideoId: String) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contents = json["contents"] as? [String: Any],
+              let tabbedResults = contents["tabbedSearchResultsRenderer"] as? [String: Any],
+              let tabs = tabbedResults["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabContent = firstTab["tabRenderer"] as? [String: Any],
+              let sectionList = tabContent["content"] as? [String: Any],
+              let sections = sectionList["sectionListRenderer"] as? [String: Any],
+              let sectionContents = sections["contents"] as? [[String: Any]] else {
+            return nil
+        }
+
+        let normalizedExpected = expectedTitle.lowercased()
+            .replacingOccurrences(of: "(official music video)", with: "")
+            .replacingOccurrences(of: "(official video)", with: "")
+            .replacingOccurrences(of: "(official lyric video)", with: "")
+            .replacingOccurrences(of: "(lyric video)", with: "")
+            .replacingOccurrences(of: "(music video)", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        for section in sectionContents {
+            let shelf = section["musicShelfRenderer"] as? [String: Any]
+            guard let items = shelf?["contents"] as? [[String: Any]] else { continue }
+
+            for item in items.prefix(3) {
+                guard let renderer = item["musicResponsiveListItemRenderer"] as? [String: Any],
+                      let flexColumns = renderer["flexColumns"] as? [[String: Any]],
+                      !flexColumns.isEmpty else { continue }
+
+                // Get title
+                let firstCol = flexColumns[0]
+                guard let titleText = firstCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+                      let titleRuns = (titleText["text"] as? [String: Any])?["runs"] as? [[String: Any]],
+                      let resultTitle = titleRuns.first?["text"] as? String else { continue }
+
+                let normalizedResult = resultTitle.lowercased().trimmingCharacters(in: .whitespaces)
+
+                // Fuzzy title match — must be close enough
+                guard normalizedResult == normalizedExpected ||
+                      normalizedExpected.contains(normalizedResult) ||
+                      normalizedResult.contains(normalizedExpected) else { continue }
+
+                // Extract videoId from overlay play button
+                guard let overlay = renderer["overlay"] as? [String: Any],
+                      let thumbOverlay = overlay["musicItemThumbnailOverlayRenderer"] as? [String: Any],
+                      let overlayContent = thumbOverlay["content"] as? [String: Any],
+                      let playButton = overlayContent["musicPlayButtonRenderer"] as? [String: Any],
+                      let playNav = playButton["playNavigationEndpoint"] as? [String: Any],
+                      let watchEndpoint = playNav["watchEndpoint"] as? [String: Any],
+                      let videoId = watchEndpoint["videoId"] as? String else { continue }
+
+                // Verify it's ATV
+                let musicVideoType = (watchEndpoint["watchEndpointMusicSupportedConfigs"] as? [String: Any])
+                    .flatMap { ($0["watchEndpointMusicConfig"] as? [String: Any])?["musicVideoType"] as? String }
+
+                if musicVideoType == "MUSIC_VIDEO_TYPE_ATV" && videoId != originalVideoId {
+                    Logger.log("[PlayerAPI] Search fallback resolved OMV → ATV: \(originalVideoId) → \(videoId) (\"\(resultTitle)\")", category: .network)
+                    return videoId
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Extract `musicVideoType` from a renderer within the wrapper
+    private nonisolated func extractMusicVideoType(from wrapper: [String: Any], path: String) -> String? {
+        guard let renderer = wrapper[path] as? [String: Any],
+              let videoRenderer = renderer["playlistPanelVideoRenderer"] as? [String: Any],
+              let navEndpoint = videoRenderer["navigationEndpoint"] as? [String: Any],
+              let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any],
+              let configs = watchEndpoint["watchEndpointMusicSupportedConfigs"] as? [String: Any],
+              let musicConfig = configs["watchEndpointMusicConfig"] as? [String: Any],
+              let musicVideoType = musicConfig["musicVideoType"] as? String else {
+            return nil
+        }
+        return musicVideoType
+    }
+
+    /// Extract `musicVideoType` from the counterpart renderer
+    private nonisolated func extractMusicVideoType(fromCounterpart wrapper: [String: Any]) -> String? {
+        guard let counterparts = wrapper["counterpart"] as? [[String: Any]],
+              let first = counterparts.first,
+              let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
+              let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any],
+              let navEndpoint = videoRenderer["navigationEndpoint"] as? [String: Any],
+              let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any],
+              let configs = watchEndpoint["watchEndpointMusicSupportedConfigs"] as? [String: Any],
+              let musicConfig = configs["watchEndpointMusicConfig"] as? [String: Any],
+              let musicVideoType = musicConfig["musicVideoType"] as? String else {
+            return nil
+        }
+        return musicVideoType
+    }
+
+    /// Extract videoId from a renderer within the wrapper
+    private nonisolated func extractVideoId(from wrapper: [String: Any], path: String) -> String? {
+        guard let renderer = wrapper[path] as? [String: Any],
+              let videoRenderer = renderer["playlistPanelVideoRenderer"] as? [String: Any],
+              let videoId = videoRenderer["videoId"] as? String else {
+            return nil
+        }
+        return videoId
+    }
+
+    /// Extract videoId from the counterpart renderer
+    private nonisolated func extractVideoId(fromCounterpart wrapper: [String: Any]) -> String? {
+        guard let counterparts = wrapper["counterpart"] as? [[String: Any]],
+              let first = counterparts.first,
+              let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
+              let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any],
+              let videoId = videoRenderer["videoId"] as? String else {
+            return nil
+        }
+        return videoId
+    }
+
+    /// Resolve a queue panel item to its best `playlistPanelVideoRenderer`.
+    /// If the item is wrapped in `playlistPanelVideoWrapperRenderer`, prefer the ATV (song) renderer.
+    private nonisolated func resolveVideoRenderer(from item: [String: Any]) -> [String: Any]? {
+        // Direct renderer (no wrapper)
+        if let videoRenderer = item["playlistPanelVideoRenderer"] as? [String: Any] {
+            return videoRenderer
+        }
+
+        // Wrapper — has both primary and counterpart renderers
+        guard let wrapper = item["playlistPanelVideoWrapperRenderer"] as? [String: Any] else {
+            return nil
+        }
+
+        let primaryRenderer = (wrapper["primaryRenderer"] as? [String: Any])?["playlistPanelVideoRenderer"] as? [String: Any]
+        let primaryType = extractMusicVideoType(from: wrapper, path: "primaryRenderer")
+
+        // If primary is already ATV, use it
+        if primaryType == "MUSIC_VIDEO_TYPE_ATV" {
+            return primaryRenderer
+        }
+
+        // Check counterpart for ATV
+        let counterpartType = extractMusicVideoType(fromCounterpart: wrapper)
+        if counterpartType == "MUSIC_VIDEO_TYPE_ATV" {
+            if let counterparts = wrapper["counterpart"] as? [[String: Any]],
+               let first = counterparts.first,
+               let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
+               let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any] {
+                return videoRenderer
+            }
+        }
+
+        // Fallback: if primary is OMV and counterpart exists, use counterpart
+        if primaryType == "MUSIC_VIDEO_TYPE_OMV" {
+            if let counterparts = wrapper["counterpart"] as? [[String: Any]],
+               let first = counterparts.first,
+               let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
+               let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any] {
+                return videoRenderer
+            }
+        }
+
+        // Default to primary
+        return primaryRenderer
+    }
 
     private func getPlaylistId(videoId: String) async throws -> String {
         let body: [String: Any] = [
@@ -196,13 +519,25 @@ final class PlayerAPIService {
         }
         
         for item in panelContents {
-            if let videoRenderer = item["playlistPanelVideoRenderer"] as? [String: Any],
+            // Unwrap wrapper if present (handles song/video pairs)
+            let videoRenderer: [String: Any]?
+            if let direct = item["playlistPanelVideoRenderer"] as? [String: Any] {
+                videoRenderer = direct
+            } else if let wrapper = item["playlistPanelVideoWrapperRenderer"] as? [String: Any],
+                      let primary = wrapper["primaryRenderer"] as? [String: Any],
+                      let renderer = primary["playlistPanelVideoRenderer"] as? [String: Any] {
+                videoRenderer = renderer
+            } else {
+                videoRenderer = nil
+            }
+
+            if let videoRenderer,
                let itemVideoId = videoRenderer["videoId"] as? String,
                itemVideoId == videoId,
                let menu = videoRenderer["menu"] as? [String: Any],
                let menuRenderer = menu["menuRenderer"] as? [String: Any],
                let items = menuRenderer["items"] as? [[String: Any]] {
-                
+
                 for menuItem in items {
                     if let navItem = menuItem["menuNavigationItemRenderer"] as? [String: Any],
                        let endpoint = navItem["navigationEndpoint"] as? [String: Any],
@@ -213,7 +548,7 @@ final class PlayerAPIService {
                 }
             }
         }
-        
+
         throw YouTubeMusicError.parseError("Playlist ID not found")
     }
     
@@ -449,9 +784,9 @@ final class PlayerAPIService {
             return nil
         }
 
-        // Find the first queue item matching our videoId
+        // Find the first queue item matching our videoId (handles wrappers too)
         for item in panelContents {
-            if let videoRenderer = item["playlistPanelVideoRenderer"] as? [String: Any],
+            if let videoRenderer = resolveVideoRenderer(from: item),
                let itemVideoId = videoRenderer["videoId"] as? String,
                itemVideoId == videoId {
                 return ResponseParser.extractAlbumInfoFromVideoRenderer(videoRenderer)
@@ -460,7 +795,7 @@ final class PlayerAPIService {
 
         // Fallback: try the first item (it's usually the current song)
         if let firstItem = panelContents.first,
-           let videoRenderer = firstItem["playlistPanelVideoRenderer"] as? [String: Any] {
+           let videoRenderer = resolveVideoRenderer(from: firstItem) {
             return ResponseParser.extractAlbumInfoFromVideoRenderer(videoRenderer)
         }
 
@@ -485,17 +820,18 @@ final class PlayerAPIService {
         }
         
         var songs: [QueueSong] = []
-        
+
         for item in panelContents {
-            if let videoRenderer = item["playlistPanelVideoRenderer"] as? [String: Any],
-               let videoId = videoRenderer["videoId"] as? String {
-                
+            // Unwrap the video renderer — prefer song (ATV) version from wrapper if available
+            let videoRenderer: [String: Any]? = resolveVideoRenderer(from: item)
+
+            if let videoRenderer, let videoId = videoRenderer["videoId"] as? String {
                 let title = ResponseParser.extractTitleFromVideoRenderer(videoRenderer)
                 let artist = ResponseParser.extractArtistFromVideoRenderer(videoRenderer)
                 let thumbnailUrl = ResponseParser.extractThumbnailFromVideoRenderer(videoRenderer)
                 let duration = ResponseParser.extractDurationFromVideoRenderer(videoRenderer)
                 let artistId = ResponseParser.extractArtistIdFromVideoRenderer(videoRenderer)
-                
+
                 songs.append(QueueSong(
                     id: videoId,
                     name: title,

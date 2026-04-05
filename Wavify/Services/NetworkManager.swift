@@ -56,6 +56,11 @@ class NetworkManager {
         try await playerService.getSongAlbumInfo(videoId: videoId, title: title, artist: artist)
     }
 
+    /// Resolve a videoId to its song (ATV) version if it's a music video (OMV).
+    func resolveSongVideoId(for videoId: String) async -> String {
+        await playerService.resolveSongVideoId(for: videoId)
+    }
+
     /// Invalidate cached playback info for a video (call on playback failure)
     func invalidatePlaybackCache(videoId: String) async {
         await requestManager.clearCacheEntry(forKey: "playback_\(videoId)")

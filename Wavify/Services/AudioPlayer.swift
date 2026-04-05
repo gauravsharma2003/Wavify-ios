@@ -689,6 +689,25 @@ class AudioPlayer {
         defer { UIApplication.shared.endBackgroundTask(taskId) }
 
         isLoading = true
+
+        // Resolve to song (ATV) version if this is a music video (OMV).
+        // Music videos can have intros/talking that desync lyrics.
+        var song = song
+        let resolvedVideoId = await networkManager.resolveSongVideoId(for: song.videoId)
+        if resolvedVideoId != song.videoId {
+            song = Song(
+                id: resolvedVideoId,
+                title: song.title,
+                artist: song.artist,
+                thumbnailUrl: song.thumbnailUrl,
+                duration: song.duration,
+                isLiked: song.isLiked,
+                artistId: song.artistId,
+                albumId: song.albumId,
+                isRecommendation: song.isRecommendation
+            )
+        }
+
         currentSong = song
 
         // Notify for play count tracking
