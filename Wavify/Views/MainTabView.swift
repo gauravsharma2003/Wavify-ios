@@ -53,8 +53,8 @@ struct MainTabView: View {
                     .tag(2)
             }
             .tint(.white)
-            .toolbar(navigationManager.playerExpansion > 0.95 ? .hidden : .visible, for: .tabBar)
-            .animation(.easeInOut(duration: 0.2), value: navigationManager.playerExpansion > 0.95)
+            .toolbar(navigationManager.playerExpansion > 0.5 ? .hidden : .visible, for: .tabBar)
+            .animation(.easeInOut(duration: 0.2), value: navigationManager.playerExpansion > 0.5)
 
             // Unified Player Shell (mini ↔ full morph)
             if audioPlayer.currentSong != nil {

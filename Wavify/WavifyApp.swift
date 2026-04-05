@@ -8,8 +8,23 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - AppDelegate
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: "Default", sessionRole: connectingSceneSession.role)
+        return config
+    }
+}
+
 @main
 struct WavifyApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     @State private var splashFinished = false
     @State private var animateIcon = false
     @State private var showIconOverlay = true

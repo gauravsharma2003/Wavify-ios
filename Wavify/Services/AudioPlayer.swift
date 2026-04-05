@@ -12,6 +12,12 @@ import Combine
 import Observation
 import UIKit
 
+// MARK: - Queue Notification
+
+extension NSNotification.Name {
+    static let queueDidChange = NSNotification.Name("queueDidChange")
+}
+
 // MARK: - Loop Mode
 
 enum LoopMode: String, CaseIterable {
@@ -691,6 +697,7 @@ class AudioPlayer {
             object: nil,
             userInfo: ["song": song]
         )
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
 
         do {
             let playbackInfo = try await networkManager.getPlaybackInfo(videoId: song.videoId)
@@ -991,6 +998,7 @@ class AudioPlayer {
         }
         queueManager.playNext(song)
         crossfadeEngine?.queueDidChange()
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
     }
 
     func addToQueue(_ song: Song) -> Bool {
@@ -998,7 +1006,9 @@ class AudioPlayer {
             ToastManager.shared.show(icon: "ear", text: "Host controls the queue. Sit back and enjoy the ride.")
             return false
         }
-        return queueManager.addToQueue(song)
+        let result = queueManager.addToQueue(song)
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
+        return result
     }
     
     func isInQueue(_ song: Song) -> Bool {
@@ -1009,12 +1019,14 @@ class AudioPlayer {
         guard !sharePlayManager.isGuest else { return }
         queueManager.moveItem(fromOffsets: source, toOffset: destination)
         crossfadeEngine?.queueDidChange()
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
     }
 
     func removeFromQueue(at index: Int) {
         guard !sharePlayManager.isGuest else { return }
         queueManager.removeFromQueue(at: index)
         crossfadeEngine?.queueDidChange()
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
     }
 
     /// Move song to play next. Returns false if already next (meaning: play it now)
@@ -1022,6 +1034,7 @@ class AudioPlayer {
         guard !sharePlayManager.isGuest else { return false }
         let result = queueManager.moveToPlayNext(fromIndex: index)
         crossfadeEngine?.queueDidChange()
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
         return result
     }
 
@@ -1029,6 +1042,7 @@ class AudioPlayer {
         guard !sharePlayManager.isGuest else { return }
         queueManager.replaceUpcoming(with: songs)
         crossfadeEngine?.queueDidChange()
+        NotificationCenter.default.post(name: .queueDidChange, object: nil)
     }
 
     // MARK: - Album/Playlist Playback

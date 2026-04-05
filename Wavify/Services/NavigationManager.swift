@@ -33,24 +33,48 @@ class NavigationManager {
     
     var selectedTab = 0
 
-    /// Drives the morph transition: 0.0 = mini player, 1.0 = full screen
+    // MARK: - Player State
+
+    /// Drives sheet visibility (background, controls fade). Fast on collapse.
     var playerExpansion: CGFloat = 0.0
 
-    /// Backward-compatible computed property
+    /// Drives art position/size morph. Slower on collapse — art "flies" independently.
+    var artExpansion: CGFloat = 0.0
+
+    /// Vertical drag offset of the full player sheet (0 = fully up, positive = dragged down)
+    var sheetTranslation: CGFloat = 0
+
+    var isPlayerExpanded: Bool { playerExpansion > 0.01 }
+
     var showNowPlaying: Bool {
         get { playerExpansion > 0 }
-        set { playerExpansion = newValue ? 1.0 : 0.0 }
+        set {
+            playerExpansion = newValue ? 1.0 : 0.0
+            artExpansion = newValue ? 1.0 : 0.0
+        }
     }
 
-    func expandPlayer() {
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.88)) {
+    func expandPlayer(withVelocity: Bool = false) {
+        sheetTranslation = 0
+        let damping: CGFloat = withVelocity ? 0.8 : 1.0
+        let response: CGFloat = withVelocity ? 0.4 : 0.5
+        withAnimation(.spring(response: response, dampingFraction: damping)) {
             playerExpansion = 1.0
+            artExpansion = 1.0
         }
     }
 
     func collapsePlayer() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
+        // Sheet fades out fast
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.95)) {
             playerExpansion = 0.0
+        }
+        // Art flies to mini with a longer, smoother spring — visually separates from sheet
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+            artExpansion = 0.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            self.sheetTranslation = 0
         }
     }
     

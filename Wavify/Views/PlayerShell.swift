@@ -2,8 +2,9 @@
 //  PlayerShell.swift
 //  Wavify
 //
-//  Unified mini-player ↔ full-player morph transition.
-//  Driven by NavigationManager.playerExpansion (0 = mini, 1 = full).
+//  Apple Music-style bottom sheet player.
+//  Single expansion value (0=mini, 1=full) drives morphing art + content crossfade.
+//  Full player translates down as a sheet during drag. Art docks to mini on collapse.
 //
 
 import SwiftUI
@@ -19,7 +20,7 @@ struct PlayerShell: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.layoutContext) private var layout
 
-    // MARK: - Full player state (migrated from NowPlayingView)
+    // MARK: - Full player state
 
     @State private var showQueue = false
     @State private var likedSongsStore = LikedSongsStore.shared
@@ -29,11 +30,10 @@ struct PlayerShell: View {
         return likedSongsStore.isLiked(videoId)
     }
 
-    // Dynamic colors
+    // Dynamic colors — extracted once per song, persists across expand/collapse
     @State private var primaryColor: Color = Color(white: 0.15)
     @State private var secondaryColor: Color = Color(white: 0.08)
     @State private var accentColor: Color = Color(white: 0.03)
-    @State private var lastColorSongId: String = ""
 
     // Lyrics
     @State private var showLyrics = false
@@ -49,7 +49,7 @@ struct PlayerShell: View {
     @State private var showAirPlayPicker = false
     var sleepTimerManager: SleepTimerManager = .shared
 
-    // Horizontal swipe (track change)
+    // Horizontal swipe (track change in full player)
     @State private var horizontalSwipeOffset: CGFloat = 0
     @State private var isTransitioningTrack: Bool = false
 
@@ -58,14 +58,18 @@ struct PlayerShell: View {
     @State private var isProgressTransitioning: Bool = false
     @State private var lastMiniSongId: String = ""
 
-    // Interactive drag state
-    @State private var dragStartExpansion: CGFloat = 0
+    // Sheet drag state
     @State private var isDragging: Bool = false
     @State private var gestureDirectionLock: GestureAxis? = nil
+    @State private var passedDismissThreshold: Bool = false
+    @State private var dragStartedInSeekZone: Bool = false
 
     private enum GestureAxis {
         case horizontal, vertical
     }
+
+    /// The sheetTranslation value at which dismiss commits
+    private let dismissThreshold: CGFloat = 120
 
     // Mini player horizontal swipe
     @State private var miniDragOffset: CGFloat = 0
@@ -76,7 +80,7 @@ struct PlayerShell: View {
         return min(1.0, max(0.0, audioPlayer.currentTime / audioPlayer.duration))
     }
 
-    // MARK: - iPad-scaled sizes
+    // MARK: - Sizes
 
     private var miniHeight: CGFloat { layout.isRegularWidth ? 82 : 70 }
     private var miniRingSize: CGFloat { layout.isRegularWidth ? 62 : 50 }
@@ -92,8 +96,8 @@ struct PlayerShell: View {
     private var controlIcon: CGFloat { layout.isRegularWidth ? 24 : 20 }
     private var controlIconLarge: CGFloat { layout.isRegularWidth ? 26 : 22 }
     private var controlTapSize: CGFloat { layout.isRegularWidth ? 52 : 44 }
-    private var handleIconSize: CGFloat { layout.isRegularWidth ? 24 : 20 }
     private var handleButtonSize: CGFloat { layout.isRegularWidth ? 52 : 46 }
+
     private var topSafeAreaInset: CGFloat {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else { return 59 }
@@ -106,64 +110,56 @@ struct PlayerShell: View {
         return window.safeAreaInsets.bottom
     }
 
+    // MARK: - Device corner radius
+
+    /// Apple Music-style: corners match the device screen radius when sheet is dragged down
+    private var deviceCornerRadius: CGFloat {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let screen = windowScene.screen as? UIScreen else { return 55 }
+        // _displayCornerRadius is private API; use a safe default matching modern iPhones
+        let value = screen.value(forKey: "_displayCornerRadius") as? CGFloat
+        return value ?? 55
+    }
+
+    private func sheetCornerRadius(for geometry: GeometryProxy) -> CGFloat {
+        let translation = navigationManager.sheetTranslation
+        guard translation > 0 else { return 0 }
+        // Ramp up to device corner radius over the first 60pt of drag
+        let progress = min(1, translation / 60)
+        return deviceCornerRadius * progress
+    }
+
+    // MARK: - Rubber band
+
+    private func rubberBand(_ offset: CGFloat, dimension: CGFloat, coefficient: CGFloat = 0.55) -> CGFloat {
+        guard offset > 0 else { return 0 }
+        return (1.0 - (1.0 / ((offset * coefficient / dimension) + 1.0))) * dimension
+    }
+
     // MARK: - Body
 
     var body: some View {
         GeometryReader { geometry in
             let expansion = navigationManager.playerExpansion
-            // geometry.size already includes safe area because ignoresSafeArea is on GeometryReader
-            let screenHeight = geometry.size.height
-
-            // Interpolated layout values
-            let height = miniHeight + (screenHeight - miniHeight) * expansion
-            let hPadding = 16 * (1 - expansion)
-            // Tab bar (~49pt) + home indicator (bottomSafeAreaInset) + small gap
+            let artExp = navigationManager.artExpansion
+            let screenH = geometry.size.height
+            let screenW = geometry.size.width
             let miniBottomOffset = 49 + bottomSafeAreaInset + 8
-            let bottomOffset = miniBottomOffset * (1 - expansion)
-            let cornerRadius = 35 * (1 - expansion)
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
+            ZStack {
+                // LAYER 1: Full player background + controls — fades with playerExpansion (fast)
+                fullPlayerLayer(expansion: expansion, geometry: geometry)
+                    .offset(y: navigationManager.sheetTranslation)
+                    .allowsHitTesting(expansion > 0.5)
+                    .simultaneousGesture(sheetDragGesture(screenHeight: screenH, screenWidth: screenW))
 
-                // The actual shell width (after horizontal padding)
-                let shellWidth = geometry.size.width - hPadding * 2
+                // LAYER 2: Mini player bar — appears based on artExpansion (when art arrives)
+                miniPlayerBar(expansion: artExp, geometry: geometry, miniBottomOffset: miniBottomOffset)
 
-                ZStack {
-                    // Background — gradient for full player
-                    backgroundLayers(expansion: expansion)
-
-                    // Mini content — with glass applied directly
-                    miniContent
-                        .frame(width: shellWidth, height: miniHeight)
-                        .clipShape(Capsule())
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .opacity(Double(max(0, 1 - expansion * 3))) // fade out 0..0.33
-                        .allowsHitTesting(expansion < 0.3)
-
-                    // Morphing album art — immersive background layer with gradient overlays
-                    if !showLyrics {
-                        morphingAlbumArt(expansion: expansion, shellHeight: height, shellWidth: shellWidth, geometry: geometry)
-                    }
-
-                    // Full content — controls float on top of the blurred art area
-                    if expansion > 0.02 {
-                        fullContent(geometry: geometry, shellWidth: shellWidth)
-                            .opacity(Double(min(1, max(0, (expansion - 0.1) / 0.3)))) // fade in 0.1..0.4
-                            .allowsHitTesting(expansion > 0.5)
-                    }
-                }
-                .frame(width: shellWidth, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, bottomOffset)
-                .gesture(shellGesture(screenHeight: screenHeight, screenWidth: geometry.size.width))
-                .onTapGesture {
-                    if expansion < 0.1 {
-                        navigationManager.expandPlayer()
-                    }
-                }
+                // LAYER 3: Morphing album art — driven by artExpansion (slow, smooth flight)
+                morphingAlbumArt(expansion: artExp, geometry: geometry, miniBottomOffset: miniBottomOffset)
+                    .opacity(showLyrics && artExp > 0.5 ? 0 : Double(min(1, artExp / 0.15)))
+                    .allowsHitTesting(false)
             }
         }
         .ignoresSafeArea(.container)
@@ -195,7 +191,7 @@ struct PlayerShell: View {
                 .opacity(0.001)
         }
         .animation(.easeInOut(duration: 0.35), value: lyricsExpanded)
-        // Mini progress tracking
+        // Track change handling
         .onChange(of: audioPlayer.currentSong?.id) { oldId, newId in
             guard let newId, !lastMiniSongId.isEmpty, oldId != newId else {
                 if let newId { lastMiniSongId = newId }
@@ -209,10 +205,8 @@ struct PlayerShell: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isProgressTransitioning = false
             }
-            // Color + like reset for full player
             extractColorsFromArtwork()
             checkLikeStatus()
-            // Keep lyrics view open on track change — just fetch new lyrics
             if showLyrics {
                 lyricsState = .loading
                 fetchLyrics()
@@ -235,59 +229,67 @@ struct PlayerShell: View {
         }
     }
 
-    // MARK: - Background Layers
+    // MARK: - Layer 1: Full Player (background + controls, no art)
 
     @ViewBuilder
-    private func backgroundLayers(expansion: CGFloat) -> some View {
-        // Solid background from extracted colors — only the lower portion (below the image)
-        primaryColor
-            .opacity(Double(expansion))
+    private func fullPlayerLayer(expansion: CGFloat, geometry: GeometryProxy) -> some View {
+        let contentOpacity = Double(min(1, expansion * 2.5)) // fades out: 0.4→0
+
+        ZStack {
+            // Background
+            primaryColor
+
+            // Controls
+            fullContent(geometry: geometry, shellWidth: geometry.size.width)
+                .opacity(contentOpacity)
+        }
+        .frame(width: geometry.size.width, height: geometry.size.height)
+        .clipShape(RoundedRectangle(cornerRadius: sheetCornerRadius(for: geometry), style: .continuous))
+        .opacity(Double(min(1, expansion * 2))) // sheet fades: 0.5→0
     }
 
-    // MARK: - Morphing Album Art
+    // MARK: - Layer 2: Morphing Album Art
 
     @ViewBuilder
-    private func morphingAlbumArt(expansion: CGFloat, shellHeight: CGFloat, shellWidth: CGFloat, geometry: GeometryProxy) -> some View {
+    private func morphingAlbumArt(expansion: CGFloat, geometry: GeometryProxy, miniBottomOffset: CGFloat) -> some View {
         if let song = audioPlayer.currentSong {
-            // Mini state: circle, positioned at left of mini player
-            let miniSize: CGFloat = miniArtSize
             let screenH = geometry.size.height
+            let screenW = geometry.size.width
             let iPadLandscape = layout.isIPad && layout.isLandscape
+            let sheetTranslation = navigationManager.sheetTranslation
 
-            // Full state: top 60% of screen, edge-to-edge width
-            let fullWidth: CGFloat = iPadLandscape
-                ? shellWidth / 2
-                : shellWidth
-            let fullHeight: CGFloat = screenH * 0.6
-            let artWidth = miniSize + (fullWidth - miniSize) * expansion
-            let artHeight = miniSize + (fullHeight - miniSize) * expansion
+            // Full state: top portion of screen
+            let fullW = iPadLandscape ? screenW / 2 : screenW
+            let fullH = screenH * 0.6
+            let fullCenterX = iPadLandscape ? fullW / 2 : screenW / 2
+            let fullCenterY = fullH / 2 + sheetTranslation // moves with sheet during drag
 
-            // Corner radius: circle (half size) → 0 (edge-to-edge)
-            let miniCorner = miniSize / 2
-            let artCorner = miniCorner * (1 - expansion)
+            // Mini state: inside the progress ring on the mini bar
+            let miniCenterX: CGFloat = 16 + 16 + miniRingSize / 2
+            let miniCenterY: CGFloat = screenH - miniBottomOffset - miniHeight / 2
 
-            // Offsets from center of the shell frame (shellWidth × shellHeight)
-            let miniX = 16 + miniRingSize / 2 - shellWidth / 2
-            let miniY = shellHeight / 2 - miniHeight / 2
+            // Interpolate position, size, shape
+            let artCenterX = miniCenterX + (fullCenterX - miniCenterX) * expansion
+            let artCenterY = miniCenterY + (fullCenterY - miniCenterY) * expansion
+            let artW = miniArtSize + (fullW - miniArtSize) * expansion
+            let artH = miniArtSize + (fullH - miniArtSize) * expansion
 
-            // Full: top-aligned
-            let fullX: CGFloat = iPadLandscape ? -(shellWidth / 4) : 0
-            let fullY: CGFloat = -(shellHeight / 2) + fullHeight / 2
-
-            let artX = miniX + (fullX - miniX) * expansion
-            let artY = miniY + (fullY - miniY) * expansion
+            // Corner radius: circle when mini, matches device corners when sheet is dragged, 0 when fully expanded
+            let miniCorner = miniArtSize / 2
+            let dragCorner = sheetCornerRadius(for: geometry) // ramps up to ~55pt during drag
+            let fullCorner = max(0, dragCorner) // 0 when not dragging, device corners when dragging
+            let artCorner = miniCorner + (fullCorner - miniCorner) * expansion
 
             ProgressiveAlbumArt(
-                lowQualityUrl: song.thumbnailUrl,
+                lowQualityUrl: ImageUtils.upscaleThumbnail(song.thumbnailUrl, targetSize: 226),
                 highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
             )
             .id(song.id)
-            .frame(width: artWidth, height: artHeight)
+            .frame(width: artW, height: artH)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: artCorner, style: .continuous))
             .overlay(alignment: .bottom) {
-                // 5-stop gradient overlay matching artist page strategy:
-                // image visible at top, smoothly fading into solid color at bottom
+                // Gradient: visible only when expanded
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0.0),
@@ -301,64 +303,106 @@ struct PlayerShell: View {
                 )
                 .opacity(Double(expansion))
             }
-            .offset(x: artX + horizontalSwipeOffset * expansion, y: artY)
-            .opacity(Double(min(1, expansion / 0.15)))
-            .allowsHitTesting(false)
+            .offset(x: horizontalSwipeOffset * expansion)
+            .position(x: artCenterX, y: artCenterY)
         }
     }
 
-    // MARK: - Shell Gesture
+    // MARK: - Layer 3: Mini Player Bar
 
-    private func shellGesture(screenHeight: CGFloat, screenWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 10, coordinateSpace: .global)
+    @ViewBuilder
+    private func miniPlayerBar(expansion: CGFloat, geometry: GeometryProxy, miniBottomOffset: CGFloat) -> some View {
+        let miniOpacity = Double(max(0, 1 - expansion * 5)) // visible below expansion 0.2
+
+        if audioPlayer.currentSong != nil {
+            VStack {
+                Spacer()
+                miniContent
+                    .frame(width: geometry.size.width - 32, height: miniHeight)
+                    .clipShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+                    .padding(.bottom, miniBottomOffset)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(miniOpacity)
+            .allowsHitTesting(expansion < 0.1)
+            .onTapGesture {
+                if expansion < 0.1 {
+                    navigationManager.expandPlayer()
+                }
+            }
+        }
+    }
+
+    // MARK: - Sheet Drag Gesture
+
+    private func sheetDragGesture(screenHeight: CGFloat, screenWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
-                // Only respond when expanded (not in mini state)
-                guard dragStartExpansion > 0.1 || navigationManager.playerExpansion > 0.1 else { return }
-                guard !lyricsExpanded else { return }
+                guard navigationManager.playerExpansion > 0.9 else { return }
+                guard !showLyrics else { return }
 
                 if !isDragging {
-                    isDragging = true
-                    dragStartExpansion = navigationManager.playerExpansion
-                    gestureDirectionLock = nil
-                }
-
-                let verticalAmount = abs(value.translation.height)
-                let horizontalAmount = abs(value.translation.width)
-
-                // Lock direction on first significant movement
-                if gestureDirectionLock == nil && (horizontalAmount > 15 || verticalAmount > 15) {
-                    if horizontalAmount > verticalAmount && navigationManager.playerExpansion > 0.9 {
-                        gestureDirectionLock = .horizontal
-                    } else {
-                        gestureDirectionLock = .vertical
+                    // Check if drag started in the seek bar / controls zone (bottom ~35%)
+                    let seekZoneTop = screenHeight * 0.65
+                    if value.startLocation.y > seekZoneTop {
+                        dragStartedInSeekZone = true
+                        return
                     }
+
+                    let verticalAmount = abs(value.translation.height)
+                    let horizontalAmount = abs(value.translation.width)
+                    guard verticalAmount > 15 || horizontalAmount > 15 else { return }
+                    isDragging = true
+                    gestureDirectionLock = horizontalAmount > verticalAmount ? .horizontal : .vertical
                 }
+
+                guard !dragStartedInSeekZone else { return }
 
                 switch gestureDirectionLock {
                 case .horizontal:
-                    // Horizontal swipe for track change (only when mostly expanded)
+                    // Track swipe (only in art area, above seek zone)
                     withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.9, blendDuration: 0)) {
                         horizontalSwipeOffset = value.translation.width * 0.6
                     }
+                    return
                 case .vertical:
-                    // Vertical drag → adjust expansion
-                    if value.translation.height > 0 {
-                        let dragFraction = value.translation.height / screenHeight
-                        let newExpansion = max(0, dragStartExpansion - dragFraction * 1.8)
-                        withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 1)) {
-                            navigationManager.playerExpansion = newExpansion
-                        }
-                    }
+                    break // handled below
                 case nil:
-                    break
+                    return
+                }
+
+
+                if value.translation.height > 0 {
+                    let rubberBanded = rubberBand(value.translation.height, dimension: screenHeight, coefficient: 0.9)
+                    navigationManager.sheetTranslation = rubberBanded
+
+                    // Haptic at dismiss threshold
+                    let isPastThreshold = rubberBanded > dismissThreshold
+                    if isPastThreshold && !passedDismissThreshold {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        passedDismissThreshold = true
+                    } else if !isPastThreshold && passedDismissThreshold {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        passedDismissThreshold = false
+                    }
+                } else {
+                    navigationManager.sheetTranslation = 0
                 }
             }
             .onEnded { value in
-                let lockedDirection = gestureDirectionLock
+                let lockedDir = gestureDirectionLock
+                let wasInSeekZone = dragStartedInSeekZone
                 isDragging = false
                 gestureDirectionLock = nil
+                passedDismissThreshold = false
+                dragStartedInSeekZone = false
 
-                if lockedDirection == .horizontal && navigationManager.playerExpansion > 0.9 {
+                guard !wasInSeekZone else { return }
+
+                if lockedDir == .horizontal {
+                    // Track change via horizontal swipe
                     let velocity = value.predictedEndTranslation.width - value.translation.width
                     let threshold: CGFloat = 80
                     let velocityThreshold: CGFloat = 300
@@ -368,7 +412,6 @@ struct PlayerShell: View {
                     } else if value.translation.width > threshold || velocity > velocityThreshold {
                         performTrackTransition(direction: .previous, screenWidth: screenWidth)
                     } else {
-                        // Didn't meet threshold — snap back to center
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             horizontalSwipeOffset = 0
                         }
@@ -376,30 +419,24 @@ struct PlayerShell: View {
                     return
                 }
 
-                // Always reset horizontal offset if we ended up in vertical mode
-                if horizontalSwipeOffset != 0 {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        horizontalSwipeOffset = 0
-                    }
-                }
+                guard lockedDir == .vertical else { return }
 
-                // Snap expansion based on position + velocity
                 let velocity = value.predictedEndTranslation.height - value.translation.height
-                let current = navigationManager.playerExpansion
+                let translation = navigationManager.sheetTranslation
 
-                if current < 0.4 || velocity > 400 {
+                if translation > dismissThreshold || velocity > 300 {
                     navigationManager.collapsePlayer()
                 } else {
-                    navigationManager.expandPlayer()
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
+                        navigationManager.sheetTranslation = 0
+                    }
                 }
             }
     }
 
     // MARK: - Track Transition
 
-    private enum SwipeDirection {
-        case next, previous
-    }
+    private enum SwipeDirection { case next, previous }
 
     private func performTrackTransition(direction: SwipeDirection, screenWidth: CGFloat) {
         isTransitioningTrack = true
@@ -433,7 +470,7 @@ struct PlayerShell: View {
     private var miniContent: some View {
         HStack(spacing: 12) {
             if let song = audioPlayer.currentSong {
-                // Album Art with progress ring — owns its image so it moves with swipes
+                // Album art + progress ring — art is a real child so it moves with swipes
                 ZStack {
                     Circle()
                         .stroke(Color.white.opacity(0.15), lineWidth: 3)
@@ -446,16 +483,17 @@ struct PlayerShell: View {
                         isProgressTransitioning: isProgressTransitioning
                     )
 
+                    // Art inside the ring — fades out as morphing overlay fades in
                     ProgressiveAlbumArt(
-                        lowQualityUrl: song.thumbnailUrl,
+                        lowQualityUrl: ImageUtils.upscaleThumbnail(song.thumbnailUrl, targetSize: 226),
                         highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
                     )
                     .id(song.id)
                     .frame(width: miniArtSize, height: miniArtSize)
                     .clipShape(Circle())
+                    .opacity(Double(max(0, 1 - navigationManager.artExpansion / 0.15)))
                 }
 
-                // Song Info
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
                         .font(.system(size: miniTitleFont, weight: .semibold))
@@ -469,7 +507,6 @@ struct PlayerShell: View {
 
                 Spacer()
 
-                // Play/Pause
                 Button {
                     audioPlayer.togglePlayPause()
                 } label: {
@@ -484,7 +521,6 @@ struct PlayerShell: View {
                 .disabled(sharePlayManager.isGuest)
                 .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
 
-                // Next
                 Button {
                     Task { await audioPlayer.playNext() }
                 } label: {
@@ -542,7 +578,6 @@ struct PlayerShell: View {
     private func fullContent(geometry: GeometryProxy, shellWidth: CGFloat) -> some View {
         let screenW = geometry.size.width
         let screenH = geometry.size.height
-
         let hPad = max(16, screenW * 0.06)
         let controlsGap = screenH * 0.022
 
@@ -552,11 +587,8 @@ struct PlayerShell: View {
             }
             .contentShape(Rectangle())
         } else if layout.isIPad && layout.isLandscape {
-            // iPad landscape: controls on right half
             HStack(spacing: 0) {
-                Spacer()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+                Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     songInfoView
@@ -574,10 +606,8 @@ struct PlayerShell: View {
             .padding(.bottom, bottomSafeAreaInset + screenH * 0.014)
             .contentShape(Rectangle())
         } else {
-            // Portrait: immersive layout — content floats over blurred album art
             VStack(spacing: 0) {
                 if showLyrics {
-                    // Lyrics cover the screen, starting below the Dynamic Island
                     LyricsView(
                         lyricsState: lyricsState,
                         currentTime: audioPlayer.currentTime,
@@ -594,27 +624,17 @@ struct PlayerShell: View {
                     .padding(.top, topSafeAreaInset + 12)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 } else {
-                    // Push content into the lower portion (over the gradient blend)
                     Spacer()
                 }
 
-                // Song info (centered, swipeable with art)
                 songInfoView
                     .offset(x: horizontalSwipeOffset)
 
                 Spacer().frame(height: controlsGap * 1.2)
-
-                // Middle action row: lyrics | heart+share+context | queue
                 middleActionRow(screenWidth: screenW)
-
                 Spacer().frame(height: controlsGap * 1.2)
-
-                // Progress bar
                 progressView
-
                 Spacer().frame(height: controlsGap)
-
-                // Playback controls: airplay | prev | play | next | repeat
                 controlsView(screenWidth: screenW, screenHeight: screenH)
             }
             .padding(.horizontal, hPad)
@@ -627,14 +647,12 @@ struct PlayerShell: View {
 
     private func middleActionRow(screenWidth: CGFloat) -> some View {
         ZStack {
-            // Center pill: share + heart + queue — true center using ZStack
             HStack(spacing: 16) {
                 Button { shareSong() } label: {
                     Image(systemName: "arrowshape.turn.up.right")
                         .font(.system(size: controlIcon, weight: .medium))
                         .foregroundStyle(.white)
                 }
-
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     toggleLike()
@@ -644,10 +662,7 @@ struct PlayerShell: View {
                         .foregroundStyle(isLiked ? .red : .white)
                         .likeButtonAnimation(trigger: isLiked)
                 }
-
-                Button {
-                    showQueue = true
-                } label: {
+                Button { showQueue = true } label: {
                     Image(systemName: "list.bullet")
                         .font(.system(size: controlIcon, weight: .medium))
                         .foregroundStyle(sharePlayManager.isGuest ? .white.opacity(0.4) : .white)
@@ -658,12 +673,9 @@ struct PlayerShell: View {
             .frame(height: handleButtonSize + 8)
             .glassEffect(.regular.interactive(), in: .capsule)
 
-            // Left: Lyrics button — overlaid at leading edge
             HStack {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        showLyrics.toggle()
-                    }
+                    withAnimation(.easeInOut(duration: 0.3)) { showLyrics.toggle() }
                     if showLyrics, let song = audioPlayer.currentSong,
                        song.id != lastLyricsFetchedSongId {
                         fetchLyrics()
@@ -675,140 +687,68 @@ struct PlayerShell: View {
                         .frame(width: handleButtonSize, height: handleButtonSize)
                 }
                 .glassEffect(.regular.interactive(), in: .circle)
-
                 Spacer()
             }
 
-            // Right: Context menu — overlaid at trailing edge
             HStack {
                 Spacer()
-
                 moreMenuButton
             }
         }
         .padding(.horizontal, 4)
     }
 
-    // Standalone context menu button for the right side of middle action row
     private var moreMenuButton: some View {
         Menu {
-            // Go to Album + Go to Artist
             if let song = audioPlayer.currentSong {
                 if let artistId = song.artistId {
                     Button {
                         navigationManager.collapsePlayer()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            navigationManager.navigateToArtist(
-                                id: artistId,
-                                name: song.artist,
-                                thumbnail: song.thumbnailUrl
-                            )
+                            navigationManager.navigateToArtist(id: artistId, name: song.artist, thumbnail: song.thumbnailUrl)
                         }
-                    } label: {
-                        Label("Go to Artist", systemImage: "music.mic")
-                    }
+                    } label: { Label("Go to Artist", systemImage: "music.mic") }
                 }
-
                 if let albumId = song.albumId {
                     Button {
                         navigationManager.collapsePlayer()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            navigationManager.navigateToAlbum(
-                                id: albumId,
-                                name: song.title,
-                                artist: song.artist,
-                                thumbnail: song.thumbnailUrl
-                            )
+                            navigationManager.navigateToAlbum(id: albumId, name: song.title, artist: song.artist, thumbnail: song.thumbnailUrl)
                         }
-                    } label: {
-                        Label("Go to Album", systemImage: "opticaldisc")
-                    }
+                    } label: { Label("Go to Album", systemImage: "opticaldisc") }
                 }
             }
-
             Divider()
-
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                Label("Add to Playlist", systemImage: "text.badge.plus")
-            }
-
-            Button {
-                toggleLike()
-            } label: {
-                Label(isLiked ? "Unlike Song" : "Like Song", systemImage: isLiked ? "heart.slash" : "heart")
-            }
-
+            Button { showAddToPlaylist = true } label: { Label("Add to Playlist", systemImage: "text.badge.plus") }
+            Button { toggleLike() } label: { Label(isLiked ? "Unlike Song" : "Like Song", systemImage: isLiked ? "heart.slash" : "heart") }
             Divider()
-
-            // Sleep Timer
             Button {
-                if sleepTimerManager.isActive {
-                    showActiveSleepSheet = true
-                } else {
-                    showSleepSheet = true
-                }
+                if sleepTimerManager.isActive { showActiveSleepSheet = true } else { showSleepSheet = true }
             } label: {
-                Label(
-                    sleepTimerManager.isActive ? "Sleep Timer (Active)" : "Sleep Timer",
-                    systemImage: sleepTimerManager.isActive ? "moon.fill" : "moon"
-                )
+                Label(sleepTimerManager.isActive ? "Sleep Timer (Active)" : "Sleep Timer",
+                      systemImage: sleepTimerManager.isActive ? "moon.fill" : "moon")
             }
-
             Toggle(isOn: Binding(
                 get: { equalizerManager.settings.selectedPreset != .flat },
-                set: { newValue in
-                    if newValue {
-                        showEqualizerSheet = true
-                    } else {
-                        equalizerManager.applyPreset(.flat)
-                        equalizerManager.save()
-                    }
-                }
-            )) {
-                Label("Equalizer", systemImage: "slider.horizontal.3")
-            }
-
+                set: { if $0 { showEqualizerSheet = true } else { equalizerManager.applyPreset(.flat); equalizerManager.save() } }
+            )) { Label("Equalizer", systemImage: "slider.horizontal.3") }
             Toggle(isOn: Binding(
                 get: { crossfadeSettings.isEnabled && !audioPlayer.isAirPlayActive },
                 set: { crossfadeSettings.isEnabled = $0 }
             )) {
-                Label(
-                    audioPlayer.isAirPlayActive ? "Crossfade (AirPlay)" : "Crossfade",
-                    systemImage: "wave.3.right"
-                )
+                Label(audioPlayer.isAirPlayActive ? "Crossfade (AirPlay)" : "Crossfade", systemImage: "wave.3.right")
             }
             .disabled(sharePlayManager.isGuest || audioPlayer.isAirPlayActive)
-
             Divider()
-
             Button {
                 navigationManager.collapsePlayer()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    navigationManager.navigateToListenTogether()
-                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { navigationManager.navigateToListenTogether() }
             } label: {
-                Label(
-                    sharePlayManager.isSessionActive ? "Listen Together (Active)" : "Listen Together",
-                    systemImage: "shareplay"
-                )
+                Label(sharePlayManager.isSessionActive ? "Listen Together (Active)" : "Listen Together", systemImage: "shareplay")
             }
-
             ControlGroup {
-                Button {
-                    startRadio()
-                } label: {
-                    Label("Start Radio", systemImage: "dot.radiowaves.left.and.right")
-                }
-                .disabled(sharePlayManager.isGuest)
-
-                Button {
-                    createStation()
-                } label: {
-                    Label("Save Radio", systemImage: "music.note.square.stack.fill")
-                }
-                .disabled(sharePlayManager.isGuest)
+                Button { startRadio() } label: { Label("Start Radio", systemImage: "dot.radiowaves.left.and.right") }.disabled(sharePlayManager.isGuest)
+                Button { createStation() } label: { Label("Save Radio", systemImage: "music.note.square.stack.fill") }.disabled(sharePlayManager.isGuest)
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -830,14 +770,9 @@ struct PlayerShell: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-
                 Button {
                     if let artistId = song.artistId {
-                        navigationManager.navigateToArtist(
-                            id: artistId,
-                            name: song.artist,
-                            thumbnail: song.thumbnailUrl
-                        )
+                        navigationManager.navigateToArtist(id: artistId, name: song.artist, thumbnail: song.thumbnailUrl)
                     }
                 } label: {
                     Text(song.artist)
@@ -865,59 +800,41 @@ struct PlayerShell: View {
 
     private func controlsView(screenWidth: CGFloat, screenHeight: CGFloat) -> some View {
         HStack(spacing: screenWidth * 0.07) {
-            // AirPlay
             Button { showAirPlayPicker = true } label: {
                 Image(systemName: "airplayaudio")
                     .font(.system(size: controlIcon, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: controlTapSize, height: controlTapSize)
             }
-
-            Button {
-                Task { await audioPlayer.playPrevious() }
-            } label: {
+            Button { Task { await audioPlayer.playPrevious() } } label: {
                 Image(systemName: "backward.fill")
                     .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: controlTapSize, height: controlTapSize)
             }
-            .disabled(sharePlayManager.isGuest)
-            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
-
-            Button {
-                audioPlayer.togglePlayPause()
-            } label: {
+            .disabled(sharePlayManager.isGuest).opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
+            Button { audioPlayer.togglePlayPause() } label: {
                 Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                     .contentTransition(.symbolEffect(.replace))
                     .font(.system(size: layout.isRegularWidth ? 38 : 32, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: layout.isRegularWidth ? 84 : 72, height: layout.isRegularWidth ? 84 : 72)
             }
-            .disabled(sharePlayManager.isGuest)
-            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
-
-            Button {
-                Task { await audioPlayer.playNext() }
-            } label: {
+            .disabled(sharePlayManager.isGuest).opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
+            Button { Task { await audioPlayer.playNext() } } label: {
                 Image(systemName: "forward.fill")
                     .font(.system(size: controlIconLarge, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: controlTapSize, height: controlTapSize)
             }
-            .disabled(sharePlayManager.isGuest)
-            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
-
-            // Repeat/Shuffle
-            Button {
-                audioPlayer.toggleLoopMode()
-            } label: {
+            .disabled(sharePlayManager.isGuest).opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
+            Button { audioPlayer.toggleLoopMode() } label: {
                 Image(systemName: audioPlayer.loopMode.icon)
                     .font(.system(size: controlIcon, weight: .medium))
                     .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
                     .frame(width: controlTapSize, height: controlTapSize)
             }
-            .disabled(sharePlayManager.isGuest)
-            .opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
+            .disabled(sharePlayManager.isGuest).opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
         }
     }
 
@@ -925,29 +842,22 @@ struct PlayerShell: View {
 
     private func expandedLyricsContent(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Lyrics fill most of the screen
             LyricsView(
                 lyricsState: lyricsState,
                 currentTime: audioPlayer.currentTime,
                 isPlaying: audioPlayer.isPlaying,
                 onSeek: { time in audioPlayer.seek(to: time) },
                 isExpanded: true,
-                onExpandToggle: {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        lyricsExpanded = false
-                    }
-                }
+                onExpandToggle: { withAnimation(.easeInOut(duration: 0.35)) { lyricsExpanded = false } }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.top, topSafeAreaInset)
 
-            // Compact song info + progress pinned at bottom
             SlimProgressView(
                 audioPlayer: audioPlayer,
                 isCrossfadeActive: CrossfadeSettings.shared.isEnabled && audioPlayer.crossfadeEngine?.isActive == true
             )
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 20).padding(.bottom, 8)
 
             compactSongInfoView
                 .padding(.horizontal, 20)
@@ -961,41 +871,26 @@ struct PlayerShell: View {
             if let song = audioPlayer.currentSong {
                 CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                     switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        Rectangle().fill(.white.opacity(0.1))
+                    case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                    default: Rectangle().fill(.white.opacity(0.1))
                     }
                 }
                 .frame(width: compactArt, height: compactArt)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title)
-                        .font(.system(size: layout.isRegularWidth ? 20 : 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text(song.artist)
-                        .font(.system(size: layout.isRegularWidth ? 16 : 13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    Text(song.title).font(.system(size: layout.isRegularWidth ? 20 : 16, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(song.artist).font(.system(size: layout.isRegularWidth ? 16 : 13)).foregroundStyle(.secondary).lineLimit(1)
                 }
-
                 Spacer()
-
-                Button {
-                    audioPlayer.togglePlayPause()
-                } label: {
+                Button { audioPlayer.togglePlayPause() } label: {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
                         .font(.system(size: controlIcon, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: controlTapSize, height: controlTapSize)
                 }
-
-                Button {
-                    Task { await audioPlayer.playNext() }
-                } label: {
+                Button { Task { await audioPlayer.playNext() } } label: {
                     Image(systemName: "forward.fill")
                         .font(.system(size: controlIcon - 2, weight: .medium))
                         .foregroundStyle(.white)
@@ -1005,7 +900,7 @@ struct PlayerShell: View {
         }
     }
 
-    // MARK: - Mini Progress Ring (isolated to avoid invalidating parent)
+    // MARK: - Mini Progress Ring
 
     private struct MiniProgressRing: View {
         let audioPlayer: AudioPlayer
@@ -1053,7 +948,7 @@ struct PlayerShell: View {
         }
     }
 
-    // MARK: - Progressive Album Art (kept from NowPlayingView)
+    // MARK: - Progressive Album Art
 
     private struct ProgressiveAlbumArt: View {
         let lowQualityUrl: String
@@ -1065,7 +960,6 @@ struct PlayerShell: View {
         init(lowQualityUrl: String, highQualityUrl: String) {
             self.lowQualityUrl = lowQualityUrl
             self.highQualityUrl = highQualityUrl
-
             if let url = URL(string: highQualityUrl),
                let cached = ImageCache.shared.memoryCachedImage(for: url) {
                 _displayImage = State(initialValue: Image(uiImage: cached))
@@ -1083,42 +977,24 @@ struct PlayerShell: View {
                     image.resizable().aspectRatio(contentMode: .fill)
                 } else {
                     Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(white: 0.2), Color(white: 0.1)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .overlay {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 64))
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
+                        .fill(LinearGradient(colors: [Color(white: 0.2), Color(white: 0.1)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .overlay { Image(systemName: "music.note").font(.system(size: 64)).foregroundStyle(.white.opacity(0.5)) }
                 }
             }
-            .task {
-                if !isHighQualityLoaded { await loadHighQuality() }
-            }
+            .task { if !isHighQualityLoaded { await loadHighQuality() } }
         }
 
         private func loadHighQuality() async {
             guard let url = URL(string: highQualityUrl) else { return }
             if let cached = await ImageCache.shared.image(for: url) {
-                await MainActor.run {
-                    displayImage = Image(uiImage: cached)
-                    isHighQualityLoaded = true
-                }
+                await MainActor.run { displayImage = Image(uiImage: cached); isHighQualityLoaded = true }
                 return
             }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 if let uiImage = UIImage(data: data) {
                     await ImageCache.shared.store(uiImage, for: url)
-                    await MainActor.run {
-                        displayImage = Image(uiImage: uiImage)
-                        isHighQualityLoaded = true
-                    }
+                    await MainActor.run { displayImage = Image(uiImage: uiImage); isHighQualityLoaded = true }
                 }
             } catch { }
         }
@@ -1130,7 +1006,6 @@ struct PlayerShell: View {
         guard let song = audioPlayer.currentSong,
               !song.thumbnailUrl.isEmpty,
               let url = URL(string: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)) else { return }
-
         Task {
             let colors: ColorExtractor.ExtractedColors = await ColorExtractor.extractColors(from: url)
             withAnimation(.easeInOut(duration: 0.6)) {
@@ -1141,9 +1016,7 @@ struct PlayerShell: View {
         }
     }
 
-    private func checkLikeStatus() {
-        likedSongsStore.loadIfNeeded(context: modelContext)
-    }
+    private func checkLikeStatus() { likedSongsStore.loadIfNeeded(context: modelContext) }
 
     private func toggleLike() {
         guard let song = audioPlayer.currentSong else { return }
@@ -1155,22 +1028,14 @@ struct PlayerShell: View {
         lyricsState = .loading
         lastLyricsFetchedSongId = song.id
         Task {
-            let result = await LyricsService.shared.fetchLyrics(
-                title: song.title,
-                artist: song.artist,
-                duration: audioPlayer.duration
-            )
+            let result = await LyricsService.shared.fetchLyrics(title: song.title, artist: song.artist, duration: audioPlayer.duration)
             if let synced = result.syncedLyrics, !synced.isEmpty {
                 lyricsState = .synced(synced)
             } else if let plain = result.plainLyrics, !plain.isEmpty {
                 lyricsState = .plain(plain)
             } else {
                 lyricsState = .notFound
-                // Exit lyrics mode if no lyrics available for this track
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showLyrics = false
-                    lyricsExpanded = false
-                }
+                withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false; lyricsExpanded = false }
             }
         }
     }
@@ -1181,15 +1046,11 @@ struct PlayerShell: View {
         let shareText = "\(song.title) by \(song.artist)"
         var activityItems: [Any] = [shareText]
         if let url = URL(string: shareURL) { activityItems.append(url) }
-
         let activityVC = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootViewController = windowScene.windows.first?.rootViewController {
             var topController = rootViewController
-            while let presented = topController.presentedViewController {
-                topController = presented
-            }
-            // iPad requires sourceView for popover presentation
+            while let presented = topController.presentedViewController { topController = presented }
             if let popover = activityVC.popoverPresentationController {
                 popover.sourceView = topController.view
                 popover.sourceRect = CGRect(x: topController.view.bounds.midX, y: topController.view.bounds.midY, width: 0, height: 0)
@@ -1205,16 +1066,10 @@ struct PlayerShell: View {
             do {
                 let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
                 guard !similarVideos.isEmpty else { return }
-
                 let radioSongs = Array(similarVideos.prefix(49)).map { Song(from: $0) }
                 audioPlayer.replaceUpcomingQueue(with: radioSongs)
-                ToastManager.shared.show(
-                    icon: "dot.radiowaves.left.and.right",
-                    text: "Radio mode. Your queue's in good hands."
-                )
-            } catch {
-                Logger.error("Failed to start radio", category: .network, error: error)
-            }
+                ToastManager.shared.show(icon: "dot.radiowaves.left.and.right", text: "Radio mode. Your queue's in good hands.")
+            } catch { Logger.error("Failed to start radio", category: .network, error: error) }
         }
     }
 
@@ -1224,50 +1079,27 @@ struct PlayerShell: View {
             do {
                 let similarVideos = try await NetworkManager.shared.getRelatedSongs(videoId: currentSong.videoId)
                 guard !similarVideos.isEmpty else { return }
-
                 let similarSongsToAdd = Array(similarVideos.prefix(49))
                 var songsToPlay: [Song] = [currentSong]
                 songsToPlay.append(contentsOf: similarSongsToAdd.map { Song(from: $0) })
-
                 await MainActor.run {
                     let playlistName = "MIX: \(currentSong.title)"
                     let playlist = LocalPlaylist(name: playlistName, thumbnailUrl: currentSong.thumbnailUrl)
                     modelContext.insert(playlist)
-
-                    let currentLocalSong = LocalSong(
-                        videoId: currentSong.videoId,
-                        title: currentSong.title,
-                        artist: currentSong.artist,
-                        thumbnailUrl: currentSong.thumbnailUrl,
-                        duration: currentSong.duration,
-                        orderIndex: 0
-                    )
+                    let currentLocalSong = LocalSong(videoId: currentSong.videoId, title: currentSong.title, artist: currentSong.artist, thumbnailUrl: currentSong.thumbnailUrl, duration: currentSong.duration, orderIndex: 0)
                     modelContext.insert(currentLocalSong)
                     playlist.songs.append(currentLocalSong)
-
                     for (index, video) in similarSongsToAdd.enumerated() {
-                        let localSong = LocalSong(
-                            videoId: video.id,
-                            title: video.name,
-                            artist: video.artist,
-                            thumbnailUrl: video.thumbnailUrl,
-                            duration: video.duration,
-                            orderIndex: index + 1
-                        )
+                        let localSong = LocalSong(videoId: video.id, title: video.name, artist: video.artist, thumbnailUrl: video.thumbnailUrl, duration: video.duration, orderIndex: index + 1)
                         modelContext.insert(localSong)
                         playlist.songs.append(localSong)
                     }
-
                     try? modelContext.save()
-
                     Task { await audioPlayer.playAlbum(songs: songsToPlay, startIndex: 0) }
-
                     navigationManager.collapsePlayer()
                     NavigationManager.shared.navigateToLocalPlaylist(playlist)
                 }
-            } catch {
-                Logger.error("Failed to create station", category: .network, error: error)
-            }
+            } catch { Logger.error("Failed to create station", category: .network, error: error) }
         }
     }
 
@@ -1277,9 +1109,7 @@ struct PlayerShell: View {
         if await ImageCache.shared.image(for: url) != nil { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            if let image = UIImage(data: data) {
-                await ImageCache.shared.store(image, for: url)
-            }
+            if let image = UIImage(data: data) { await ImageCache.shared.store(image, for: url) }
         } catch { }
     }
 }
@@ -1290,14 +1120,8 @@ struct QueueView: View {
     var audioPlayer: AudioPlayer
     @Environment(\.dismiss) private var dismiss
 
-    private var crossfadeEnabled: Bool {
-        CrossfadeSettings.shared.isEnabled
-    }
-
-    private var crossfadeActive: Bool {
-        audioPlayer.crossfadeEngine?.isActive == true
-    }
-
+    private var crossfadeEnabled: Bool { CrossfadeSettings.shared.isEnabled }
+    private var crossfadeActive: Bool { audioPlayer.crossfadeEngine?.isActive == true }
     private var upcomingSongs: [(offset: Int, element: Song)] {
         guard audioPlayer.currentIndex + 1 < audioPlayer.queue.count else { return [] }
         return Array(audioPlayer.queue.dropFirst(audioPlayer.currentIndex + 1).enumerated())
@@ -1306,60 +1130,40 @@ struct QueueView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Past and current songs
                 ForEach(Array(audioPlayer.queue.prefix(audioPlayer.currentIndex + 1).enumerated()), id: \.element.id) { index, song in
-                    CompactSongRow(
-                        song: song,
-                        isCurrentlyPlaying: index == audioPlayer.currentIndex
-                    ) {
+                    CompactSongRow(song: song, isCurrentlyPlaying: index == audioPlayer.currentIndex) {
                         Task { await audioPlayer.playFromQueue(at: index) }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-                .moveDisabled(true)
-                .deleteDisabled(true)
+                .moveDisabled(true).deleteDisabled(true)
 
-                // Crossfade indicator between current and next song
                 if crossfadeEnabled && !upcomingSongs.isEmpty {
                     CrossfadeIndicatorRow(isActive: crossfadeActive)
                 }
 
-                // Upcoming songs
                 ForEach(upcomingSongs, id: \.element.id) { localIndex, song in
                     let queueIndex = audioPlayer.currentIndex + 1 + localIndex
                     let isLockedForCrossfade = crossfadeActive && localIndex == 0
-
                     SwipeableQueueRow(
-                        song: song,
-                        isNextSong: localIndex == 0,
-                        isLocked: isLockedForCrossfade,
+                        song: song, isNextSong: localIndex == 0, isLocked: isLockedForCrossfade,
                         onRemove: { audioPlayer.removeFromQueue(at: queueIndex) },
                         onPlayNext: {
-                            if localIndex == 0 {
-                                Task { await audioPlayer.playFromQueue(at: queueIndex) }
-                            } else {
-                                _ = audioPlayer.moveToPlayNext(fromIndex: queueIndex)
-                            }
+                            if localIndex == 0 { Task { await audioPlayer.playFromQueue(at: queueIndex) } }
+                            else { _ = audioPlayer.moveToPlayNext(fromIndex: queueIndex) }
                         },
                         onTap: { Task { await audioPlayer.playFromQueue(at: queueIndex) } }
                     )
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .moveDisabled(isLockedForCrossfade)
-                    .deleteDisabled(true)
+                    .moveDisabled(isLockedForCrossfade).deleteDisabled(true)
                 }
                 .onMove(perform: handleUpcomingMove)
             }
-            .listStyle(.plain)
-            .listRowSpacing(0)
-            .scrollContentBackground(.hidden)
-            .background(.clear)
+            .listStyle(.plain).listRowSpacing(0).scrollContentBackground(.hidden).background(.clear)
             .environment(\.editMode, .constant(.active))
-            .navigationTitle("Up Next")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Up Next").navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
         }
     }
@@ -1368,12 +1172,9 @@ struct QueueView: View {
         let base = audioPlayer.currentIndex + 1
         let adjustedSource = IndexSet(source.map { $0 + base })
         let adjustedDestination = destination + base
-
         if adjustedDestination <= audioPlayer.currentIndex {
             audioPlayer.moveQueueItem(fromOffsets: adjustedSource, toOffset: audioPlayer.currentIndex + 1)
-            Task {
-                await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1)
-            }
+            Task { await audioPlayer.playFromQueue(at: audioPlayer.currentIndex + 1) }
         } else {
             audioPlayer.moveQueueItem(fromOffsets: adjustedSource, toOffset: adjustedDestination)
         }
@@ -1393,142 +1194,77 @@ private struct SwipeableQueueRow: View {
     @State private var offset: CGFloat = 0
     @State private var isDragging = false
     @State private var passedThreshold = false
-
     private let threshold: CGFloat = 80
 
     var body: some View {
         ZStack {
             if !isLocked {
-                // Right background (swipe left ← green: Play Next)
                 HStack {
                     Spacer()
                     VStack(spacing: 4) {
-                        Image(systemName: isNextSong ? "play.fill" : "text.insert")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text(isNextSong ? "Play Now" : "Up Next")
-                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: isNextSong ? "play.fill" : "text.insert").font(.system(size: 18, weight: .semibold))
+                        Text(isNextSong ? "Play Now" : "Up Next").font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundStyle(.white)
-                    .padding(.trailing, 24)
+                    .foregroundStyle(.white).padding(.trailing, 24)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.green)
-                .opacity(offset < 0 ? 1 : 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.green).opacity(offset < 0 ? 1 : 0)
 
-                // Left background (swipe right → red: Remove)
                 HStack {
                     VStack(spacing: 4) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Remove")
-                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "xmark").font(.system(size: 18, weight: .semibold))
+                        Text("Remove").font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundStyle(.white)
-                    .padding(.leading, 24)
+                    .foregroundStyle(.white).padding(.leading, 24)
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.85, green: 0.18, blue: 0.28))
-                .opacity(offset > 0 ? 1 : 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(red: 0.85, green: 0.18, blue: 0.28)).opacity(offset > 0 ? 1 : 0)
             }
 
-            // Row content
             HStack(spacing: 12) {
                 CachedAsyncImagePhase(url: URL(string: song.thumbnailUrl)) { phase in
                     switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    default:
-                        Rectangle()
-                            .fill(Color(white: 0.15))
+                    case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                    default: Rectangle().fill(Color(white: 0.15))
                     }
                 }
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(song.artist)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    Text(song.title).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(song.artist).font(.system(size: 12)).foregroundStyle(.tertiary).lineLimit(1)
                 }
-
                 Spacer()
-
-                if isLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
+                if isLocked { Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.tertiary) }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.clear)
-            .offset(x: offset)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 12).padding(.vertical, 8).background(.clear)
+            .offset(x: offset).contentShape(Rectangle())
             .onTapGesture { onTap() }
             .highPriorityGesture(
                 DragGesture(minimumDistance: isLocked ? .infinity : 20)
                     .onChanged { value in
                         if !isDragging {
-                            let horizontal = abs(value.translation.width)
-                            let vertical = abs(value.translation.height)
-                            guard horizontal > vertical else { return }
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
                             isDragging = true
                         }
                         guard isDragging else { return }
-
                         offset = value.translation.width
-
                         let isPastThreshold = abs(offset) >= threshold
-                        if isPastThreshold && !passedThreshold {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            passedThreshold = true
-                        } else if !isPastThreshold && passedThreshold {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            passedThreshold = false
-                        }
+                        if isPastThreshold && !passedThreshold { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); passedThreshold = true }
+                        else if !isPastThreshold && passedThreshold { UIImpactFeedbackGenerator(style: .light).impactOccurred(); passedThreshold = false }
                     }
                     .onEnded { value in
-                        guard isDragging else {
-                            isDragging = false
-                            return
-                        }
-
+                        guard isDragging else { isDragging = false; return }
                         let finalOffset = value.translation.width
                         if finalOffset < -threshold {
-                            // Swipe left → Play Next
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                offset = -500
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                onPlayNext()
-                                offset = 0
-                            }
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { offset = -500 }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onPlayNext(); offset = 0 }
                         } else if finalOffset > threshold {
-                            // Swipe right → Remove
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                offset = 500
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                onRemove()
-                                offset = 0
-                            }
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { offset = 500 }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onRemove(); offset = 0 }
                         } else {
-                            // Snap back
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                                offset = 0
-                            }
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { offset = 0 }
                         }
-
-                        isDragging = false
-                        passedThreshold = false
+                        isDragging = false; passedThreshold = false
                     }
             )
         }
@@ -1539,82 +1275,41 @@ private struct SwipeableQueueRow: View {
 // MARK: - Crossfade Indicator Row
 
 private struct CrossfadeIndicatorRow: View {
-    let isActive: Bool  // preloading/ready/fading
-
+    let isActive: Bool
     @State private var shimmerPhase: CGFloat = -1
-
-    private var pipeColor: Color {
-        .white.opacity(isActive ? 0.4 : 0.15)
-    }
-
-    // Album art center: 12px row padding + 22px (half of 44px art)
+    private var pipeColor: Color { .white.opacity(isActive ? 0.4 : 0.15) }
     private let pipeX: CGFloat = 34
 
     var body: some View {
         ZStack(alignment: .leading) {
-            // Continuous pipe running full height — never breaks
-            Rectangle()
-                .fill(pipeColor)
-                .frame(width: 1.5)
-                .padding(.leading, pipeX - 0.75)
-
-            // Crossfade box sitting on top of the pipe (z-order: drawn last = on top)
+            Rectangle().fill(pipeColor).frame(width: 1.5).padding(.leading, pipeX - 0.75)
             HStack(spacing: 6) {
-                Image(systemName: "wave.3.right")
-                    .font(.system(size: 11, weight: .medium))
-                Text("Crossfade")
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "wave.3.right").font(.system(size: 11, weight: .medium))
+                Text("Crossfade").font(.system(size: 12, weight: .medium))
             }
             .foregroundStyle(.white.opacity(isActive ? 0.9 : 0.45))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12).padding(.vertical, 6)
             .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(white: 0.18))
-                    .overlay {
-                        if isActive {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            .clear,
-                                            .white.opacity(0.15),
-                                            .clear
-                                        ],
-                                        startPoint: UnitPoint(x: shimmerPhase, y: 0.5),
-                                        endPoint: UnitPoint(x: shimmerPhase + 0.6, y: 0.5)
-                                    )
-                                )
-                        }
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.white.opacity(isActive ? 0.25 : 0.1), lineWidth: 1)
-                    }
+                RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.18))
+                    .overlay { if isActive {
+                        RoundedRectangle(cornerRadius: 8).fill(
+                            LinearGradient(colors: [.clear, .white.opacity(0.15), .clear],
+                                           startPoint: UnitPoint(x: shimmerPhase, y: 0.5),
+                                           endPoint: UnitPoint(x: shimmerPhase + 0.6, y: 0.5)))
+                    }}
+                    .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(isActive ? 0.25 : 0.1), lineWidth: 1) }
             }
             .padding(.leading, pipeX - 16)
         }
-        .frame(height: 80)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
+        .frame(height: 80).frame(maxWidth: .infinity, alignment: .leading)
+        .listRowBackground(Color.clear).listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .onChange(of: isActive) {
-            if isActive {
-                startShimmer()
-            }
-        }
-        .onAppear {
-            if isActive {
-                startShimmer()
-            }
-        }
+        .onChange(of: isActive) { if isActive { startShimmer() } }
+        .onAppear { if isActive { startShimmer() } }
     }
 
     private func startShimmer() {
         shimmerPhase = -1
-        withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
-            shimmerPhase = 1.4
-        }
+        withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) { shimmerPhase = 1.4 }
     }
 }
