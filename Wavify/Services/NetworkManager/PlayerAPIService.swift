@@ -163,6 +163,16 @@ final class PlayerAPIService {
         return try await searchForAlbumInfo(title: title, artist: artist)
     }
 
+    /// Result of resolving a videoId to its song (ATV) version.
+    struct SongResolution {
+        let videoId: String
+        /// Clean album art URL from WEB_REMIX (lh3.googleusercontent.com).
+        /// The player API (ANDROID_VR) returns Topic-style images with borders,
+        /// so we capture the clean art from the search/next response instead.
+        let thumbnailUrl: String?
+        let wasResolved: Bool
+    }
+
     /// Resolve a videoId to its song (ATV) version if it's a music video (OMV).
     /// YouTube Music has separate "song" (audio-only) and "video" (music video) versions
     /// of the same track with different videoIds. Music videos can have intros, talking, etc.
@@ -174,7 +184,7 @@ final class PlayerAPIService {
     /// 3. If OMV, search for the ATV version by title + artist (fallback for unlinked pairs)
     ///
     /// Returns the original videoId if already ATV or no song version can be found.
-    func resolveSongVideoId(for videoId: String) async -> String {
+    func resolveSongVideoId(for videoId: String) async -> SongResolution {
         do {
             let body: [String: Any] = [
                 "videoId": videoId,
@@ -192,23 +202,23 @@ final class PlayerAPIService {
             let result = parseSongVideoId(from: data, originalVideoId: videoId)
 
             switch result {
-            case .resolved(let songId):
-                return songId
+            case .resolved(let songId, let thumbnail):
+                return SongResolution(videoId: songId, thumbnailUrl: thumbnail, wasResolved: true)
             case .alreadyATV:
-                return videoId
+                return SongResolution(videoId: videoId, thumbnailUrl: nil, wasResolved: false)
             case .needsSearchFallback(let title, let artist):
                 // No counterpart linked — search for the ATV version
                 Logger.log("[PlayerAPI] No counterpart linked for OMV \(videoId), searching for ATV: \"\(title)\" by \"\(artist)\"", category: .network)
-                if let atvId = try await searchForSongVersion(title: title, artist: artist, originalVideoId: videoId) {
-                    return atvId
+                if let match = try await searchForSongVersion(title: title, artist: artist, originalVideoId: videoId) {
+                    return SongResolution(videoId: match.videoId, thumbnailUrl: match.thumbnailUrl, wasResolved: true)
                 }
-                return videoId
+                return SongResolution(videoId: videoId, thumbnailUrl: nil, wasResolved: false)
             case .unknown:
-                return videoId
+                return SongResolution(videoId: videoId, thumbnailUrl: nil, wasResolved: false)
             }
         } catch {
             Logger.log("[PlayerAPI] Failed to resolve song videoId, using original: \(error.localizedDescription)", category: .network)
-            return videoId
+            return SongResolution(videoId: videoId, thumbnailUrl: nil, wasResolved: false)
         }
     }
 
@@ -216,10 +226,10 @@ final class PlayerAPIService {
 
     /// Result of parsing the `next` response for song version
     private enum SongResolutionResult {
-        case resolved(String)                       // Found ATV counterpart videoId
-        case alreadyATV                             // Already the song version
+        case resolved(String, thumbnailUrl: String?)    // Found ATV counterpart videoId + album art
+        case alreadyATV                                 // Already the song version
         case needsSearchFallback(title: String, artist: String) // OMV with no linked counterpart
-        case unknown                                // Can't determine, keep original
+        case unknown                                    // Can't determine, keep original
     }
 
     /// Parse the `next` response for the song (ATV) counterpart of a music video.
@@ -256,13 +266,15 @@ final class PlayerAPIService {
             }
 
             if counterpartType == "MUSIC_VIDEO_TYPE_ATV", let songVideoId = counterpartVideoId {
+                let thumbnail = extractThumbnail(fromCounterpart: wrapper)
                 Logger.log("[PlayerAPI] Resolved OMV → ATV via counterpart: \(originalVideoId) → \(songVideoId)", category: .network)
-                return .resolved(songVideoId)
+                return .resolved(songVideoId, thumbnailUrl: thumbnail)
             }
 
             if primaryType == "MUSIC_VIDEO_TYPE_OMV", let altVideoId = counterpartVideoId {
+                let thumbnail = extractThumbnail(fromCounterpart: wrapper)
                 Logger.log("[PlayerAPI] Resolved OMV → counterpart: \(originalVideoId) → \(altVideoId)", category: .network)
-                return .resolved(altVideoId)
+                return .resolved(altVideoId, thumbnailUrl: thumbnail)
             }
 
             return .unknown
@@ -304,7 +316,8 @@ final class PlayerAPIService {
 
     /// Search for the ATV (song) version of a track by title and artist.
     /// Uses the "Songs" filter to only get ATV results.
-    private func searchForSongVersion(title: String, artist: String, originalVideoId: String) async throws -> String? {
+    /// Returns the videoId and clean album art thumbnail URL.
+    private func searchForSongVersion(title: String, artist: String, originalVideoId: String) async throws -> (videoId: String, thumbnailUrl: String?)? {
         let query = "\(title) \(artist)"
         let body: [String: Any] = [
             "query": query,
@@ -323,8 +336,8 @@ final class PlayerAPIService {
         return parseATVFromSearchResults(data, expectedTitle: title, originalVideoId: originalVideoId)
     }
 
-    /// Parse search results for the best matching ATV videoId
-    private nonisolated func parseATVFromSearchResults(_ data: Data, expectedTitle: String, originalVideoId: String) -> String? {
+    /// Parse search results for the best matching ATV videoId + album art thumbnail
+    private nonisolated func parseATVFromSearchResults(_ data: Data, expectedTitle: String, originalVideoId: String) -> (videoId: String, thumbnailUrl: String?)? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contents = json["contents"] as? [String: Any],
               let tabbedResults = contents["tabbedSearchResultsRenderer"] as? [String: Any],
@@ -381,8 +394,21 @@ final class PlayerAPIService {
                     .flatMap { ($0["watchEndpointMusicConfig"] as? [String: Any])?["musicVideoType"] as? String }
 
                 if musicVideoType == "MUSIC_VIDEO_TYPE_ATV" && videoId != originalVideoId {
+                    // Extract clean album art from search result thumbnail
+                    let thumbnailUrl: String?
+                    if let thumb = renderer["thumbnail"] as? [String: Any],
+                       let musicThumb = thumb["musicThumbnailRenderer"] as? [String: Any],
+                       let thumbData = musicThumb["thumbnail"] as? [String: Any],
+                       let thumbnails = thumbData["thumbnails"] as? [[String: Any]],
+                       let lastThumb = thumbnails.last,
+                       let rawUrl = lastThumb["url"] as? String {
+                        thumbnailUrl = Self.upscaleGoogleThumbnailURL(rawUrl) ?? rawUrl
+                    } else {
+                        thumbnailUrl = nil
+                    }
+
                     Logger.log("[PlayerAPI] Search fallback resolved OMV → ATV: \(originalVideoId) → \(videoId) (\"\(resultTitle)\")", category: .network)
-                    return videoId
+                    return (videoId: videoId, thumbnailUrl: thumbnailUrl)
                 }
             }
         }
@@ -440,6 +466,41 @@ final class PlayerAPIService {
             return nil
         }
         return videoId
+    }
+
+    /// Extract clean album art thumbnail URL from the counterpart renderer.
+    /// Returns the highest-resolution lh3.googleusercontent.com thumbnail, upscaled to 544x544.
+    private nonisolated func extractThumbnail(fromCounterpart wrapper: [String: Any]) -> String? {
+        guard let counterparts = wrapper["counterpart"] as? [[String: Any]],
+              let first = counterparts.first,
+              let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
+              let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any] else {
+            return nil
+        }
+        return Self.extractAndUpscaleThumbnail(from: videoRenderer)
+    }
+
+    /// Extract the thumbnail URL from a renderer and upscale lh3 URLs to 544x544.
+    /// lh3.googleusercontent.com URLs support dynamic resizing via `=w{W}-h{H}` params.
+    /// The API often returns only 60x60 or 120x120 — we upscale for crisp album art.
+    private nonisolated static func extractAndUpscaleThumbnail(from videoRenderer: [String: Any]) -> String? {
+        let url = ResponseParser.extractThumbnailFromVideoRenderer(videoRenderer)
+        guard !url.isEmpty else { return nil }
+        return upscaleGoogleThumbnailURL(url)
+    }
+
+    /// Upscale a lh3/yt3.googleusercontent.com thumbnail URL to 544x544.
+    /// These URLs use `=w{W}-h{H}-l{quality}-rj` suffix params for dynamic sizing.
+    /// If the URL is an i.ytimg.com (video frame), returns nil so we don't use it.
+    nonisolated static func upscaleGoogleThumbnailURL(_ url: String) -> String? {
+        // Only upscale Google-hosted album art (lh3 / yt3)
+        guard url.contains("googleusercontent.com") else { return nil }
+
+        // Strip existing size params and replace with 544x544
+        if let base = url.components(separatedBy: "=").first {
+            return "\(base)=w544-h544-l90-rj"
+        }
+        return url
     }
 
     /// Resolve a queue panel item to its best `playlistPanelVideoRenderer`.

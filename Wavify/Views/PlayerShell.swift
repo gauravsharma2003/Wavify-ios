@@ -46,6 +46,7 @@ struct PlayerShell: View {
     @State private var showSleepSheet = false
     @State private var showActiveSleepSheet = false
     @State private var showEqualizerSheet = false
+    @State private var showShareCard = false
     @State private var showAirPlayPicker = false
     var sleepTimerManager: SleepTimerManager = .shared
 
@@ -184,6 +185,18 @@ struct PlayerShell: View {
         }
         .sheet(isPresented: $showEqualizerSheet) {
             EqualizerSheet()
+        }
+        .sheet(isPresented: $showShareCard) {
+            if let song = audioPlayer.currentSong {
+                ShareCardSheet(
+                    song: song,
+                    initialLyricsState: lyricsState,
+                    primaryColor: primaryColor,
+                    secondaryColor: secondaryColor,
+                    accentColor: accentColor,
+                    audioDuration: audioPlayer.duration
+                )
+            }
         }
         .background {
             AirPlayRoutePickerView(showPicker: $showAirPlayPicker)
@@ -1047,23 +1060,7 @@ struct PlayerShell: View {
     }
 
     private func shareSong() {
-        guard let song = audioPlayer.currentSong else { return }
-        let shareURL = "https://gauravsharma2003.github.io/wavifyapp/song/\(song.videoId)"
-        let shareText = "\(song.title) by \(song.artist)"
-        var activityItems: [Any] = [shareText]
-        if let url = URL(string: shareURL) { activityItems.append(url) }
-        let activityVC = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootViewController = windowScene.windows.first?.rootViewController {
-            var topController = rootViewController
-            while let presented = topController.presentedViewController { topController = presented }
-            if let popover = activityVC.popoverPresentationController {
-                popover.sourceView = topController.view
-                popover.sourceRect = CGRect(x: topController.view.bounds.midX, y: topController.view.bounds.midY, width: 0, height: 0)
-                popover.permittedArrowDirections = []
-            }
-            topController.present(activityVC, animated: true)
-        }
+        showShareCard = true
     }
 
     private func startRadio() {

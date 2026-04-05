@@ -692,14 +692,15 @@ class AudioPlayer {
 
         // Resolve to song (ATV) version if this is a music video (OMV).
         // Music videos can have intros/talking that desync lyrics.
+        // ATV also has proper album art instead of a random video frame.
         var song = song
-        let resolvedVideoId = await networkManager.resolveSongVideoId(for: song.videoId)
-        if resolvedVideoId != song.videoId {
+        let resolution = await networkManager.resolveSongVideoId(for: song.videoId)
+        if resolution.wasResolved {
             song = Song(
-                id: resolvedVideoId,
+                id: resolution.videoId,
                 title: song.title,
                 artist: song.artist,
-                thumbnailUrl: song.thumbnailUrl,
+                thumbnailUrl: resolution.thumbnailUrl ?? song.thumbnailUrl,
                 duration: song.duration,
                 isLiked: song.isLiked,
                 artistId: song.artistId,

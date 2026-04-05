@@ -57,7 +57,7 @@ class NetworkManager {
     }
 
     /// Resolve a videoId to its song (ATV) version if it's a music video (OMV).
-    func resolveSongVideoId(for videoId: String) async -> String {
+    func resolveSongVideoId(for videoId: String) async -> PlayerAPIService.SongResolution {
         await playerService.resolveSongVideoId(for: videoId)
     }
 
