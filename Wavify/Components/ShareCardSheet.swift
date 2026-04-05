@@ -57,8 +57,7 @@ struct ShareCardSheet: View {
                 cardFlow
             }
         }
-        .background(Color(white: 0.06).ignoresSafeArea())
-        .presentationDetents(showLyricsSelector && selectedMode == .lyrics ? [.large] : [.medium, .large])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear {
             localLyricsState = initialLyricsState
@@ -106,7 +105,8 @@ struct ShareCardSheet: View {
             VStack(spacing: 20) {
                 // Card preview
                 cardPreview
-                    .padding(.horizontal, 32)
+                    .scaleEffect(0.8)
+                    .frame(height: selectedMode == .song ? 350 * 0.8 : nil)
 
                 // Edit lyrics button (lyrics mode only, when lyrics selected)
                 if selectedMode == .lyrics && lyricsSelection.hasSelection {
