@@ -84,7 +84,29 @@ class AudioPlayer {
         get { queueManager.isPlayingFromAlbum }
         set { queueManager.isPlayingFromAlbum = newValue }
     }
-    
+
+    /// Peek at the next song that would play (accounts for shuffle)
+    var nextSong: Song? {
+        if shuffleController.isShuffleMode {
+            if let idx = shuffleController.peekNextShuffleIndex() {
+                return queue[safe: idx]
+            }
+            return nil
+        }
+        return queueManager.peekNextSong()
+    }
+
+    /// Peek at the previous song (accounts for shuffle)
+    var previousSong: Song? {
+        if shuffleController.isShuffleMode {
+            if let idx = shuffleController.peekPreviousShuffleIndex() {
+                return queue[safe: idx]
+            }
+            return nil
+        }
+        return queueManager.peekPreviousSong()
+    }
+
     // Shuffle/Loop state (delegated to ShuffleController)
     var isShuffleMode: Bool {
         get { shuffleController.isShuffleMode }
@@ -959,9 +981,13 @@ class AudioPlayer {
     
     func playPrevious() async {
         guard !sharePlayManager.isGuest || sharePlayManager.isApplyingRemoteState else { return }
-        if currentTime > 3 {
-            seek(to: 0)
-        } else if shuffleController.isShuffleMode {
+
+        // Cancel any in-progress crossfade — user skip takes priority
+        if crossfadeEngine?.isActive == true {
+            crossfadeEngine?.cancelCrossfade()
+        }
+
+        if shuffleController.isShuffleMode {
             if let prevIndex = shuffleController.getPreviousShuffleIndex() {
                 queueManager.jumpToIndex(prevIndex)
                 if let song = queue[safe: prevIndex] {

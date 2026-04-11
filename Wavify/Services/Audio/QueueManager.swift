@@ -129,6 +129,21 @@ class QueueManager {
         return true
     }
 
+    // MARK: - Peek (non-mutating)
+
+    /// Peek at the next song without advancing the index
+    func peekNextSong() -> Song? {
+        let nextIndex = currentIndex + 1
+        guard nextIndex < queue.count else { return nil }
+        return queue[nextIndex]
+    }
+
+    /// Peek at the previous song without changing the index
+    func peekPreviousSong() -> Song? {
+        guard currentIndex > 0 else { return nil }
+        return queue[currentIndex - 1]
+    }
+
     // MARK: - Queue Navigation
 
     /// Move to next index in queue

@@ -54,6 +54,13 @@ struct PlayerShell: View {
     @State private var horizontalSwipeOffset: CGFloat = 0
     @State private var isTransitioningTrack: Bool = false
 
+    // Frozen song references during transition commit (prevents blink of wrong adjacent art)
+    @State private var frozenNextSong: Song? = nil
+    @State private var frozenPrevSong: Song? = nil
+
+    // Text transition for track changes
+    @State private var textSwipeDirection: SwipeDirection? = nil
+
     // Mini player progress ring
     @State private var displayedProgress: Double = 0
     @State private var isProgressTransitioning: Bool = false
@@ -239,6 +246,13 @@ struct PlayerShell: View {
             if let song = audioPlayer.currentSong {
                 await preloadPlayerImage(for: song)
             }
+            // Preload adjacent song images for smooth carousel swiping
+            if let next = audioPlayer.nextSong {
+                await preloadPlayerImage(for: next)
+            }
+            if let prev = audioPlayer.previousSong {
+                await preloadPlayerImage(for: prev)
+            }
         }
     }
 
@@ -299,31 +313,65 @@ struct PlayerShell: View {
             let fullCorner = max(0, dragCorner) // 0 when not dragging, device corners when dragging
             let artCorner = miniCorner + (fullCorner - miniCorner) * expansion
 
-            ProgressiveAlbumArt(
-                lowQualityUrl: ImageUtils.upscaleThumbnail(song.thumbnailUrl, targetSize: 226),
-                highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
-            )
-            .id(song.id)
-            .frame(width: artW, height: artH)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: artCorner, style: .continuous))
-            .overlay(alignment: .bottom) {
-                // Gradient: visible only when expanded
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0.0),
-                        .init(color: .clear, location: 0.35),
-                        .init(color: primaryColor.opacity(0.4), location: 0.55),
-                        .init(color: primaryColor.opacity(0.85), location: 0.75),
-                        .init(color: primaryColor, location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+            let isFullPlayer = expansion > 0.9
+            let swipeOffset = horizontalSwipeOffset * expansion
+
+            let displayedPrev = frozenPrevSong ?? audioPlayer.previousSong
+            let displayedNext = frozenNextSong ?? audioPlayer.nextSong
+
+            ZStack {
+                // Previous song art (slides in from left)
+                if isFullPlayer, let prevSong = displayedPrev, horizontalSwipeOffset > 0 {
+                    albumArtCard(
+                        song: prevSong, width: artW, height: artH,
+                        cornerRadius: artCorner, expansion: expansion
+                    )
+                    .offset(x: swipeOffset - fullW)
+                }
+
+                // Current song art
+                albumArtCard(
+                    song: song, width: artW, height: artH,
+                    cornerRadius: artCorner, expansion: expansion
                 )
-                .opacity(Double(expansion))
+                .offset(x: isFullPlayer ? swipeOffset : 0)
+
+                // Next song art (slides in from right)
+                if isFullPlayer, let nextSong = displayedNext, horizontalSwipeOffset < 0 {
+                    albumArtCard(
+                        song: nextSong, width: artW, height: artH,
+                        cornerRadius: artCorner, expansion: expansion
+                    )
+                    .offset(x: swipeOffset + fullW)
+                }
             }
-            .offset(x: horizontalSwipeOffset * expansion)
             .position(x: artCenterX, y: artCenterY)
+        }
+    }
+
+    @ViewBuilder
+    private func albumArtCard(song: Song, width: CGFloat, height: CGFloat, cornerRadius: CGFloat, expansion: CGFloat) -> some View {
+        ProgressiveAlbumArt(
+            lowQualityUrl: ImageUtils.upscaleThumbnail(song.thumbnailUrl, targetSize: 226),
+            highQualityUrl: ImageUtils.thumbnailForPlayer(song.thumbnailUrl)
+        )
+        .id(song.id)
+        .frame(width: width, height: height)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(alignment: .bottom) {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .clear, location: 0.35),
+                    .init(color: primaryColor.opacity(0.4), location: 0.55),
+                    .init(color: primaryColor.opacity(0.85), location: 0.75),
+                    .init(color: primaryColor, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .opacity(Double(expansion))
         }
     }
 
@@ -459,27 +507,33 @@ struct PlayerShell: View {
 
     private func performTrackTransition(direction: SwipeDirection, screenWidth: CGFloat) {
         isTransitioningTrack = true
+        textSwipeDirection = direction
+
+        // Freeze adjacent songs so carousel won't react to live song change
+        frozenNextSong = audioPlayer.nextSong
+        frozenPrevSong = audioPlayer.previousSong
+
         let exitOffset: CGFloat = direction == .next ? -screenWidth : screenWidth
 
-        withAnimation(.easeOut(duration: 0.2)) {
+        // Animate art sliding to reveal the next/prev art fully
+        withAnimation(.easeOut(duration: 0.25)) {
             horizontalSwipeOffset = exitOffset
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        // Wait for slide to finish, THEN switch track and reset offset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             Task {
                 if direction == .next {
                     await audioPlayer.playNext()
                 } else {
                     await audioPlayer.playPrevious()
                 }
-            }
-            let entranceOffset: CGFloat = direction == .next ? screenWidth : -screenWidth
-            horizontalSwipeOffset = entranceOffset
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                // Reset offset after song changed — frozen refs prevent blink
                 horizontalSwipeOffset = 0
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                frozenNextSong = nil
+                frozenPrevSong = nil
                 isTransitioningTrack = false
+                textSwipeDirection = nil
             }
         }
     }
@@ -647,7 +701,6 @@ struct PlayerShell: View {
                 }
 
                 songInfoView
-                    .offset(x: horizontalSwipeOffset)
 
                 Spacer().frame(height: controlsGap * 1.2)
                 middleActionRow(screenWidth: screenW)
@@ -789,6 +842,8 @@ struct PlayerShell: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .id("title_\(song.id)")
+                    .transition(songTitleTransition)
                 Button {
                     if let artistId = song.artistId {
                         navigationManager.navigateToArtist(id: artistId, name: song.artist, thumbnail: song.thumbnailUrl)
@@ -801,9 +856,50 @@ struct PlayerShell: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(song.artistId == nil)
+                .id("artist_\(song.id)")
+                .transition(songArtistTransition)
             }
         }
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: audioPlayer.currentSong?.id)
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Title: horizontal slide + scale down + fade
+    private var songTitleTransition: AnyTransition {
+        let offset: CGFloat = 60
+        switch textSwipeDirection {
+        case .next:
+            return .asymmetric(
+                insertion: .offset(x: offset).combined(with: .opacity).combined(with: .scale(scale: 0.8, anchor: .leading)),
+                removal: .offset(x: -offset).combined(with: .opacity).combined(with: .scale(scale: 0.8, anchor: .trailing))
+            )
+        case .previous:
+            return .asymmetric(
+                insertion: .offset(x: -offset).combined(with: .opacity).combined(with: .scale(scale: 0.8, anchor: .trailing)),
+                removal: .offset(x: offset).combined(with: .opacity).combined(with: .scale(scale: 0.8, anchor: .leading))
+            )
+        case nil:
+            return .opacity.combined(with: .scale(scale: 0.9))
+        }
+    }
+
+    /// Artist: same direction but slightly more offset + delayed feel via smaller scale
+    private var songArtistTransition: AnyTransition {
+        let offset: CGFloat = 40
+        switch textSwipeDirection {
+        case .next:
+            return .asymmetric(
+                insertion: .offset(x: offset, y: 4).combined(with: .opacity),
+                removal: .offset(x: -offset, y: -4).combined(with: .opacity)
+            )
+        case .previous:
+            return .asymmetric(
+                insertion: .offset(x: -offset, y: 4).combined(with: .opacity),
+                removal: .offset(x: offset, y: -4).combined(with: .opacity)
+            )
+        case nil:
+            return .opacity
+        }
     }
 
     // MARK: - Progress & Controls

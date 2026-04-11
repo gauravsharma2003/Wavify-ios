@@ -97,6 +97,12 @@ class ShuffleController {
         return nil
     }
 
+    /// Peek at previous shuffle index without mutating state
+    func peekPreviousShuffleIndex() -> Int? {
+        guard isShuffleMode && currentShuffleIndex > 0 else { return nil }
+        return shuffleIndices[currentShuffleIndex - 1]
+    }
+
     /// Get the next index in shuffle order
     /// Returns nil if at end and not looping
     func getNextShuffleIndex() -> Int? {
