@@ -159,22 +159,14 @@ struct ArtistItemsGridView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .aspectRatio(isVideo ? 16.0/9.0 : 1.0, contentMode: .fill)  // 16:9 for videos, square for albums
+                .aspectRatio(isVideo ? 16.0/9.0 : 1.0, contentMode: .fit)  // 16:9 for videos, square for albums
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.white.opacity(0.1), lineWidth: 1)
                 )
                 
-                // Play button overlay for videos
-                if isVideo {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(8)
-                        .background(Circle().fill(Color.black.opacity(0.6)))
-                        .padding(8)
-                }
             }
             
             VStack(alignment: .leading, spacing: 4) {
