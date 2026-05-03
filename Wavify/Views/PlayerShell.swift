@@ -946,7 +946,8 @@ struct PlayerShell: View {
             Button { audioPlayer.toggleLoopMode() } label: {
                 Image(systemName: audioPlayer.loopMode.icon)
                     .font(.system(size: controlIcon, weight: .medium))
-                    .foregroundColor(audioPlayer.loopMode == .none ? .gray : .white)
+                    .foregroundStyle(.white)
+                    .opacity(audioPlayer.loopMode == .none ? 0.55 : 1.0)
                     .frame(width: controlTapSize, height: controlTapSize)
             }
             .disabled(sharePlayManager.isGuest).opacity(sharePlayManager.isGuest ? 0.4 : 1.0)
