@@ -268,18 +268,41 @@ class LyricsService {
             var lineText = ""
 
             if let wordList = syllable.text {
-                for word in wordList {
-                    guard let text = word.text, !text.isEmpty,
-                          let wStart = word.timestamp,
-                          let wEnd = word.endtime else { continue }
+                // Merge syllables flagged with `part: true` into the following syllable
+                // so words split across syllables (e.g., "bor"+"der"+"line") become whole.
+                var pendingText = ""
+                var pendingStart: Double?
+                for syl in wordList {
+                    guard let text = syl.text, !text.isEmpty,
+                          let wStart = syl.timestamp,
+                          let wEnd = syl.endtime else { continue }
 
                     let cleaned = cleanWordText(text)
                     guard !cleaned.isEmpty else { continue }
 
+                    if pendingStart == nil { pendingStart = wStart }
+                    pendingText += cleaned
+
+                    if syl.part == true {
+                        // Syllable continues — keep accumulating
+                        continue
+                    }
+
                     words.append(SyncedWord(
-                        startTime: wStart / 1000.0,
+                        startTime: (pendingStart ?? wStart) / 1000.0,
                         endTime: wEnd / 1000.0,
-                        text: cleaned
+                        text: pendingText
+                    ))
+                    pendingText = ""
+                    pendingStart = nil
+                }
+                // Flush any trailing accumulator (last syllable missing part:false)
+                if !pendingText.isEmpty, let pStart = pendingStart {
+                    let lastEnd = wordList.last?.endtime ?? pStart
+                    words.append(SyncedWord(
+                        startTime: pStart / 1000.0,
+                        endTime: lastEnd / 1000.0,
+                        text: pendingText
                     ))
                 }
                 lineText = words.map(\.text).joined(separator: " ")

@@ -21,6 +21,11 @@ final class TTMLParser: NSObject, XMLParserDelegate {
     private var insideP = false
     private var insideSpan = false
     private var hadSpans = false
+    /// Tracks whether a whitespace text node appeared between the previous span and the upcoming
+    /// span. Apple Music TTML uses adjacency (no whitespace between sibling `<span>`s) to signal
+    /// that two spans are syllables of the same word (e.g., `<span>bor</span><span>der</span><span>line</span>`).
+    /// Reset to true on `<p>` start so the first span begins a new word.
+    private var pendingWhitespaceBeforeSpan = true
     private var parseError: Error?
 
     // Global lyric offset from <audio lyricOffset="..."> in TTML head
@@ -49,6 +54,7 @@ final class TTMLParser: NSObject, XMLParserDelegate {
         insideP = false
         insideSpan = false
         hadSpans = false
+        pendingWhitespaceBeforeSpan = true
         parseError = nil
         lyricOffset = 0
 
@@ -86,6 +92,7 @@ final class TTMLParser: NSObject, XMLParserDelegate {
             hadSpans = false
             currentWords = []
             bareLineText = ""
+            pendingWhitespaceBeforeSpan = true
             currentPBegin = parseTimeAttribute(attributes["begin"])
             currentPEnd = parseTimeAttribute(attributes["end"])
 
@@ -106,6 +113,10 @@ final class TTMLParser: NSObject, XMLParserDelegate {
             currentText += string
         } else if insideP {
             bareLineText += string
+            // Inter-span text: any whitespace here means the next span starts a new word.
+            if string.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                pendingWhitespaceBeforeSpan = true
+            }
         }
     }
 
@@ -119,16 +130,27 @@ final class TTMLParser: NSObject, XMLParserDelegate {
             text = text.replacingOccurrences(of: "</>", with: "")
             text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty, let begin = currentSpanBegin, let end = currentSpanEnd {
-                currentWords.append(SyncedWord(
-                    startTime: begin + lyricOffset,
-                    endTime: end + lyricOffset,
-                    text: text
-                ))
+                if !pendingWhitespaceBeforeSpan, let last = currentWords.last {
+                    // Adjacent span — same word continues (syllable). Merge.
+                    currentWords[currentWords.count - 1] = SyncedWord(
+                        startTime: last.startTime,
+                        endTime: end + lyricOffset,
+                        text: last.text + text
+                    )
+                } else {
+                    currentWords.append(SyncedWord(
+                        startTime: begin + lyricOffset,
+                        endTime: end + lyricOffset,
+                        text: text
+                    ))
+                }
             }
             insideSpan = false
             currentText = ""
             currentSpanBegin = nil
             currentSpanEnd = nil
+            // Default: next span without whitespace = continuation of this word.
+            pendingWhitespaceBeforeSpan = false
 
         case "p" where insideP:
             guard let begin = currentPBegin else {

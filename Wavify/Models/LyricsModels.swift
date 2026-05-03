@@ -169,6 +169,7 @@ struct PaxsenixSyllableWord: Codable {
     let text: String?
     let timestamp: Double?  // milliseconds
     let endtime: Double?    // milliseconds
+    let part: Bool?         // true = syllable continues into next (no space follows)
 }
 
 // MARK: - LyricsPlus API Response
