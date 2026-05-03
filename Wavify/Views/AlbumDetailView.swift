@@ -43,6 +43,14 @@ struct AlbumDetailView: View {
     private let networkManager = NetworkManager.shared
     @State private var topInset: CGFloat = 59
 
+    /// Status-bar height read from the active UIWindow. Stable across navigation
+    /// contexts (parent NavigationStack chrome doesn't affect it).
+    fileprivate static var windowTopSafeAreaInset: CGFloat {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first else { return 59 }
+        return window.safeAreaInsets.top
+    }
+
     // Computed properties for unified data access
     private var displayName: String {
         albumDetail?.albumName ?? localPlaylist?.name ?? initialName
@@ -83,65 +91,67 @@ struct AlbumDetailView: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                // Header
-                headerView
+        ZStack(alignment: .topLeading) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    headerView
 
-                // Content with gradient starting here
-                VStack(spacing: 20) {
-                    albumInfo
+                    // Content with gradient starting here
+                    VStack(spacing: 20) {
+                        albumInfo
 
-                    if isLoading {
-                        VStack(spacing: 20) {
-                            ProgressView()
-                                .tint(.white)
-                                .scaleEffect(1.2)
+                        if isLoading {
+                            VStack(spacing: 20) {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(1.2)
 
-                            Text("Loading album...")
-                                .font(.system(size: layout.fontCaption))
-                                .foregroundStyle(.tertiary)
+                                Text("Loading album...")
+                                    .font(.system(size: layout.fontCaption))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 40)
+                            .padding(.bottom, 200)
+                        } else if !songs.isEmpty {
+                            actionButtons
+                            songList
+                        } else if isUserCreatedPlaylist {
+                            emptyPlaylistState
+                        } else {
+                            remoteEmptyState
                         }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 40)
-                        .padding(.bottom, 200)
-                    } else if !songs.isEmpty {
-                        actionButtons
-                        songList
-                    } else if isUserCreatedPlaylist {
-                        emptyPlaylistState
-                    } else {
-                        remoteEmptyState
                     }
+                    .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
+                    .frame(maxWidth: .infinity, minHeight: max(UIScreen.main.bounds.height, 600) - layout.detailHeaderHeight, alignment: .top)
+                    .background(
+                        LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
+                            .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
+                    )
                 }
-                .padding(.bottom, audioPlayer.currentSong != nil ? 100 : 40)
-                .frame(maxWidth: .infinity, minHeight: max(UIScreen.main.bounds.height, 600) - layout.detailHeaderHeight, alignment: .top)
                 .background(
-                    LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
-                        .padding(.top, -2) // Overlap behind header to prevent gap flicker during transitions
+                    GeometryReader { proxy in
+                        Color.clear
+                            .preference(
+                                key: ScrollOffsetPreferenceKey.self,
+                                value: proxy.frame(in: .named("scroll")).minY
+                            )
+                    }
                 )
             }
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .preference(
-                            key: ScrollOffsetPreferenceKey.self,
-                            value: proxy.frame(in: .named("scroll")).minY
-                        )
-                }
-            )
-        }
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-            scrollOffset = value
-        }
-        .scrollEdgeEffectStyle(nil, for: .top)
-        .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
-        .ignoresSafeArea(edges: .top)
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .overlay(alignment: .topLeading) {
+            .coordinateSpace(name: "scroll")
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                scrollOffset = value
+            }
+            .scrollEdgeEffectStyle(nil, for: .top)
+            .background((gradientColors.last ?? Color(white: 0.05)).ignoresSafeArea())
+
+            // Back button — anchored to the window's safe-area top (read directly from
+            // UIWindow, not from the SwiftUI environment) so it sits below the camera
+            // notch/Dynamic Island consistently. The view's own SwiftUI safe area top
+            // can leak from a `.searchable` parent NavigationStack, which is why we
+            // bypass it here.
             Button {
                 dismiss()
             } label: {
@@ -152,8 +162,12 @@ struct AlbumDetailView: View {
             }
             .glassEffect(.regular.interactive(), in: .circle)
             .padding(.leading, 12)
-            .padding(.top, 10)
+            .padding(.top, Self.windowTopSafeAreaInset + 10)
         }
+        .ignoresSafeArea(edges: .top)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task {
             if let albumId = albumId {
                 await loadAlbumDetails(albumId: albumId)
