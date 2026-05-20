@@ -24,6 +24,7 @@ final class CrossfadeSettings {
     private static let durationKey = "wavify_crossfade_duration"
     private static let premiumKey = "wavify_crossfade_premium"
     private static let styleKey = "wavify_crossfade_style"
+    private static let barsKey = "wavify_crossfade_bars"
 
     var isEnabled: Bool {
         didSet { UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey) }
@@ -43,6 +44,17 @@ final class CrossfadeSettings {
         didSet { UserDefaults.standard.set(transitionStyle.rawValue, forKey: Self.styleKey) }
     }
 
+    /// Fade length expressed in musical bars (4/4 time). Used by Premium when
+    /// the active track's BeatTracker is confident; otherwise `fadeDuration`
+    /// (seconds) is used as a fallback. Default 4 bars; clamped to [2, 8].
+    var fadeBars: Int {
+        didSet {
+            let clamped = min(8, max(2, fadeBars))
+            if clamped != fadeBars { fadeBars = clamped; return }
+            UserDefaults.standard.set(fadeBars, forKey: Self.barsKey)
+        }
+    }
+
     private init() {
         self.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         let stored = UserDefaults.standard.double(forKey: Self.durationKey)
@@ -54,5 +66,7 @@ final class CrossfadeSettings {
         } else {
             self.transitionStyle = .auto
         }
+        let storedBars = UserDefaults.standard.integer(forKey: Self.barsKey)
+        self.fadeBars = storedBars >= 2 && storedBars <= 8 ? storedBars : 4
     }
 }

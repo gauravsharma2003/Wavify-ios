@@ -65,8 +65,13 @@ final class BeatTracker {
     /// Beat phase counter (0-3, wraps at downbeat)
     private var beatPhaseCounter: Int = 0
 
-    /// Hop index of the last tracked beat
-    private var lastBeatHop: Int = 0
+    /// Hop index of the last tracked beat (-1 = not yet anchored)
+    private var lastBeatHop: Int = -1
+
+    /// Bar counter — increments each time beatPhaseCounter wraps to 0.
+    /// Driven by the predicted-beat clock, not raw onsets, so missed onsets don't skip bars.
+    private var barCounter: Int = 0
+    private var barCounterValid: Bool = false
 
     /// Cached BPM estimate
     private var cachedBPM: Float = 0
@@ -136,10 +141,31 @@ final class BeatTracker {
             // Update BPM estimate
             updateBPMEstimate()
 
-            // Update beat phase tracking
-            if cachedBeatPeriodHops > 0 {
-                beatPhaseCounter = (beatPhaseCounter + 1) % 4
+            // Anchor the predicted-beat clock the first time we see an onset
+            // with a known beat period. Subsequent advancement is purely
+            // prediction-based (below) so that missed/extra onsets do not
+            // skew bar counting.
+            if cachedBeatPeriodHops > 0 && lastBeatHop < 0 {
                 lastBeatHop = currentHop
+                beatPhaseCounter = 0
+                barCounter = 0
+                barCounterValid = true
+            }
+        }
+
+        // Predicted-beat advance: once anchored, step the beat phase forward
+        // by integer beats based on elapsed hops. Bar counter ticks each time
+        // beatPhaseCounter wraps to 0.
+        if cachedBeatPeriodHops > 0 && lastBeatHop >= 0 {
+            let periodHops = Int(cachedBeatPeriodHops.rounded())
+            if periodHops > 0 {
+                while currentHop - lastBeatHop >= periodHops {
+                    lastBeatHop += periodHops
+                    beatPhaseCounter = (beatPhaseCounter + 1) % 4
+                    if beatPhaseCounter == 0 {
+                        barCounter += 1
+                    }
+                }
             }
         }
 
@@ -158,7 +184,7 @@ final class BeatTracker {
     ///   - tolerance: Maximum distance from target in seconds
     /// - Returns: The nearest downbeat time, or nil if no confident estimate
     func nearestDownbeat(to targetTime: Double, tolerance: Double) -> Double? {
-        guard isConfident, cachedBeatPeriodHops > 0 else { return nil }
+        guard isConfident, cachedBeatPeriodHops > 0, lastBeatHop >= 0 else { return nil }
 
         let beatPeriodSeconds = cachedBeatPeriodHops * hopDuration
         let downbeatPeriod = beatPeriodSeconds * 4.0  // 4 beats per downbeat
@@ -185,9 +211,39 @@ final class BeatTracker {
         return nil
     }
 
+    /// Find the nearest 4-bar grid boundary downbeat to a target time, within tolerance.
+    /// 4 bars × 4 beats per bar = 16 beats per boundary. Requires the bar counter
+    /// to have been anchored (i.e. at least one downbeat observed since reset).
+    func nearestFourBarBoundary(to targetTime: Double, tolerance: Double) -> Double? {
+        guard isConfident, cachedBeatPeriodHops > 0, barCounterValid, lastBeatHop >= 0 else { return nil }
+
+        let beatPeriodSeconds = cachedBeatPeriodHops * hopDuration
+        let barPeriod = beatPeriodSeconds * 4.0
+        let fourBarPeriod = barPeriod * 4.0
+
+        guard fourBarPeriod > 0 else { return nil }
+
+        // Most recent downbeat = lastBeatHop minus the current phase offset.
+        let lastBeatTime = Double(lastBeatHop) * hopDuration
+        let lastDownbeatTime = lastBeatTime - Double(beatPhaseCounter) * beatPeriodSeconds
+
+        // The most recent 4-bar boundary downbeat sits (barCounter % 4) bars before
+        // the most recent downbeat, because barCounter is incremented on every wrap to 0.
+        let barsToRollback = barCounter % 4
+        let lastFourBarBoundaryTime = lastDownbeatTime - Double(barsToRollback) * barPeriod
+
+        let boundariesFromRef = round((targetTime - lastFourBarBoundaryTime) / fourBarPeriod)
+        let nearestBoundary = lastFourBarBoundaryTime + boundariesFromRef * fourBarPeriod
+
+        if abs(nearestBoundary - targetTime) <= tolerance {
+            return nearestBoundary
+        }
+        return nil
+    }
+
     /// Find the nearest beat time to a target time, within tolerance
     func nearestBeat(to targetTime: Double, tolerance: Double) -> Double? {
-        guard isConfident, cachedBeatPeriodHops > 0 else { return nil }
+        guard isConfident, cachedBeatPeriodHops > 0, lastBeatHop >= 0 else { return nil }
 
         let beatPeriodSeconds = cachedBeatPeriodHops * hopDuration
         guard beatPeriodSeconds > 0 else { return nil }
@@ -220,7 +276,9 @@ final class BeatTracker {
         currentHop = 0
         lastOnsetHop = -100
         beatPhaseCounter = 0
-        lastBeatHop = 0
+        lastBeatHop = -1
+        barCounter = 0
+        barCounterValid = false
         cachedBPM = 0
         cachedBeatPeriodHops = 0
     }
@@ -266,7 +324,33 @@ final class BeatTracker {
         // Require at least 3 agreeing intervals
         guard maxCount >= 3, peakBin >= 0 else { return }
 
-        let bpm = minBPM + (Double(peakBin) / Double(ioiHistogramSize - 1)) * (maxBPM - minBPM)
+        var bpm = minBPM + (Double(peakBin) / Double(ioiHistogramSize - 1)) * (maxBPM - minBPM)
+
+        // Half/double mitigation: when the peak is in the upper half (≥140 BPM) and
+        // the half-tempo bin (±2 bins for histogram resolution) carries comparable
+        // weight (≥50% of the peak), prefer the half-tempo reading. Pop/hip-hop
+        // trackers frequently latch onto eighth-note onsets.
+        if bpm >= 140.0 {
+            let halfBPM = bpm / 2.0
+            if halfBPM >= minBPM {
+                let halfBin = Int((halfBPM - minBPM) / (maxBPM - minBPM) * Double(ioiHistogramSize - 1))
+                let clampedHalfBin = max(0, min(ioiHistogramSize - 1, halfBin))
+                var halfCount = 0
+                for offset in -2...2 {
+                    let b = clampedHalfBin + offset
+                    if b >= 0 && b < ioiHistogramSize {
+                        halfCount = max(halfCount, ioiHistogram[b])
+                    }
+                }
+                if halfCount * 2 >= maxCount {
+                    bpm = halfBPM
+                }
+            }
+        }
+
+        // Clamp to a musically plausible range
+        bpm = min(180.0, max(60.0, bpm))
+
         cachedBPM = Float(bpm)
         cachedBeatPeriodHops = 60.0 / bpm / hopDuration
     }

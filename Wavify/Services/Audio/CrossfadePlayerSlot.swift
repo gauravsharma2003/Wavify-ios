@@ -44,6 +44,10 @@ final class CrossfadePlayerSlot {
         isReady = false
 
         playerItem = AVPlayerItem(url: url)
+        // Set BEFORE status observation. Spectral pitch-correction is used so
+        // that any AVPlayer-side rate changes (defense-in-depth — the engine
+        // does the real stretch) preserve pitch.
+        playerItem?.audioTimePitchAlgorithm = .spectral
         player = AVPlayer(playerItem: playerItem)
         player?.allowsExternalPlayback = false  // Audio-only: route via AirPlay audio, not video
         // Don't autoplay — CrossfadeEngine controls when to start
@@ -80,6 +84,25 @@ final class CrossfadePlayerSlot {
 
     func pause() {
         player?.pause()
+    }
+
+    /// Current playback position in track time (seconds). Used by CrossfadeEngine
+    /// to compute downbeat phase offsets for beatmatch alignment.
+    var currentTimeSeconds: Double {
+        guard let player = player else { return 0 }
+        let t = player.currentTime().seconds
+        return t.isFinite ? t : 0
+    }
+
+    /// Seek by a relative offset to align the incoming track's downbeat with
+    /// the outgoing's. Called during silent pre-fill so any glitch is inaudible.
+    func seekForPhaseAlign(by offsetSeconds: Double) async {
+        guard let player = player else { return }
+        let current = player.currentTime().seconds
+        let base = current.isFinite ? current : 0
+        let target = max(0, base + offsetSeconds)
+        let cmTime = CMTime(seconds: target, preferredTimescale: 44100)
+        await player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     // MARK: - Hand Off

@@ -42,6 +42,28 @@ class AudioEngineService: ObservableObject {
     private let volumeMixerB = AVAudioMixerNode()
     private let crossfadeMixer = AVAudioMixerNode()
 
+    // MARK: - Time-Pitch (Beatmatch)
+    //
+    // One AVAudioUnitTimePitch per audible source so that a single per-slot
+    // playback rate can be applied while preserving pitch. Stem-mode fades
+    // mute the full-mix mixers, so stem-side units are required to actually
+    // hear the tempo match during a premium transition. Default rate = 1.0
+    // (no audible effect until setSlotRate flips it).
+    private let timePitchA_full = AVAudioUnitTimePitch()
+    private let timePitchB_full = AVAudioUnitTimePitch()
+    private let timePitchA_drums = AVAudioUnitTimePitch()
+    private let timePitchA_bass = AVAudioUnitTimePitch()
+    private let timePitchA_vocal = AVAudioUnitTimePitch()
+    private let timePitchA_atmos = AVAudioUnitTimePitch()
+    private let timePitchB_drums = AVAudioUnitTimePitch()
+    private let timePitchB_bass = AVAudioUnitTimePitch()
+    private let timePitchB_vocal = AVAudioUnitTimePitch()
+    private let timePitchB_atmos = AVAudioUnitTimePitch()
+
+    /// Rate ramp timer (post-handoff drift back to 1.0)
+    private var rateRampTimer: DispatchSourceTimer?
+    private(set) var rampInProgress: Bool = false
+
     /// The ring buffer currently used by the primary playback path
     var activeRingBuffer: CircularBuffer {
         activeSlot == .a ? ringBuffer : ringBufferB
@@ -291,6 +313,18 @@ class AudioEngineService: ObservableObject {
         engine.attach(stemVolB_atmos)
         engine.attach(stemMixer)
 
+        // Time-pitch units (beatmatch)
+        engine.attach(timePitchA_full)
+        engine.attach(timePitchB_full)
+        engine.attach(timePitchA_drums)
+        engine.attach(timePitchA_bass)
+        engine.attach(timePitchA_vocal)
+        engine.attach(timePitchA_atmos)
+        engine.attach(timePitchB_drums)
+        engine.attach(timePitchB_bass)
+        engine.attach(timePitchB_vocal)
+        engine.attach(timePitchB_atmos)
+
         // Format: Standard float32 stereo
         let outputFormat = engine.outputNode.inputFormat(forBus: 0)
 
@@ -299,37 +333,51 @@ class AudioEngineService: ObservableObject {
 
         // --- Normal Routing Graph ---
         //
-        // sourceNode  -> volumeMixerA ──┐
-        // sourceNodeB -> volumeMixerB ──┤
-        //                                ├→ crossfadeMixer -> inputMixer -> [EQ chain]
-        //                    STEM PATH   │
-        // stemSrc_A_drums -> stemVol_A_drums ──┐
-        // stemSrc_A_bass  -> stemVol_A_bass  ──┤
-        // stemSrc_A_vocal -> stemVol_A_vocal ──┤
-        // stemSrc_A_atmos -> stemVol_A_atmos ──┤
-        //                                      ├→ stemMixer ──→ crossfadeMixer
-        // stemSrc_B_drums -> stemVol_B_drums ──┤
-        // stemSrc_B_bass  -> stemVol_B_bass  ──┤
-        // stemSrc_B_vocal -> stemVol_B_vocal ──┤
-        // stemSrc_B_atmos -> stemVol_B_atmos ──┘
+        // Time-pitch units sit immediately downstream of each source node so that
+        // beatmatch rate (1 setting per slot, applied to full + 4 stems) preserves
+        // pitch while stretching tempo.
+        //
+        // sourceNode  -> timePitchA_full -> volumeMixerA ──┐
+        // sourceNodeB -> timePitchB_full -> volumeMixerB ──┤
+        //                                                    ├→ crossfadeMixer -> [EQ]
+        //                       STEM PATH                    │
+        // stemSrc_A_drums -> timePitchA_drums -> stemVol_A_drums ──┐
+        // stemSrc_A_bass  -> timePitchA_bass  -> stemVol_A_bass  ──┤
+        // stemSrc_A_vocal -> timePitchA_vocal -> stemVol_A_vocal ──┤
+        // stemSrc_A_atmos -> timePitchA_atmos -> stemVol_A_atmos ──┤
+        //                                                          ├→ stemMixer ──→ crossfadeMixer
+        // stemSrc_B_drums -> timePitchB_drums -> stemVol_B_drums ──┤
+        // stemSrc_B_bass  -> timePitchB_bass  -> stemVol_B_bass  ──┤
+        // stemSrc_B_vocal -> timePitchB_vocal -> stemVol_B_vocal ──┤
+        // stemSrc_B_atmos -> timePitchB_atmos -> stemVol_B_atmos ──┘
 
-        // 1. Normal source nodes -> Volume mixers (locked at 44100Hz)
-        engine.connect(sourceNode, to: volumeMixerA, format: sourceFormat)
-        engine.connect(sourceNodeB, to: volumeMixerB, format: sourceFormat)
+        // 1. Normal source nodes -> Time-pitch -> Volume mixers (locked at 44100Hz)
+        engine.connect(sourceNode, to: timePitchA_full, format: sourceFormat)
+        engine.connect(sourceNodeB, to: timePitchB_full, format: sourceFormat)
+        engine.connect(timePitchA_full, to: volumeMixerA, format: sourceFormat)
+        engine.connect(timePitchB_full, to: volumeMixerB, format: sourceFormat)
 
         // 2. Volume mixers -> Crossfade mixer
         engine.connect(volumeMixerA, to: crossfadeMixer, format: outputFormat)
         engine.connect(volumeMixerB, to: crossfadeMixer, format: outputFormat)
 
-        // 3. Stem source nodes -> Stem volume mixers (locked at 44100Hz)
-        engine.connect(stemSrcA_drums, to: stemVolA_drums, format: sourceFormat)
-        engine.connect(stemSrcA_bass, to: stemVolA_bass, format: sourceFormat)
-        engine.connect(stemSrcA_vocal, to: stemVolA_vocal, format: sourceFormat)
-        engine.connect(stemSrcA_atmos, to: stemVolA_atmos, format: sourceFormat)
-        engine.connect(stemSrcB_drums, to: stemVolB_drums, format: sourceFormat)
-        engine.connect(stemSrcB_bass, to: stemVolB_bass, format: sourceFormat)
-        engine.connect(stemSrcB_vocal, to: stemVolB_vocal, format: sourceFormat)
-        engine.connect(stemSrcB_atmos, to: stemVolB_atmos, format: sourceFormat)
+        // 3. Stem source nodes -> Time-pitch -> Stem volume mixers (locked at 44100Hz)
+        engine.connect(stemSrcA_drums, to: timePitchA_drums, format: sourceFormat)
+        engine.connect(stemSrcA_bass, to: timePitchA_bass, format: sourceFormat)
+        engine.connect(stemSrcA_vocal, to: timePitchA_vocal, format: sourceFormat)
+        engine.connect(stemSrcA_atmos, to: timePitchA_atmos, format: sourceFormat)
+        engine.connect(stemSrcB_drums, to: timePitchB_drums, format: sourceFormat)
+        engine.connect(stemSrcB_bass, to: timePitchB_bass, format: sourceFormat)
+        engine.connect(stemSrcB_vocal, to: timePitchB_vocal, format: sourceFormat)
+        engine.connect(stemSrcB_atmos, to: timePitchB_atmos, format: sourceFormat)
+        engine.connect(timePitchA_drums, to: stemVolA_drums, format: sourceFormat)
+        engine.connect(timePitchA_bass, to: stemVolA_bass, format: sourceFormat)
+        engine.connect(timePitchA_vocal, to: stemVolA_vocal, format: sourceFormat)
+        engine.connect(timePitchA_atmos, to: stemVolA_atmos, format: sourceFormat)
+        engine.connect(timePitchB_drums, to: stemVolB_drums, format: sourceFormat)
+        engine.connect(timePitchB_bass, to: stemVolB_bass, format: sourceFormat)
+        engine.connect(timePitchB_vocal, to: stemVolB_vocal, format: sourceFormat)
+        engine.connect(timePitchB_atmos, to: stemVolB_atmos, format: sourceFormat)
 
         // 4. Stem volume mixers -> Stem mixer
         engine.connect(stemVolA_drums, to: stemMixer, format: outputFormat)
@@ -526,9 +574,100 @@ class AudioEngineService: ObservableObject {
         }
     }
 
-    /// Swap which slot is considered active (called after crossfade completes)
+    /// Swap which slot is considered active (called after crossfade completes).
+    /// Does NOT touch time-pitch rates — the rate is bound to the physical slot,
+    /// not the abstract "active" role, so the swap naturally preserves it.
     func swapActiveSlot() {
         activeSlot = activeSlot == .a ? .b : .a
+    }
+
+    // MARK: - Beatmatch (Rate Control)
+
+    private var timePitchesA: [AVAudioUnitTimePitch] {
+        [timePitchA_full, timePitchA_drums, timePitchA_bass, timePitchA_vocal, timePitchA_atmos]
+    }
+
+    private var timePitchesB: [AVAudioUnitTimePitch] {
+        [timePitchB_full, timePitchB_drums, timePitchB_bass, timePitchB_vocal, timePitchB_atmos]
+    }
+
+    /// Apply a playback rate to one slot's full-mix + stem time-pitch units.
+    /// All 5 units of the slot share the same rate so beatmatch is uniform
+    /// regardless of which path is currently audible.
+    func setSlotRate(_ rate: Float, slot: ActiveSlot) {
+        applySlotRate(rate, slot: slot)
+        Logger.log("Engine: slot \(slot == .a ? "A" : "B") rate = \(String(format: "%.3f", rate))", category: .playback)
+    }
+
+    /// Silent rate setter used by the ramp timer (avoids 60Hz log spam).
+    private func applySlotRate(_ rate: Float, slot: ActiveSlot) {
+        let clamped = min(2.0, max(0.5, rate))
+        let units = slot == .a ? timePitchesA : timePitchesB
+        for unit in units {
+            unit.rate = clamped
+        }
+    }
+
+    /// Apply rate to whichever slot is currently the standby (the incoming
+    /// crossfade target). Used by CrossfadeEngine during analysis.
+    func setStandbyRate(_ rate: Float) {
+        setSlotRate(rate, slot: activeSlot == .a ? .b : .a)
+    }
+
+    /// Current rate for a slot (first unit; all are kept in lock-step).
+    func slotRate(_ slot: ActiveSlot) -> Float {
+        (slot == .a ? timePitchA_full : timePitchB_full).rate
+    }
+
+    /// Ramp a slot's rate to 1.0 linearly over `duration` seconds. Used after a
+    /// beatmatched fade hand-off so the now-active track drifts back to its
+    /// natural tempo over a few bars instead of snapping.
+    func rampSlotRateToNormal(slot: ActiveSlot, over duration: TimeInterval) {
+        rateRampTimer?.cancel()
+        let startRate = slotRate(slot)
+        guard abs(startRate - 1.0) > 0.001, duration > 0 else {
+            setSlotRate(1.0, slot: slot)
+            rampInProgress = false
+            return
+        }
+
+        rampInProgress = true
+        Logger.log("Engine: rate ramp start (slot \(slot == .a ? "A" : "B")) \(String(format: "%.3f", startRate)) → 1.0 over \(String(format: "%.1f", duration))s", category: .playback)
+
+        let stepsPerSecond: Double = 60.0
+        let totalSteps = max(1, Int(duration * stepsPerSecond))
+        var step = 0
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(Int(1000.0 / stepsPerSecond)))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            step += 1
+            let t = Float(step) / Float(totalSteps)
+            let rate = startRate + (1.0 - startRate) * min(1.0, t)
+            Task { @MainActor [weak self] in
+                self?.applySlotRate(rate, slot: slot)
+                if step >= totalSteps {
+                    self?.rateRampTimer?.cancel()
+                    self?.rateRampTimer = nil
+                    self?.rampInProgress = false
+                    Logger.log("Engine: rate ramp complete (slot \(slot == .a ? "A" : "B"))", category: .playback)
+                }
+            }
+        }
+        timer.resume()
+        rateRampTimer = timer
+    }
+
+    /// Cancel any in-flight ramp and snap all units to 1.0 immediately.
+    /// Called on crossfade cancellation and on track changes that bypass the
+    /// normal fade lifecycle.
+    func resetSlotRates() {
+        rateRampTimer?.cancel()
+        rateRampTimer = nil
+        rampInProgress = false
+        for unit in timePitchesA { unit.rate = 1.0 }
+        for unit in timePitchesB { unit.rate = 1.0 }
     }
 
     /// Mute audio output (used during song transitions to prevent glitchy sounds)

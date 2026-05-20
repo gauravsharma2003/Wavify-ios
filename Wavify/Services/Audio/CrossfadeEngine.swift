@@ -35,8 +35,10 @@ final class CrossfadeEngine {
     // MARK: - Configuration
 
     private let settings = CrossfadeSettings.shared
-    /// How many seconds before the end to start preloading the next track
-    private let preloadLeadTime: Double = 20.0
+    /// How many seconds before the end to start preloading the next track.
+    /// Sized for the worst-case bars-based fade (8 bars at 60 BPM = 32s) plus
+    /// a safety margin so stream fetch + analysis comfortably finish in time.
+    private let preloadLeadTime: Double = 36.0
 
     // MARK: - Components
 
@@ -99,6 +101,17 @@ final class CrossfadeEngine {
     private var autoEnergyProfile: EnergyProfile?
     private var adjustedFadeDuration: Double?
 
+    // MARK: - Beatmatch (Feature 2a)
+
+    /// Whether this transition applied tempo-matching to the incoming track
+    private var didApplyBeatmatch: Bool = false
+    /// Rate applied to the standby slot (1.0 = no stretch)
+    private var beatmatchRate: Float = 1.0
+    /// Outgoing BPM at analysis time (used for post-handoff rate ramp duration)
+    private var outgoingBPM: Float = 0
+    /// BPM seen at analysis; used to detect rubato drift before trigger
+    private var analysisBPM: Float = 0
+
     // MARK: - Taste Learning (Feature 3)
 
     private let learner = TransitionLearner()
@@ -138,10 +151,35 @@ final class CrossfadeEngine {
             return
         }
 
+        // Suppress preload while the post-handoff rate ramp is still drifting
+        // back to 1.0 — kicking off another beatmatch decision against a
+        // not-yet-normalised tempo would corrupt the ratio calculation.
+        if AudioEngineService.shared.rampInProgress && state == .idle {
+            return
+        }
+
         // Trigger preload at preloadLeadTime before end
         if remaining <= preloadLeadTime && !hasTriggeredPreload && state == .idle {
             hasTriggeredPreload = true
             triggerPreload()
+        }
+
+        // Rubato guard: if the outgoing BPM has drifted significantly since
+        // analysis (e.g. ritard outro), recompute the bars-based duration so
+        // the fade window still matches musical bars.
+        if state == .ready, settings.isPremium, analysisBPM > 0,
+           let activeBT = activeDecomposer?.beatTracker, activeBT.isConfident {
+            let currentBPM = activeBT.estimatedBPM
+            if currentBPM > 0 {
+                let drift = abs(Double(currentBPM - analysisBPM)) / Double(analysisBPM)
+                if drift > 0.05 {
+                    let barsBasedDuration = (60.0 / Double(currentBPM)) * 4.0 * Double(settings.fadeBars)
+                    let clamped = min(16.0, max(4.0, barsBasedDuration))
+                    adjustedFadeDuration = clamped
+                    analysisBPM = currentBPM
+                    Logger.log("Crossfade: rubato detected (\(String(format: "%.1f%%", drift * 100)) BPM drift), recomputed duration to \(String(format: "%.1f", clamped))s @ \(String(format: "%.0f", currentBPM)) BPM", category: .playback)
+                }
+            }
         }
 
         // Smart early transition: detect vocal drop-off in the approach window
@@ -375,11 +413,34 @@ final class CrossfadeEngine {
                 Logger.log("Crossfade: key detection — active: \(activeKeyName) (conf: \(String(format: "%.2f", activeKey.confidence))), standby: \(standbyKeyName) (conf: \(String(format: "%.2f", standbyKey.confidence))), interval: \(interval) (\(compat)), adjusted duration: \(String(format: "%.1f", self.adjustedFadeDuration ?? self.fadeDuration))s", category: .playback)
             }
 
-            // Beat alignment: snap fade trigger to nearest downbeat
+            // Bars-based fade duration (Premium + outgoing BPM confident).
+            // Overrides energy/key-derived duration when conditions are met. A
+            // 4-bar fade at 60 BPM is 16s; clamp into a sane range so unusual
+            // tempos don't produce too-short or too-long fades.
+            if self.settings.isPremium, activeDecomp.beatTracker.isConfident {
+                let bpm = Double(activeDecomp.beatTracker.estimatedBPM)
+                if bpm > 0 {
+                    let barsBasedDuration = (60.0 / bpm) * 4.0 * Double(self.settings.fadeBars)
+                    let clamped = min(16.0, max(4.0, barsBasedDuration))
+                    self.adjustedFadeDuration = clamped
+                    self.analysisBPM = activeDecomp.beatTracker.estimatedBPM
+                    self.outgoingBPM = activeDecomp.beatTracker.estimatedBPM
+                    Logger.log("Crossfade: bars-based duration \(String(format: "%.1f", clamped))s (\(self.settings.fadeBars) bars @ \(String(format: "%.0f", bpm)) BPM)", category: .playback)
+                }
+            }
+
+            // Beat alignment: snap fade trigger to the nearest 4-bar grid
+            // boundary (falling back to any downbeat if no 4-bar boundary fits
+            // within tolerance). Replaces the previous 2s tolerance with ~1
+            // bar so the snap is musically meaningful instead of opportunistic.
             if activeDecomp.beatTracker.isConfident {
                 let baseDuration = self.adjustedFadeDuration ?? self.fadeDuration
                 let idealTriggerTime = self.trackDuration - baseDuration
-                if let downbeat = activeDecomp.beatTracker.nearestDownbeat(to: idealTriggerTime, tolerance: 2.0) {
+                let beatPeriod = 60.0 / Double(activeDecomp.beatTracker.estimatedBPM)
+                let barTolerance = beatPeriod * 4.0  // one bar
+                let snap = activeDecomp.beatTracker.nearestFourBarBoundary(to: idealTriggerTime, tolerance: barTolerance)
+                    ?? activeDecomp.beatTracker.nearestDownbeat(to: idealTriggerTime, tolerance: beatPeriod * 2.0)
+                if let downbeat = snap {
                     let alignedRemaining = self.trackDuration - downbeat
                     self.beatAlignedFadeTime = alignedRemaining
                     Logger.log("Crossfade: beat-aligned fade at \(String(format: "%.1f", alignedRemaining))s remaining (BPM: \(String(format: "%.0f", activeDecomp.beatTracker.estimatedBPM)), ideal: \(String(format: "%.1f", baseDuration))s)", category: .playback)
@@ -395,6 +456,100 @@ final class CrossfadeEngine {
             }
 
             Logger.log("Crossfade: \(nextSong.title) ready for fade", category: .playback)
+
+            // Schedule beatmatch + phase alignment evaluation. The standby
+            // player needs at least ~1s of silent playback for its BeatTracker
+            // to stabilise, which is why this runs after .ready (not inline
+            // with the 300ms analysis sleep).
+            let weakActive = activeDecomp
+            let weakStandby = standbyDecomp
+            Task { [weak self] in
+                guard let self = self else { return }
+                await self.evaluateBeatmatchAndAlign(activeDecomp: weakActive, standbyDecomp: weakStandby)
+            }
+        }
+    }
+
+    // MARK: - Beatmatch + Phase Alignment
+
+    /// Wait for the standby BeatTracker to stabilise, decide whether to
+    /// tempo-match the incoming track to the outgoing, and seek-align its
+    /// next downbeat with the outgoing's. Tolerant of state changes: bails
+    /// out cleanly if the transition was cancelled or already past .ready.
+    private func evaluateBeatmatchAndAlign(activeDecomp: StemDecomposer, standbyDecomp: StemDecomposer) async {
+        // Poll for standby tracker confidence (cap at 2s wall time)
+        var waitedMs = 0
+        while waitedMs < 2000 && state == .ready && !standbyDecomp.beatTracker.isConfident {
+            try? await Task.sleep(for: .milliseconds(100))
+            waitedMs += 100
+        }
+
+        guard state == .ready else {
+            Logger.log("Crossfade: beatmatch skipped — state \(state.rawValue), not .ready", category: .playback)
+            return
+        }
+        guard settings.isPremium else { return }
+        guard activeDecomp.beatTracker.isConfident, standbyDecomp.beatTracker.isConfident else {
+            Logger.log("Crossfade: beatmatch skipped — tracker not confident (active=\(activeDecomp.beatTracker.isConfident), standby=\(standbyDecomp.beatTracker.isConfident))", category: .playback)
+            return
+        }
+
+        let outBPM = activeDecomp.beatTracker.estimatedBPM
+        let inBPM = standbyDecomp.beatTracker.estimatedBPM
+        guard outBPM > 0, inBPM > 0 else { return }
+
+        let ratio = Double(outBPM) / Double(inBPM)
+        guard ratio >= 0.92, ratio <= 1.08 else {
+            Logger.log("Crossfade: beatmatch skipped — ratio \(String(format: "%.3f", ratio)) out of [0.92, 1.08] (out=\(String(format: "%.1f", outBPM)), in=\(String(format: "%.1f", inBPM)))", category: .playback)
+            return
+        }
+
+        // Apply rate to the standby slot. All 5 time-pitch units on that slot
+        // (full + 4 stems) lock to this rate so the fade is uniform.
+        beatmatchRate = Float(ratio)
+        AudioEngineService.shared.setStandbyRate(beatmatchRate)
+        didApplyBeatmatch = true
+        Logger.log("Crossfade: beatmatch enabled, rate=\(String(format: "%.3f", beatmatchRate)), out=\(String(format: "%.1f", outBPM)) in=\(String(format: "%.1f", inBPM))", category: .playback)
+
+        // ---- Phase alignment ----
+        // We want both tracks' next downbeats to coincide in wall-clock at the
+        // fade trigger. Outgoing plays at natural rate; incoming plays at
+        // beatmatchRate. Solving the wall-clock equation gives a seek offset
+        // (in incoming track time) to apply via the silent standby player.
+        let baseDuration = adjustedFadeDuration ?? fadeDuration
+        let triggerOutNow = trackDuration - (beatAlignedFadeTime ?? baseDuration)
+        let outBeatPeriod = 60.0 / Double(outBPM)
+        let inBeatPeriod = 60.0 / Double(inBPM)
+        let outTarget = triggerOutNow + baseDuration / 2.0
+
+        let outDownOpt = activeDecomp.beatTracker.nearestFourBarBoundary(to: outTarget, tolerance: outBeatPeriod * 4.0)
+            ?? activeDecomp.beatTracker.nearestDownbeat(to: outTarget, tolerance: outBeatPeriod * 2.0)
+        guard let outDown = outDownOpt, outDown > triggerOutNow else {
+            Logger.log("Crossfade: phase-align skipped — no outgoing downbeat near target", category: .playback)
+            return
+        }
+
+        let dtWallOut = outDown - triggerOutNow
+        let inNow = slot.currentTimeSeconds
+        let inTargetTrack = inNow + dtWallOut * Double(beatmatchRate)
+        let inDownOpt = standbyDecomp.beatTracker.nearestDownbeat(to: inTargetTrack, tolerance: inBeatPeriod * 2.0)
+        guard let inDown = inDownOpt else {
+            Logger.log("Crossfade: phase-align skipped — no incoming downbeat near target", category: .playback)
+            return
+        }
+
+        // seekOffset (incoming track time): + = seek forward, - = seek backward.
+        // Equivalent to (current dt_in_track) - (desired dt_in_track).
+        var seekOffset = (inDown - inNow) - (dtWallOut * Double(beatmatchRate))
+        // Normalise to the nearest beat (avoid seeking a full bar)
+        while seekOffset > inBeatPeriod / 2.0 { seekOffset -= inBeatPeriod }
+        while seekOffset < -inBeatPeriod / 2.0 { seekOffset += inBeatPeriod }
+
+        if abs(seekOffset) > inBeatPeriod / 8.0 {
+            Logger.log("Crossfade: phase aligning by \(String(format: "%+.3f", seekOffset))s (dt_wall_out=\(String(format: "%.2f", dtWallOut))s)", category: .playback)
+            await slot.seekForPhaseAlign(by: seekOffset)
+        } else {
+            Logger.log("Crossfade: phase already within ⅛-beat tolerance (\(String(format: "%+.3f", seekOffset))s)", category: .playback)
         }
     }
 
@@ -667,6 +822,17 @@ final class CrossfadeEngine {
         engine.swapActiveSlot()
         engine.resetToSingleTrack()
 
+        // Post-handoff rate ramp: when beatmatch was applied, the just-promoted
+        // active slot is playing at the matched (non-natural) rate. Ramp it
+        // back to 1.0 over 8 bars at the outgoing tempo so listeners experience
+        // a smooth tempo bridge instead of a snap.
+        if didApplyBeatmatch, outgoingBPM > 0 {
+            let beatPeriod = 60.0 / Double(outgoingBPM)
+            let rampBars = 8.0
+            let rampDuration = beatPeriod * 4.0 * rampBars
+            engine.rampSlotRateToNormal(slot: engine.activeSlot, over: rampDuration)
+        }
+
         // Hand off the now-active player to PlaybackService
         if let song = preloadedSong, let (player, item) = slot.handOffPlayer() {
             onCrossfadeCompleted?(song, player, item, preloadedDuration)
@@ -722,6 +888,12 @@ final class CrossfadeEngine {
         // Reset volumes to single-track
         AudioEngineService.shared.resetToSingleTrack()
 
+        // Reset any in-flight rate ramp or applied beatmatch rate so the next
+        // transition starts from a clean tempo state.
+        if didApplyBeatmatch || AudioEngineService.shared.rampInProgress {
+            AudioEngineService.shared.resetSlotRates()
+        }
+
         // Flush standby buffer
         AudioEngineService.shared.flushStandby()
 
@@ -764,6 +936,10 @@ final class CrossfadeEngine {
         autoEnergyProfile = nil
         adjustedFadeDuration = nil
         currentTransitionKey = nil
+        didApplyBeatmatch = false
+        beatmatchRate = 1.0
+        outgoingBPM = 0
+        analysisBPM = 0
     }
 
     private func endBackgroundTask() {
