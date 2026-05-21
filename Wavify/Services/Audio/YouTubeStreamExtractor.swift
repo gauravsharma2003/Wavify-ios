@@ -78,6 +78,10 @@ actor YouTubeStreamExtractor {
         let signatureCipher: String?
         let mimeType: String
         let bitrate: Int
+        /// True for muxed video/mp4 formats (itag 18, 22) that we accept as a
+        /// fallback when audio-only m4a is gated behind SABR. AVPlayer plays
+        /// the AAC track inside the mp4; the video track is just unused.
+        let isMuxedFallback: Bool
     }
 
     struct ClientStrategy {
@@ -86,6 +90,27 @@ actor YouTubeStreamExtractor {
         let headers: [String: String]
         let requiresCipher: Bool
         let requiresPoToken: Bool
+        /// Override the default `/player` endpoint. Used by the reel client.
+        let endpointURL: String?
+        /// If true, the request body wraps videoId/cpn inside `playerRequest`
+        /// and the response's `streamingData` lives under `playerResponse`.
+        let usesReelEnvelope: Bool
+
+        init(name: String,
+             context: [String: Any],
+             headers: [String: String],
+             requiresCipher: Bool,
+             requiresPoToken: Bool,
+             endpointURL: String? = nil,
+             usesReelEnvelope: Bool = false) {
+            self.name = name
+            self.context = context
+            self.headers = headers
+            self.requiresCipher = requiresCipher
+            self.requiresPoToken = requiresPoToken
+            self.endpointURL = endpointURL
+            self.usesReelEnvelope = usesReelEnvelope
+        }
     }
 
     // MARK: - Strategy Chain
@@ -95,7 +120,18 @@ actor YouTubeStreamExtractor {
     // which needs WebView + BotGuard — not feasible natively. Removed.
 
     private static let strategies: [ClientStrategy] = [
-        // 1. IOS — most reliable, direct URLs, no PoToken needed
+        // 1. ANDROID_REEL — Shorts player endpoint. Bypasses HTTP 400 on legacy
+        // /player when YouTube tightens client checks. Uses ANDROID v21.03.36.
+        ClientStrategy(
+            name: "ANDROID_REEL",
+            context: YouTubeAPIContext.androidReelContext,
+            headers: YouTubeAPIContext.androidReelHeaders,
+            requiresCipher: false,
+            requiresPoToken: false,
+            endpointURL: YouTubeAPIContext.reelItemURL,
+            usesReelEnvelope: true
+        ),
+        // 2. IOS — historically the most reliable, direct URLs, no PoToken needed
         ClientStrategy(
             name: "IOS",
             context: YouTubeAPIContext.iosContext,
@@ -103,7 +139,7 @@ actor YouTubeStreamExtractor {
             requiresCipher: false,
             requiresPoToken: false
         ),
-        // 2. ANDROID — direct URLs, no PoToken needed
+        // 3. ANDROID — direct URLs, no PoToken needed
         ClientStrategy(
             name: "ANDROID",
             context: YouTubeAPIContext.androidContext,
@@ -111,7 +147,7 @@ actor YouTubeStreamExtractor {
             requiresCipher: false,
             requiresPoToken: false
         ),
-        // 3. ANDROID_VR — can trigger bot detection on some videos
+        // 4. ANDROID_VR — can trigger bot detection on some videos
         ClientStrategy(
             name: "ANDROID_VR",
             context: YouTubeAPIContext.tvContext,
@@ -204,17 +240,33 @@ actor YouTubeStreamExtractor {
         cpn: String,
         poToken: String?
     ) async throws -> ResolvedStream {
-        var body: [String: Any] = [
-            "videoId": videoId,
-            "context": strategy.context,
-            "contentCheckOk": true,
-            "racyCheckOk": true,
-            "playbackContext": [
-                "contentPlaybackContext": [
-                    "html5Preference": "HTML5_PREF_WANTS"
+        var body: [String: Any]
+
+        if strategy.usesReelEnvelope {
+            // Reel endpoint body shape (matches Musicality-App reference)
+            body = [
+                "context": strategy.context,
+                "playerRequest": [
+                    "videoId": videoId,
+                    "cpn": cpn,
+                    "contentCheckOk": true,
+                    "racyCheckOk": true
+                ],
+                "disablePlayerResponse": false
+            ]
+        } else {
+            body = [
+                "videoId": videoId,
+                "context": strategy.context,
+                "contentCheckOk": true,
+                "racyCheckOk": true,
+                "playbackContext": [
+                    "contentPlaybackContext": [
+                        "html5Preference": "HTML5_PREF_WANTS"
+                    ]
                 ]
             ]
-        ]
+        }
 
         // Inject PoToken if available
         if let poToken = poToken {
@@ -231,7 +283,16 @@ actor YouTubeStreamExtractor {
             body["playbackContext"] = playbackContext
         }
 
-        let formats = try await callPlayerAPI(body: body, headers: strategy.headers)
+        let endpointURLString = strategy.endpointURL.map { url -> String in
+            // Reel endpoint takes id+fields as query params
+            "\(url)?prettyPrint=false&id=\(videoId)&$fields=playerResponse"
+        }
+        let formats = try await callPlayerAPI(
+            body: body,
+            headers: strategy.headers,
+            endpointURL: endpointURLString,
+            unwrapPlayerResponse: strategy.usesReelEnvelope
+        )
         Logger.log("[StreamExtractor] \(strategy.name) returned \(formats.count) audio formats for \(videoId)", category: .playback)
 
         if strategy.requiresCipher {
@@ -296,8 +357,16 @@ actor YouTubeStreamExtractor {
 
     // MARK: - InnerTube API
 
-    private func callPlayerAPI(body: [String: Any], headers: [String: String]) async throws -> [AudioFormat] {
-        let url = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!
+    private func callPlayerAPI(
+        body: [String: Any],
+        headers: [String: String],
+        endpointURL: String? = nil,
+        unwrapPlayerResponse: Bool = false
+    ) async throws -> [AudioFormat] {
+        let urlString = endpointURL ?? "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+        guard let url = URL(string: urlString) else {
+            throw StreamExtractorError.networkError("Invalid endpoint URL")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -313,8 +382,16 @@ actor YouTubeStreamExtractor {
             throw StreamExtractorError.networkError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let rawJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw StreamExtractorError.networkError("Invalid JSON response")
+        }
+
+        // Reel endpoint wraps everything under "playerResponse"
+        let json: [String: Any]
+        if unwrapPlayerResponse, let inner = rawJson["playerResponse"] as? [String: Any] {
+            json = inner
+        } else {
+            json = rawJson
         }
 
         // Check playability
@@ -326,33 +403,78 @@ actor YouTubeStreamExtractor {
             }
         }
 
-        guard let streamingData = json["streamingData"] as? [String: Any],
-              let adaptiveFormats = streamingData["adaptiveFormats"] as? [[String: Any]] else {
+        guard let streamingData = json["streamingData"] as? [String: Any] else {
+            let topKeys = Array(json.keys).joined(separator: ", ")
+            Logger.warning("[StreamExtractor] response has NO streamingData. Top-level keys: \(topKeys)", category: .playback)
             throw StreamExtractorError.noCompatibleFormat
         }
 
-        // Parse audio formats
-        return adaptiveFormats.compactMap { format -> AudioFormat? in
-            guard format["width"] == nil else { return nil }
+        // Read both adaptiveFormats (separate audio/video tracks) and formats
+        // (muxed) — some clients only populate one or the other.
+        let adaptiveFormats = (streamingData["adaptiveFormats"] as? [[String: Any]]) ?? []
+        let muxedFormats = (streamingData["formats"] as? [[String: Any]]) ?? []
+        let allFormats = adaptiveFormats + muxedFormats
+
+        if allFormats.isEmpty {
+            let sdKeys = Array(streamingData.keys).joined(separator: ", ")
+            Logger.warning("[StreamExtractor] streamingData has no adaptiveFormats/formats. streamingData keys: \(sdKeys)", category: .playback)
+            throw StreamExtractorError.noCompatibleFormat
+        }
+
+        // Diagnostic dump — log every format YouTube returned. Helps when
+        // YouTube changes which itags are served to which client.
+        let allSummary = allFormats.map { fmt -> String in
+            let itag = fmt["itag"] as? Int ?? -1
+            let mime = (fmt["mimeType"] as? String) ?? "?"
+            let hasURL = (fmt["url"] as? String) != nil
+            let hasCipher = (fmt["signatureCipher"] as? String) != nil || (fmt["cipher"] as? String) != nil
+            let urlFlag = hasURL ? "Y" : "N"
+            let cipherFlag = hasCipher ? "Y" : "N"
+            return "itag=\(itag) mime=\(mime.prefix(30)) url=\(urlFlag) cipher=\(cipherFlag)"
+        }.joined(separator: " | ")
+        Logger.log("[StreamExtractor] formats available (\(allFormats.count)): \(allSummary)", category: .playback)
+
+        // Itags 18 (360p H.264+AAC) and 22 (720p H.264+AAC) are muxed mp4
+        // containers with AAC audio — accepted as a fallback when audio-only
+        // m4a is gated behind SABR (no direct URL returned).
+        let muxedAACItags: Set<Int> = [18, 22]
+
+        return allFormats.compactMap { format -> AudioFormat? in
             guard let mimeType = format["mimeType"] as? String else { return nil }
-
-            let isCompatible = mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a")
-            let isIncompatible = mimeType.contains("webm") || mimeType.contains("opus")
-            guard isCompatible && !isIncompatible else { return nil }
-
+            let itag = format["itag"] as? Int ?? 0
+            let bitrate = format["bitrate"] as? Int ?? 0
             let directUrl = format["url"] as? String
             let cipher = (format["signatureCipher"] as? String) ?? (format["cipher"] as? String)
             guard directUrl != nil || cipher != nil else { return nil }
 
-            let itag = format["itag"] as? Int ?? 0
-            let bitrate = format["bitrate"] as? Int ?? 0
+            let isAudioOnly = format["width"] == nil
+            let isMP4 = mimeType.contains("audio/mp4") || mimeType.contains("audio/m4a") || mimeType.contains("video/mp4")
+            let isUnsupportedContainer = mimeType.contains("webm") || mimeType.contains("opus")
+            guard isMP4 && !isUnsupportedContainer else { return nil }
+
+            // For audio-only formats: accept any audio/mp4 itag.
+            // For video formats: only the muxed AAC fallbacks (itag 18, 22).
+            let accept: Bool
+            let isMuxed: Bool
+            if isAudioOnly {
+                accept = true
+                isMuxed = false
+            } else if muxedAACItags.contains(itag) {
+                accept = true
+                isMuxed = true
+            } else {
+                accept = false
+                isMuxed = false
+            }
+            guard accept else { return nil }
 
             return AudioFormat(
                 itag: itag,
                 url: directUrl,
                 signatureCipher: cipher,
                 mimeType: mimeType,
-                bitrate: bitrate
+                bitrate: bitrate,
+                isMuxedFallback: isMuxed
             )
         }
     }
@@ -367,8 +489,20 @@ actor YouTubeStreamExtractor {
     }
 
     private func selectBestFormat(from formats: [AudioFormat]) -> AudioFormat? {
-        // Select highest bitrate audio/mp4 for best quality
-        return formats.sorted { $0.bitrate > $1.bitrate }.first
+        // Prefer audio-only m4a (lowest bandwidth, no wasted video data).
+        // Fall back to muxed mp4 only when no audio-only is available — this
+        // happens when YouTube serves audio-only behind SABR and we couldn't
+        // get a direct URL for it.
+        let audioOnly = formats.filter { !$0.isMuxedFallback }
+        if let best = audioOnly.sorted(by: { $0.bitrate > $1.bitrate }).first {
+            return best
+        }
+        let muxed = formats.filter { $0.isMuxedFallback }
+        if let best = muxed.sorted(by: { $0.bitrate > $1.bitrate }).first {
+            Logger.warning("[StreamExtractor] falling back to muxed mp4 itag=\(best.itag) — audio-only formats had no direct URL (SABR)", category: .playback)
+            return best
+        }
+        return nil
     }
 
     // MARK: - Signature Deobfuscation

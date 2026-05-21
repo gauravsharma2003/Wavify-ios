@@ -13,9 +13,13 @@ enum YouTubeAPIContext {
     // MARK: - URLs
     
     static let baseURL = "https://music.youtube.com/youtubei/v1"
-    
+
     /// Player API uses regular YouTube endpoint (not music) for ANDROID_VR client
     static let playerBaseURL = "https://www.youtube.com/youtubei/v1"
+
+    /// Reel item endpoint — the Shorts player API. Still serves direct audio URLs
+    /// for the ANDROID client when the normal /player endpoint returns HTTP 400.
+    static let reelItemURL = "https://youtubei.googleapis.com/youtubei/v1/reel/reel_item_watch"
     
     // Hardcoded working visitor data from successful incognito experiment
     static let incognitoVisitorData = "CgtFZTRKTDZzemNxcyiH3N3LBjIKCgJJThIEGgAgPw%3D%3D"
@@ -30,6 +34,10 @@ enum YouTubeAPIContext {
 
     static let webRemixVersion = "1.20260121.03.00"
     static let androidVersion = "19.10.38"
+    /// Newer ANDROID client version used by the reel_item_watch endpoint.
+    /// Reference: Musicality-App uses v21.03.36 to bypass HTTP 400 on legacy /player.
+    static let androidReelVersion = "21.03.36"
+    static let androidReelUserAgent = "com.google.android.youtube/\(androidReelVersion) (Linux; U; Android 15; GB) gzip"
     static let androidVRVersion = "1.71.26"
     static let iosClientVersion = "19.29.1"
     static let tvVersion = "7.20250120.10.00"
@@ -63,6 +71,18 @@ enum YouTubeAPIContext {
             "Origin": "https://www.youtube.com",
             "User-Agent": "com.google.android.youtube/\(androidVersion) (Linux; U; Android 11) gzip",
             "X-Goog-Visitor-Id": visitorData ?? incognitoVisitorData
+        ]
+    }
+
+    /// Headers for the reel_item_watch endpoint. Intentionally minimal —
+    /// the visitor ID lives in the body context, not a header here, and
+    /// `x-goog-api-format-version: 2` matches the Musicality-App reference.
+    static var androidReelHeaders: [String: String] {
+        [
+            "User-Agent": androidReelUserAgent,
+            "X-Goog-Api-Format-Version": "2",
+            "Content-Type": "application/json",
+            "Accept-Language": "en-GB, en;q=0.9"
         ]
     }
     
@@ -126,6 +146,26 @@ enum YouTubeAPIContext {
                 "clientVersion": androidVersion,
                 "gl": "US",
                 "hl": "en"
+            ]
+        ]
+    }
+
+    /// Context for the reel_item_watch endpoint. Uses the newer ANDROID v21
+    /// client version with WATCH screen and explicit visitorData in the body.
+    static var androidReelContext: [String: Any] {
+        [
+            "client": [
+                "clientName": "ANDROID",
+                "clientVersion": androidReelVersion,
+                "clientScreen": "WATCH",
+                "platform": "MOBILE",
+                "visitorData": visitorData ?? incognitoVisitorData,
+                "osName": "Android",
+                "osVersion": "16",
+                "androidSdkVersion": 36,
+                "hl": "en-GB",
+                "gl": "GB",
+                "utcOffsetMinutes": 0
             ]
         ]
     }
