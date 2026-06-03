@@ -197,7 +197,31 @@ enum ResponseParser {
     }
     
     // MARK: - Video Renderer Parsing
-    
+
+    /// Extract the videoId from a `playlistPanelVideoRenderer`.
+    /// As of mid-2026 YouTube Music no longer puts `videoId` at the top level of the
+    /// renderer — it now lives in `navigationEndpoint.watchEndpoint.videoId`. This helper
+    /// reads the legacy top-level field first and falls back to the watchEndpoint so both
+    /// old and new response shapes work.
+    static func extractVideoIdFromVideoRenderer(_ renderer: [String: Any]) -> String? {
+        if let videoId = renderer["videoId"] as? String, !videoId.isEmpty {
+            return videoId
+        }
+        if let navEndpoint = renderer["navigationEndpoint"] as? [String: Any],
+           let watchEndpoint = navEndpoint["watchEndpoint"] as? [String: Any],
+           let videoId = watchEndpoint["videoId"] as? String, !videoId.isEmpty {
+            return videoId
+        }
+        // Last resort: queueNavigationEndpoint → queueAddEndpoint → queueTarget.videoId
+        if let queueNav = renderer["queueNavigationEndpoint"] as? [String: Any],
+           let queueAdd = queueNav["queueAddEndpoint"] as? [String: Any],
+           let queueTarget = queueAdd["queueTarget"] as? [String: Any],
+           let videoId = queueTarget["videoId"] as? String, !videoId.isEmpty {
+            return videoId
+        }
+        return nil
+    }
+
     static func extractTitleFromVideoRenderer(_ renderer: [String: Any]) -> String {
         if let title = renderer["title"] as? [String: Any],
            let runs = title["runs"] as? [[String: Any]],

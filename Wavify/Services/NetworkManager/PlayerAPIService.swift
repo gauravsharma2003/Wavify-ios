@@ -450,7 +450,7 @@ final class PlayerAPIService {
     private nonisolated func extractVideoId(from wrapper: [String: Any], path: String) -> String? {
         guard let renderer = wrapper[path] as? [String: Any],
               let videoRenderer = renderer["playlistPanelVideoRenderer"] as? [String: Any],
-              let videoId = videoRenderer["videoId"] as? String else {
+              let videoId = ResponseParser.extractVideoIdFromVideoRenderer(videoRenderer) else {
             return nil
         }
         return videoId
@@ -462,7 +462,7 @@ final class PlayerAPIService {
               let first = counterparts.first,
               let counterpartRenderer = first["counterpartRenderer"] as? [String: Any],
               let videoRenderer = counterpartRenderer["playlistPanelVideoRenderer"] as? [String: Any],
-              let videoId = videoRenderer["videoId"] as? String else {
+              let videoId = ResponseParser.extractVideoIdFromVideoRenderer(videoRenderer) else {
             return nil
         }
         return videoId
@@ -593,7 +593,7 @@ final class PlayerAPIService {
             }
 
             if let videoRenderer,
-               let itemVideoId = videoRenderer["videoId"] as? String,
+               let itemVideoId = ResponseParser.extractVideoIdFromVideoRenderer(videoRenderer),
                itemVideoId == videoId,
                let menu = videoRenderer["menu"] as? [String: Any],
                let menuRenderer = menu["menuRenderer"] as? [String: Any],
@@ -848,7 +848,7 @@ final class PlayerAPIService {
         // Find the first queue item matching our videoId (handles wrappers too)
         for item in panelContents {
             if let videoRenderer = resolveVideoRenderer(from: item),
-               let itemVideoId = videoRenderer["videoId"] as? String,
+               let itemVideoId = ResponseParser.extractVideoIdFromVideoRenderer(videoRenderer),
                itemVideoId == videoId {
                 return ResponseParser.extractAlbumInfoFromVideoRenderer(videoRenderer)
             }
@@ -886,7 +886,7 @@ final class PlayerAPIService {
             // Unwrap the video renderer — prefer song (ATV) version from wrapper if available
             let videoRenderer: [String: Any]? = resolveVideoRenderer(from: item)
 
-            if let videoRenderer, let videoId = videoRenderer["videoId"] as? String {
+            if let videoRenderer, let videoId = ResponseParser.extractVideoIdFromVideoRenderer(videoRenderer) {
                 let title = ResponseParser.extractTitleFromVideoRenderer(videoRenderer)
                 let artist = ResponseParser.extractArtistFromVideoRenderer(videoRenderer)
                 let thumbnailUrl = ResponseParser.extractThumbnailFromVideoRenderer(videoRenderer)
